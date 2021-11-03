@@ -177,39 +177,85 @@ Module Parallel.
 
     Global Instance genPairGen : Generator (ProcessEvent TE) Parallel :=
       { gen_step := ParallelStep }.
+
+    Definition wrap_singleton : list TE -> list (ProcessEvent TE) :=
+      map (fun e => 0 @ e).
   End defn.
 
   Infix "<||>" := parallel (right associativity, at level 101) : slot_scope.
-
-  Local Ltac inv a := inversion a; subst.
+  Notation "[| |]" := (Empty.t) : slot_scope.
+  Notation "[| x |]" := (wrap_singleton x) : slot_scope.
+  Notation "[| x ; .. ; y ; z |]" := (parallel x (.. (parallel y (wrap_singleton z)) ..)) : slot_scope.
 
   Section tests.
     (* Check that all interleavings created by the ensemble are valid: *)
     Goal forall t,
-        GenEnsemble ([1; 2] <||> [3] <||> []) t ->
+        GenEnsemble [| [1; 2]; [3] |] t ->
         t = [0 @ 1; 0 @ 2; 1 @ 3] \/
         t = [0 @ 1; 1 @ 3; 0 @ 2] \/
         t = [1 @ 3; 0 @ 1; 0 @ 2].
+    Proof.
       intros. sauto.
     Qed.
 
     (* Check that it creates every interleaving: *)
-    Goal GenEnsemble ([1; 2] <||> [3] <||> []) [0 @ 1; 0 @ 2; 1 @ 3].
-      constructor 2 with (g' := ([2] <||> [3] <||> [])).
+    Goal GenEnsemble [| [1; 2]; [3] |] [0 @ 1; 0 @ 2; 1 @ 3].
+    Proof.
+      constructor 2 with (g' := [| [2]; [3] |]).
       - sauto.
-      - constructor 2 with (g' := ([] <||> [3] <||> [])); sauto.
+      - constructor 2 with (g' := [| []; [3] |]); sauto.
     Qed.
 
-    Goal GenEnsemble ([1; 2] <||> [3] <||> []) [0 @ 1; 1 @ 3; 0 @ 2].
-      constructor 2 with (g' := ([2] <||> [3] <||> [])).
+    Goal GenEnsemble [| [1; 2]; [3] |] [0 @ 1; 1 @ 3; 0 @ 2].
+    Proof.
+      constructor 2 with (g' := [| [2]; [3] |]).
       - sauto.
-      - constructor 2 with (g' := ([2] <||> [] <||> [])); sauto.
+      - constructor 2 with (g' := [| [2] ; [] |] ); sauto.
     Qed.
 
-    Goal GenEnsemble ([1; 2] <||> [3] <||> []) [1 @ 3; 0 @ 1; 0 @ 2].
-      constructor 2 with (g' := ([1; 2] <||> [] <||> [])).
+    Goal GenEnsemble [| [1; 2] ; [3] |] [1 @ 3; 0 @ 1; 0 @ 2].
+    Proof.
+      constructor 2 with (g' := [| [1; 2] ; [] |]).
       - sauto.
-      - constructor 2 with (g' := ([2] <||> [] <||> [])); sauto.
+      - constructor 2 with (g' := [| [2] ; [] |]); sauto.
+    Qed.
+
+    Goal forall t,
+        GenEnsemble [| [3] ; [1; 2] |] t ->
+        t = [1 @ 1; 1 @ 2; 0 @ 3] \/
+        t = [1 @ 1; 0 @ 3; 1 @ 2] \/
+        t = [0 @ 3; 1 @ 1; 1 @ 2].
+    Proof.
+      intros. sauto.
+    Qed.
+
+    (* Test interleavings of larger system *)
+    Goal forall t,
+        GenEnsemble [| [1; 2]; [3; 4] |] t ->
+        t = [0 @ 1; 0 @ 2; 1 @ 3; 1 @ 4] \/
+        t = [0 @ 1; 1 @ 3; 0 @ 2; 1 @ 4] \/
+        t = [0 @ 1; 1 @ 3; 1 @ 4; 0 @ 2] \/
+
+        t = [1 @ 3; 0 @ 1; 0 @ 2; 1 @ 4] \/
+        t = [1 @ 3; 0 @ 1; 1 @ 4; 0 @ 2] \/
+        t = [1 @ 3; 1 @ 4; 0 @ 1; 0 @ 2].
+    Proof.
+      intros. sauto.
+    Qed.
+
+    (* Test interleavings of a system with 3 processes *)
+    Goal forall t,
+        GenEnsemble [| [0]; [1]; [2] |] t ->
+        t = [0 @ 0; 1 @ 1; 2 @ 2] \/
+        t = [0 @ 0; 2 @ 2; 1 @ 1] \/
+
+        t = [1 @ 1; 0 @ 0; 2 @ 2] \/
+        t = [1 @ 1; 2 @ 2; 0 @ 0] \/
+
+        t = [2 @ 2; 1 @ 1; 0 @ 0] \/
+        t = [2 @ 2; 0 @ 0; 1 @ 1].
+    Proof.
+      intros. sauto.
     Qed.
   End tests.
 End Parallel.
