@@ -188,9 +188,20 @@ Notation "'-{{}}' e '{{}}'" := (forall t, e t -> exists s s', ReachableByTrace s
 (* end details *)
 
 
+(** ** Process ID in SLOT is a natural number: *)
+Definition PID := nat.
+
+Inductive ProcessEvent {Event : Type} :=
+  proc_te : PID -> Event -> ProcessEvent.
+
+Global Arguments ProcessEvent : clear implicits.
+
+Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
+
 (** * Input/output
 
  *)
+
 
 Record IOp (Request : Type) (Reply : Request -> Type) :=
   iop { iop_req : Request;
@@ -201,22 +212,26 @@ Global Arguments iop {_ _} iop_req iop_rep.
 
 Notation "a <~ b" := (iop b a) (at level 49).
 
+Definition TraceElem (Request : Type) (Reply : Request -> Type) := ProcessEvent (IOp Request Reply).
+Definition Trace (Request : Type) (Reply : Request -> Type) := list (TraceElem Request Reply).
+
 Class IOHandler {Request : Type} {Reply : Request -> Type} : Type :=
   mkHandler
     { h_state : Type;
-      h_state_transition : h_state -> IOp Request Reply -> h_state -> Prop;
+      h_state_transition : h_state -> TraceElem Request Reply -> h_state -> Prop;
     }.
 
-Global Instance handlerStateSpace `{IOHandler} : StateSpace h_state (IOp Request Reply) :=
+Global Instance handlerStateSpace `{IOHandler} : StateSpace h_state (TraceElem Request Reply) :=
   {| state_transition := h_state_transition |}.
 
-(** * Trace of a single-threaded program
+(** * Single thread program
 
  *)
 
 CoInductive Program {Request : Type} {Reply : Request -> Type} : Type :=
-| p_dead : Program
-| p_cont :
+| p_dead : (* Program terminted *)
+    Program
+| p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
       (continuation : Reply pending_req -> Program)
     , Program.
@@ -241,16 +256,6 @@ Notation "'call' V '<-' I ; C" := (I (fun V => C))
 
  *)
 
-(** ** Process ID in SLOT is a natural number: *)
-Definition PID := nat.
-
-Inductive ProcessEvent {Event : Type} :=
-  proc_te : PID -> Event -> ProcessEvent.
-
-Global Arguments ProcessEvent : clear implicits.
-
-Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
-
 Section interleaving.
   Context {Event : Type}.
 
@@ -266,10 +271,3 @@ Section interleaving.
       Interleaving t1 (te :: t2) (te :: t)
   | ilv_nil : Interleaving [] [] [].
 End interleaving.
-
-(** * Gathering all together
-
- *)
-
-Definition TraceElem (Request : Type) (Reply : Request -> Type) := ProcessEvent (IOp Request Reply).
-Definition Trace (Request : Type) (Reply : Request -> Type) := list (TraceElem Request Reply).

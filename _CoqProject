@@ -1,5 +1,10 @@
 -R theories SLOT
-theories/Foundations.v
 theories/Permutation.v
+theories/Foundations.v
+theories/Properties.v
 theories/Commutativity.v
+theories/Tactics.v
 theories/Generator.v
+theories/Handlers/Deterministic.v
+theories/Handlers/MQ.v
+theories/Handlers/Mutex.v
