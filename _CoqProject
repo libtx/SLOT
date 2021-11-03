@@ -1,0 +1,5 @@
+-R theories SLOT
+theories/Foundations.v
+theories/Permutation.v
+theories/Commutativity.v
+theories/Generator.v
