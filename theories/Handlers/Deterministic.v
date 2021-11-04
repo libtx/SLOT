@@ -22,7 +22,12 @@ From stdpp Require Import
      fin_maps.
 
 From SLOT Require Import
-     Foundations.
+     Foundations
+     Commutativity
+     Tactics.
+
+From Hammer Require Import
+     Tactics.
 
 Class DeterministicHandler (Req : Type) (Ret : Req -> Type) :=
   { det_h_state : Type;
@@ -67,6 +72,21 @@ Module Var.
   End defs.
 
   Definition t T := deterministicHandler (@varDetHandler T).
+
+  Lemma var_rr_comm {T pid1 pid2 r1 r2} :
+    events_commute (pid1 @ r1 <~ @read T) (pid2 @ r2 <~ read).
+  Proof.
+    unfold events_commute. intros s s'.
+    sauto.
+  Qed.
+
+  Lemma var_ww_comm {T pid1 pid2} {v1 v2 : T} :
+    v1 <> v2 ->
+    not (events_commute (pid1 @ I <~ write v1) (pid2 @ I <~ write v2)).
+  Proof.
+    intros Hv H.
+    unfold events_commute in H. sauto.
+  Qed.
 End Var.
 
 Module Log.

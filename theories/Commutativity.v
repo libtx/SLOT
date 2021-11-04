@@ -27,14 +27,6 @@ Import ListNotations.
 From SLOT Require Import
      Foundations.
 
-Class CommRel {A} :=
-  { comm_rel : relation A;
-    comm_rel_symm : symmetric _ comm_rel;
-    comm_rel_dec : forall a b, decidable (comm_rel a b);
-  }.
-
-Global Arguments CommRel : clear implicits.
-
 Section events_commute.
   (** ** Commutativity of trace elements
    *)
@@ -43,54 +35,4 @@ Section events_commute.
   Definition events_commute (e1 e2 : Event) :=
     forall (s s' : State),
       ReachableByTrace s [e1; e2] s' <-> ReachableByTrace s [e2; e1] s'.
-
-  Lemma events_commute_dec `{StateSpace} a b : decidable (events_commute a b).
-  Proof.
-    apply classic.
-  Qed.
-
-  Program Instance eventCommRel : CommRel Event :=
-    { comm_rel a b := events_commute a b
-    }.
-  Next Obligation.
-    unfold symmetric. intros x y Hcomm.
-    firstorder. Qed.
-  Next Obligation.
-    apply events_commute_dec.
-  Qed.
 End events_commute.
-
-Section never_comm_rel.
-  Program Instance neverCommRel {T} : CommRel T :=
-    { comm_rel := fun _ _ => False;
-    }.
-  Next Obligation.
-    easy. Qed.
-  Next Obligation.
-    apply classic.
-  Qed.
-End never_comm_rel.
-
-Module Test.
-  Inductive T :=
-  | r : nat -> T
-  | w : nat -> T.
-
-  Definition test_comm_rel (a b : T) : Prop :=
-    match a, b with
-    | r _, r _ => True
-    | _  , _   => False
-    end.
-
-  Program Instance parityCommRel : CommRel T :=
-    { comm_rel := test_comm_rel
-    }.
-  Next Obligation.
-    unfold test_comm_rel, symmetric.
-    destruct x; destruct y; auto.
-  Qed.
-  Next Obligation.
-    unfold test_comm_rel, decidable.
-    destruct a; destruct b; auto.
-  Qed.
-End Test.

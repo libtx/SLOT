@@ -83,3 +83,10 @@ Ltac unfold_ht :=
   | _ =>
     fail "Goal does not look like a Hoare triple"
   end.
+
+Ltac forward s' :=
+  apply (rbt_cons _ s' _ _ _).
+
+Hint Constructors ReachableByTrace : slot.
+Hint Constructors TraceInvariant : slot.
+Hint Transparent Ensembles.In Ensembles.Complement : slot.
