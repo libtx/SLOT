@@ -269,20 +269,20 @@ From Coq Require Import
 Section gen_commutativity.
   Context {TE Gen} `{Generator (ProcessEvent TE) Gen}.
 
-  Definition generator_events_commute g :=
-    forall (p1 p2 : PID) (te1 te2 : TE) (g' g'' : Gen),
-    p1 <> p2 ->
-    g ~~> g' & (p1 @ te1) ->
-    g' ~~> g'' & (p2 @ te2) ->
-    exists g_,
-      g'' ~~> g_ & (p2 @ te2) \/ g_ ~~> g & (p1 @ te1).
+  Definition generator_events_commute g te1 te2 g' :=
+    (exists g0,
+        g  ~~> g0 & te1 /\ g0 ~~> g' & te2) ->
+    exists g1,
+      g' ~~> g1 & te2 \/ g1 ~~> g & te1.
 End gen_commutativity.
 
-(* Lemma gen_pair_comm {G1 G2 TE} `{Generator TE G1} `{Generator _ G2} (g1 : G1) (g2 : G2) : generator_events_commute (g1 <||> g2). *)
+(* Lemma gen_pair_comm {G1 G2 TE} `{Generator TE G1} `{Generator TE G2} (g1 : G1) (g2 : G2) (te1 te2 : TE) (p1 p2 : PID) : *)
+(*   p1 <> p2 -> *)
+(*   generator_events_commute (g1 <||> g2) (p1 @ te1) (p2 @ te2). *)
 (* Proof. *)
 (*   unfold generator_events_commute. intros *. intros Hpids Hg' Hg''. *)
 (*   inversion Hg'; subst. *)
-(*   -  *)
+(*   - *)
 
 Section optimize.
   Context {Gen State Event : Type}.
@@ -308,9 +308,45 @@ Section optimize.
       GenEnsembleOpt g' (te' :: t) ->
       GenEnsembleOpt g (te :: te' :: t).
 
+  Lemma not_leq : (forall a b, not (a <= b) -> b <= a).
+  Proof.
+    sauto.
+  Qed.
+
+  Fixpoint gen_ens_opt (g : Gen) (t : list TE) (Ht : GenEnsemble g t) {struct t} :
+    exists t' : list TE, GenEnsembleOpt g t' /\ Permutation events_commute t t'.
+  Proof with auto with slot.
+    destruct Ht.
+    - exists []. split; now constructor.
+    - specialize (gen_ens_opt _ _ Ht). destruct gen_ens_opt as [t' [Ht' Hperm]].
+      destruct t' as [ | te' t'].
+      + exists [te].
+        apply perm_empty in Hperm; subst.
+        split.
+        * inversion Ht. constructor 2 with g'...
+        * repeat constructor.
+      + destruct te as [pid te]. destruct te' as [pid' te'].
+        destruct (classic (pid <= pid')).
+        * exists (pid @ te :: pid' @ te' :: t'). split.
+          -- constructor 3 with g'...
+             ++ now left.
+          -- constructor. constructor 4 with t...
+        * destruct (classic (events_commute (pid @ te) (pid' @ te'))).
+          -- exists (pid' @ te' :: pid @ te :: t'). split.
+             2:{ constructor 4 with (pid @ te :: pid' @ te' :: t').
+                 - now constructor.
+                 - now constructor.
+             }
+             constructor 3 with g'.
+             2:{ left. now apply not_leq in H0. }
+  Admitted.
+
   Theorem optimize_gen_p g :
     sufficient_replacement_p (GenEnsemble g) (GenEnsembleOpt g).
-  Admitted.
+  Proof.
+    intros t Ht.
+    now apply gen_ens_opt.
+  Qed.
 
   Theorem optimize_gen (g : Gen) P Q :
     -{{ P }} GenEnsembleOpt g {{ Q }} ->

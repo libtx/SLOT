@@ -45,15 +45,20 @@ Section defn.
       Permutation l' l'' ->
       Permutation l l''.
 
-  Lemma permut_nil a : Permutation a [] -> a = [].
+  Lemma perm_empty a : Permutation a [] -> a = [].
   Proof.
     intros H.
     remember [] as b eqn:Hb.
     induction H; subst; try now inversion Hb.
     - rewrite IHPermutation1, IHPermutation2; auto.
   Qed.
+
+  Lemma perm_refl t : Permutation t t.
+  Proof.
+    induction t; now constructor.
+  Qed.
 End defn.
 
 Hint Constructors Permutation : slot.
-Hint Resolve perm_trans : slot.
-Hint Resolve perm_swap : slot.
+Hint Resolve perm_refl : slot.
+Hint Resolve perm_empty : slot.
