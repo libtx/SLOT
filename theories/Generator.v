@@ -18,7 +18,8 @@
  *)
 
 From Coq Require Import
-     List.
+     List
+     Lia.
 
 Import ListNotations.
 
@@ -269,27 +270,31 @@ From Coq Require Import
 Section gen_commutativity.
   Context {TE Gen} `{Generator (ProcessEvent TE) Gen}.
 
-  Definition generator_events_commute g te1 te2 g' :=
-    (exists g0,
-        g  ~~> g0 & te1 /\ g0 ~~> g' & te2) ->
-    exists g1,
-      g' ~~> g1 & te2 \/ g1 ~~> g & te1.
+  Definition generator_events_commute g g' g'' te1 te2 :=
+    g ~~> g' & te1 ->
+    g' ~~> g'' & te2 ->
+    exists g_,
+      g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
+
+  Definition different_processes {Evt} (te1 te2 : ProcessEvent Evt) :=
+    match te1, te2 with
+      pid1 @ _, pid2 @ _ => pid1 <> pid2
+    end.
 End gen_commutativity.
 
-(* Lemma gen_pair_comm {G1 G2 TE} `{Generator TE G1} `{Generator TE G2} (g1 : G1) (g2 : G2) (te1 te2 : TE) (p1 p2 : PID) : *)
-(*   p1 <> p2 -> *)
-(*   generator_events_commute (g1 <||> g2) (p1 @ te1) (p2 @ te2). *)
-(* Proof. *)
-(*   unfold generator_events_commute. intros *. intros Hpids Hg' Hg''. *)
-(*   inversion Hg'; subst. *)
-(*   - *)
+
+
+Lemma gen_pair_comm {G1 G2 Event} `{Generator Event G1} `{Generator Event G2} te1 te2 g1 g1' g2 g2' :
+  different_processes te1 te2 ->
+  generator_events_commute (g1 <||> g2) (g1' <||> g2) (g1' <||> g2') te1 te2.
+Admitted.
 
 Section optimize.
   Context {Gen State Event : Type}.
   Let TE := (ProcessEvent Event).
   Context `{Hssp : StateSpace State TE} `{Hgen : Generator TE Gen}.
 
-  Let can_follow (te1 te2 : TE) : Prop :=
+  Definition can_follow (te1 te2 : TE) : Prop :=
     let (pid1, _) := te1 in
     let (pid2, _) := te2 in
     pid1 <= pid2 \/ not (events_commute te1 te2).
@@ -308,53 +313,71 @@ Section optimize.
       GenEnsembleOpt g' (te' :: t) ->
       GenEnsembleOpt g (te :: te' :: t).
 
-  Lemma not_leq : (forall a b, not (a <= b) -> b <= a).
-  Proof.
-    sauto.
-  Qed.
+  Fixpoint gen_ens_opt_add g g' te te' t (Hte : g ~~> g' & te)
+           (Ht : GenEnsembleOpt g' (te' :: t))
+           (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2)
+           (Hfoll : ~ can_follow te te') {struct Ht} :
+    exists t' : list TE, GenEnsembleOpt g t' /\ Permutation events_commute (te :: te' :: t) t'.
+  Proof with auto with slot.
+    destruct te as [pid evt]. destruct te' as [pid' evt'].
+    firstorder. apply NNPP in H0. rename H0 into Hcomm.
+    assert (Hpids : pid <> pid') by lia.
+    inversion Ht; subst; clear Ht.
+    - exists [pid' @ evt'; pid @ evt]. split.
+      + unfold different_processes in HG.
+        specialize (HG (pid @ evt) (pid' @ evt') g g' g'0 Hpids).
+        unfold generator_events_commute in HG.
+        destruct HG as [g_ [Hg_ Hg_']]...
+        constructor 3 with g_...
+        * left. lia.
+        * constructor 2 with g'0...
+      + constructor 3...
+    -
+  Admitted.
 
-  Fixpoint gen_ens_opt (g : Gen) (t : list TE) (Ht : GenEnsemble g t) {struct t} :
+  Fixpoint gen_ens_opt (g : Gen) (t : list TE) (Ht : GenEnsemble g t)
+           (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2)
+           {struct Ht} :
     exists t' : list TE, GenEnsembleOpt g t' /\ Permutation events_commute t t'.
   Proof with auto with slot.
-    destruct Ht.
+    destruct Ht as [Hnil | g' te t Hte Ht].
     - exists []. split; now constructor.
-    - specialize (gen_ens_opt _ _ Ht). destruct gen_ens_opt as [t' [Ht' Hperm]].
+    - apply gen_ens_opt in Ht. destruct Ht as [t' [Ht' Hperm]]; clear gen_ens_opt.
       destruct t' as [ | te' t'].
       + exists [te].
         apply perm_empty in Hperm; subst.
         split.
-        * inversion Ht. constructor 2 with g'...
+        * inversion Ht'. constructor 2 with g'...
         * repeat constructor.
-      + destruct te as [pid te]. destruct te' as [pid' te'].
-        destruct (classic (pid <= pid')).
-        * exists (pid @ te :: pid' @ te' :: t'). split.
+      + destruct (classic (can_follow te te')).
+        * exists (te :: te' :: t'). split.
           -- constructor 3 with g'...
-             ++ now left.
-          -- constructor. constructor 4 with t...
-        * destruct (classic (events_commute (pid @ te) (pid' @ te'))).
-          -- exists (pid' @ te' :: pid @ te :: t'). split.
-             2:{ constructor 4 with (pid @ te :: pid' @ te' :: t').
-                 - now constructor.
-                 - now constructor.
-             }
-             constructor 3 with g'.
-             2:{ left. now apply not_leq in H0. }
-  Admitted.
+          -- now constructor.
+        * eapply gen_ens_opt_add in Ht'; eauto.
+          destruct Ht' as [t'' [Ht'' Hperm'']].
+          exists t''. split.
+          -- assumption.
+          -- apply perm_trans with (te :: te' :: t')...
+      + assumption.
+  Qed.
 
-  Theorem optimize_gen_p g :
+  Theorem optimize_gen_p g
+    (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2) :
     sufficient_replacement_p (GenEnsemble g) (GenEnsembleOpt g).
   Proof.
     intros t Ht.
     now apply gen_ens_opt.
   Qed.
 
-  Theorem optimize_gen (g : Gen) P Q :
+  Theorem optimize_gen (g : Gen) P Q (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2) :
     -{{ P }} GenEnsembleOpt g {{ Q }} ->
     -{{ P }} GenEnsemble g {{ Q }}.
   Proof.
-    apply ht_sufficient_replacement, comm_perm_sufficient_replacement, optimize_gen_p.
+    now apply ht_sufficient_replacement, comm_perm_sufficient_replacement, optimize_gen_p.
   Qed.
 End optimize.
+
+Hint Unfold can_follow : slot.
 
 Require Handlers.Deterministic.
 
@@ -369,7 +392,7 @@ Section optimize_tests.
       t = [1 @ I <~ write 1; 0 @ I <~ write 3; 1 @ I <~ write 2] \/
       t = [0 @ I <~ write 3; 1 @ I <~ write 1; 1 @ I <~ write 2].
   Proof.
-    intros. sauto.
+    intros. sauto db:slot.
   Qed.
 
   Hint Resolve var_ww_comm:slot.
@@ -377,25 +400,15 @@ Section optimize_tests.
   (* Check that it creates every interleaving: *)
   Goal GenEnsembleOpt [| [I <~ write 1; I <~ write 2]; [I <~ write 3] |]
        [e 0 1; e 0 2; e 1 3].
-  Proof.
-    sauto db:slot.
-  Qed.
-
-  Goal GenEnsembleOpt [| [I <~ write 1; I <~ write 2]; [I <~ write 3] |]
-       [e 0 1; e 1 3; e 0 2].
-  Proof.
-    sauto use:var_ww_comm.
-    constructor 3 with (g' := [| [I <~ write 2]; [I <~ write 3] |]); try sauto.
-    - constructor 3 with (g' := [| [I <~ write 2]; [] |]); try sauto.
-      constructor 2; try sauto.
-      intros s s'.
-  Qed.
-
-
-  Goal GenEnsembleOpt [| [1; 2] ; [3] |] [1 @ 3; 0 @ 1; 0 @ 2].
-  Proof.
-    constructor 3 with (g' := [| [1; 2] ; [] |]).
-    - sauto.
-    - constructor 3 with (g' := [| [2] ; [] |]); sauto.
+  Proof with auto with slot.
+    constructor 3 with [| [I <~ write 2]; [I <~ write 3] |].
+    - repeat constructor.
+    - now left.
+    - constructor 3 with [| []; [I <~ write 3] |].
+      + repeat constructor.
+      + right. apply var_ww_comm. auto.
+      + constructor 2 with [| []; [] |].
+        * repeat constructor.
+        * repeat constructor.
   Qed.
 End optimize_tests.
