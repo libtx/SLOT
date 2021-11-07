@@ -1,0 +1,14 @@
+name: coqchk
+
+on: [push, pull_request]
+
+jobs:
+  coqchk:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Run
+      run: |
+        docker run  -v $(pwd):/opt/build ghcr.io/libtx/docker-ci:master bash -c 'eval $(opam env); make validate'
