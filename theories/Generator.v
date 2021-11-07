@@ -268,25 +268,21 @@ From Coq Require Import
      Classical_Prop.
 
 Section gen_commutativity.
-  Context {TE Gen} `{Generator (ProcessEvent TE) Gen}.
-
-  Definition generator_events_commute g g' g'' te1 te2 :=
-    g ~~> g' & te1 ->
-    g' ~~> g'' & te2 ->
-    exists g_,
-      g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
+  Context {TE} Gen `{Generator (ProcessEvent TE) Gen}.
 
   Definition different_processes {Evt} (te1 te2 : ProcessEvent Evt) :=
     match te1, te2 with
       pid1 @ _, pid2 @ _ => pid1 <> pid2
     end.
+
+  Definition generator_events_commute :=
+    forall g g' g'' te1 te2,
+      different_processes te1 te2 ->
+      g ~~> g' & te1 ->
+      g' ~~> g'' & te2 ->
+      exists g_,
+        g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
 End gen_commutativity.
-
-
-Lemma gen_pair_comm {G1 G2 Event} `{Generator Event G1} `{Generator Event G2} te1 te2 g1 g1' g2 g2' :
-  different_processes te1 te2 ->
-  generator_events_commute (g1 <||> g2) (g1' <||> g2) (g1' <||> g2') te1 te2.
-Admitted.
 
 Section optimize.
   Context {Gen State Event : Type}.
@@ -314,7 +310,7 @@ Section optimize.
 
   Fixpoint gen_ens_opt_add g g' te te' t (Hte : g ~~> g' & te)
            (Ht : GenEnsembleOpt g' (te' :: t))
-           (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2)
+           (HG : generator_events_commute Gen)
            (Hfoll : ~ can_follow te te') {struct Ht} :
     exists t' : list TE, GenEnsembleOpt g (te' :: t') /\ Permutation events_commute (te :: te' :: t) (te' :: t').
   Proof with auto with slot.
@@ -323,13 +319,13 @@ Section optimize.
     assert (Hpids : pid <> pid') by lia.
     inversion Ht; subst; clear Ht.
     - exists [pid @ evt]. split.
-      + specialize (HG (pid @ evt) (pid' @ evt') g g' g'0 Hpids).
+      + specialize (HG g g' g'0 (pid @ evt) (pid' @ evt') Hpids).
         destruct HG as [g_ [Hg_ Hg_']]...
         constructor 3 with g_...
         * left. lia.
         * constructor 2 with g'0...
       + constructor 3...
-    - specialize (HG (pid @ evt) (pid' @ evt') g g' g'0 Hpids) as Hgen_comm.
+    - specialize (HG g g' g'0 (pid @ evt) (pid' @ evt') Hpids) as Hgen_comm.
       destruct Hgen_comm as [g_ [Hg_ Hg_']]...
       destruct (classic (can_follow (pid @ evt) te')) as [Hfoll' | Hfoll'].
       + exists (pid @ evt :: te' :: t0). split.
@@ -345,7 +341,7 @@ Section optimize.
   Qed.
 
   Fixpoint gen_ens_opt (g : Gen) (t : list TE) (Ht : GenEnsemble g t)
-           (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2)
+           (HG : generator_events_commute Gen)
            {struct Ht} :
     exists t' : list TE, GenEnsembleOpt g t' /\ Permutation events_commute t t'.
   Proof with auto with slot.
@@ -371,19 +367,57 @@ Section optimize.
   Qed.
 
   Theorem optimize_gen_p g
-    (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2) :
+    (HG : generator_events_commute Gen) :
     sufficient_replacement_p (GenEnsemble g) (GenEnsembleOpt g).
   Proof.
     intros t Ht.
     now apply gen_ens_opt.
   Qed.
 
-  Theorem optimize_gen (g : Gen) P Q (HG : forall te1 te2 g1 g2 g3, different_processes te1 te2 -> generator_events_commute g1 g2 g3 te1 te2) :
+  Theorem optimize_gen (g : Gen) P Q (HG : generator_events_commute Gen) :
     -{{ P }} GenEnsembleOpt g {{ Q }} ->
     -{{ P }} GenEnsemble g {{ Q }}.
   Proof.
     now apply ht_sufficient_replacement, comm_perm_sufficient_replacement, optimize_gen_p.
   Qed.
 End optimize.
+
+Section parallel_gen_comm.
+  Context {State Event} `{StateSpace State (ProcessEvent Event)} {G1 G2}
+          `{Generator Event G1}
+          `{Generator (ProcessEvent Event) G2}.
+
+  Lemma parallel_gen_comm :
+    generator_events_commute G2 ->
+    generator_events_commute (@Parallel G1 G2).
+  Proof.
+    intros HG2 g g' g'' te1 te2 Hpids Hg Hg'.
+    destruct te1 as [pid1 evt1]. set (te1 := pid1 @ evt1).
+    destruct te2 as [pid2 evt2]. set (te2 := pid2 @ evt2).
+    simpl in Hpids.
+    inversion Hg; inversion Hg'; subst.
+    - exfalso. lia.
+    - sauto.
+    - sauto.
+    - assert (Hpids' : different_processes (pid @ evt1) (pid0 @ evt2)).
+      { simpl. lia. }
+      inversion H8; subst.
+      specialize (HG2 g__r g__r' g__r'0).
+      specialize (HG2 (pid @ evt1) (pid0 @ evt2) Hpids').
+      specialize (HG2 H4 H9).
+      sauto.
+  Qed.
+
+  Goal forall (P Q : State -> Prop) (g1 : G1) (g2 : G2),
+      generator_events_commute G2 ->
+      -{{ P }} GenEnsembleOpt (g1 <||> g2) {{ Q }} ->
+      -{{ P }} GenEnsemble (g1 <||> g2) {{ Q }}.
+  Proof.
+    intros *. intros HG2 Hht.
+    apply parallel_gen_comm in HG2.
+    specialize (optimize_gen (g1 <||> g2) P Q HG2 Hht) as Hopt.
+    assumption.
+  Qed.
+End parallel_gen_comm.
 
 Hint Unfold can_follow : slot.
