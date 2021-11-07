@@ -56,6 +56,23 @@ Section GenEnsemble.
       GenEnsemble g (te :: t).
 End GenEnsemble.
 
+Section gen_commutativity.
+  Context {TE} Gen `{Generator (ProcessEvent TE) Gen}.
+
+  Definition different_processes {Evt} (te1 te2 : ProcessEvent Evt) :=
+    match te1, te2 with
+      pid1 @ _, pid2 @ _ => pid1 <> pid2
+    end.
+
+  Definition generator_events_commute :=
+    forall g g' g'' te1 te2,
+      different_processes te1 te2 ->
+      g ~~> g' & te1 ->
+      g' ~~> g'' & te2 ->
+      exists g_,
+        g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
+End gen_commutativity.
+
 Module Empty.
   Section defn.
     Context {TE : Type}.
@@ -156,6 +173,33 @@ Section process.
   End tests.
 End process.
 
+Section singleton_process.
+  Context {Gen State Event} `{StateSpace State (ProcessEvent Event)} `{Generator Event Gen}.
+
+  Record SingletonProcess :=
+    singleton_process { _ : Gen }.
+
+  Inductive SingletonStep : SingletonProcess -> option (SingletonProcess * (ProcessEvent Event)) -> Prop :=
+  | wrs_nil : forall g,
+      g ~~>x ->
+      SingletonStep (singleton_process g) None
+  | wrp_cons : forall g g' evt,
+      g ~~> g' & evt ->
+      SingletonStep (singleton_process g) (Some (singleton_process g', 0 @ evt)).
+
+  Global Instance singletonGen : Generator (ProcessEvent Event) SingletonProcess :=
+    { gen_step := SingletonStep }.
+
+  Lemma singleton_gen_comm :
+    generator_events_commute SingletonProcess.
+  Proof.
+    intros g g' g'' te1 te2 Hpids Hg Hg'.
+    exfalso.
+    inversion Hg; inversion Hg'; subst.
+    sauto.
+  Qed.
+End singleton_process.
+
 Section parallel_defn.
   Context {TE G__l G__r : Type} `{Generator TE G__l} `{Generator (ProcessEvent TE) G__r}.
 
@@ -179,15 +223,12 @@ Section parallel_defn.
 
   Global Instance genPairGen : Generator (ProcessEvent TE) Parallel :=
     { gen_step := ParallelStep }.
-
-  Definition wrap_singleton : list TE -> list (ProcessEvent TE) :=
-    map (fun e => 0 @ e).
 End parallel_defn.
 
 Infix "<||>" := parallel (right associativity, at level 101) : slot_scope.
 Notation "[| |]" := (Empty.t) : slot_scope.
-Notation "[| x |]" := (wrap_singleton x) : slot_scope.
-Notation "[| x ; .. ; y ; z |]" := (parallel x (.. (parallel y (wrap_singleton z)) ..)) : slot_scope.
+Notation "[| x |]" := (singleton_process x) : slot_scope.
+Notation "[| x ; .. ; y ; z |]" := (parallel x (.. (parallel y (singleton_process z)) ..)) : slot_scope.
 
 Section parallel_tests.
   (* Check that all interleavings created by the ensemble are valid: *)
@@ -266,23 +307,6 @@ From SLOT Require Import
 
 From Coq Require Import
      Classical_Prop.
-
-Section gen_commutativity.
-  Context {TE} Gen `{Generator (ProcessEvent TE) Gen}.
-
-  Definition different_processes {Evt} (te1 te2 : ProcessEvent Evt) :=
-    match te1, te2 with
-      pid1 @ _, pid2 @ _ => pid1 <> pid2
-    end.
-
-  Definition generator_events_commute :=
-    forall g g' g'' te1 te2,
-      different_processes te1 te2 ->
-      g ~~> g' & te1 ->
-      g' ~~> g'' & te2 ->
-      exists g_,
-        g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
-End gen_commutativity.
 
 Section optimize.
   Context {Gen State Event : Type}.
@@ -408,7 +432,8 @@ Section parallel_gen_comm.
       sauto.
   Qed.
 
-  Goal forall (P Q : State -> Prop) (g1 : G1) (g2 : G2),
+  Theorem parallel_processes_ht :
+    forall (P Q : State -> Prop) (g1 : G1) (g2 : G2),
       generator_events_commute G2 ->
       -{{ P }} GenEnsembleOpt (g1 <||> g2) {{ Q }} ->
       -{{ P }} GenEnsemble (g1 <||> g2) {{ Q }}.
@@ -421,3 +446,5 @@ Section parallel_gen_comm.
 End parallel_gen_comm.
 
 Hint Unfold can_follow : slot.
+Hint Resolve singleton_gen_comm : slot.
+Hint Resolve parallel_gen_comm : slot.
