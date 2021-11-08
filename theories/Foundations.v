@@ -17,6 +17,7 @@
 (** * Fundamental definitions for modeling the nondeterminisic concurrent systems
  *)
 
+(* begin hide *)
 From Coq Require Import
      Program
      List
@@ -24,7 +25,6 @@ From Coq Require Import
 
 Import ListNotations.
 
-(* begin hide *)
 Declare Scope slot_scope.
 Open Scope slot_scope.
 (* end hide *)

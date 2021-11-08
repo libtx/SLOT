@@ -129,12 +129,14 @@ Section process.
     Let TE := IOp Request Reply.
     Let t := @Program Request Reply.
 
-    Inductive ThreadGenStep : t -> option (t * TE) -> Prop :=
-    | tstep_nil :
-        ThreadGenStep p_dead None
-    | tstep_cons : forall (req : Request) cont (rep : Reply req),
-        ThreadGenStep (p_cont req cont)
-                      (Some (cont rep, rep <~ req)).
+    Definition ThreadGenStep (gen : t) (next : option (t * TE)) : Prop :=
+      match gen with
+      | p_dead =>
+          next = None
+      | p_cont req cont =>
+          exists (ret : Reply req),
+          next = Some (cont ret, ret <~ req)
+      end.
 
     Global Instance processGen : Generator TE t :=
     { gen_step := ThreadGenStep }.
@@ -157,19 +159,15 @@ Section process.
         done true
       end.
 
-    Local Ltac inv a := inversion a; subst; clear a.
-
     Goal forall t,
         GenEnsemble my_prog t ->
         exists x y z,
           t = [0 <~ true; x <~ false] \/
-          t = [y <~ true; z <~ true].
+          t = [S y <~ true; z <~ true].
     Proof.
-      intros. subst my_prog.
-      inv H.
-      - exfalso. inv H0.
-      - inv H0.
-    Abort.
+      intros. subst my_prog. simpl.
+      sauto.
+    Qed.
   End tests.
 End process.
 
