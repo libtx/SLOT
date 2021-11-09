@@ -5,6 +5,8 @@ theories/Properties.v
 theories/Commutativity.v
 theories/Tactics.v
 theories/Generator.v
+theories/Handlers.v
+theories/SLOT.v
 theories/Handlers/Deterministic.v
 theories/Handlers/MQ.v
 theories/Handlers/Mutex.v

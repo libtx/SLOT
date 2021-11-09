@@ -49,7 +49,7 @@ Section defs.
   | mutex_release_fail : forall pid,
       mutex_state_transition None (pid @ false <~ release) None.
 
-  Global Instance mutexHandler : @IOHandler req_t ret_t :=
+  Global Instance t : @IOHandler req_t ret_t :=
     { h_state := state_t;
       h_state_transition := mutex_state_transition;
     }.
