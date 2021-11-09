@@ -191,12 +191,19 @@ Notation "'-{{}}' e '{{}}'" := (forall t, e t -> exists s s', ReachableByTrace s
 (** ** Process ID in SLOT is a natural number: *)
 Definition PID := nat.
 
-Inductive ProcessEvent {Event : Type} :=
-  proc_te : PID -> Event -> ProcessEvent.
+Record ProcessEvent {Event : Type} :=
+  proc_te { te_pid : PID;
+            te_event : Event
+          }.
 
+(* begin hide *)
 Global Arguments ProcessEvent : clear implicits.
+Global Arguments proc_te {_}.
+(* end hide *)
 
+(* begin details *)
 Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
+(* end details *)
 
 (** * Input/output
 

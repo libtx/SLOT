@@ -42,18 +42,18 @@ Ltac long_step f tac :=
     inversion_clear f as [|? s' ? te tail Hcr Htl];
     rename Htl into f;
     cbn in Hcr;
-    tac Hcr
+    tac s' te Hcr
   end.
 
 Tactic Notation "long_step" ident(f) tactic3(tac) := long_step f tac.
-Tactic Notation "long_step" ident(f) := long_step f (fun _ => idtac).
+Tactic Notation "long_step" ident(f) := long_step f (fun _ _ _ => idtac).
 
 Ltac unfold_trace f tac :=
   repeat (long_step f tac).
 
 Tactic Notation "unfold_trace" ident(f) tactic3(tac) := unfold_trace f tac.
-Tactic Notation "unfold_trace" ident(f) := unfold_trace f (fun _ => idtac).
-Tactic Notation "unfold_trace_deep" ident(f) := unfold_trace f (fun x => inversion x); subst.
+Tactic Notation "unfold_trace" ident(f) := unfold_trace f (fun _ _ _ => idtac).
+Tactic Notation "unfold_trace_deep" ident(f) := unfold_trace f (fun _ _ Hcr => inversion Hcr); subst.
 
 Ltac ls_advance tac :=
   match goal with
@@ -69,7 +69,12 @@ Hint Constructors ReachableByTrace : slot.
 (* Hint Resolve trace_elems_commute_symm : slot. *)
 
 Ltac unfold_ht :=
-  match goal with
+  lazymatch goal with
+  | [ |- -{{ _ }} _ {{ _ }} ] =>
+    let t := fresh "t" in
+    let Ht := fresh "H" t in
+    intros t Ht;
+    unfold_ht
   | [ |- {{?pre}} ?t {{?post}}] =>
     let s := fresh "s_begin" in
     let s' := fresh "s_end" in

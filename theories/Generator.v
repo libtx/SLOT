@@ -73,30 +73,6 @@ Section gen_commutativity.
         g ~~> g_ & te2 /\ g_ ~~> g'' & te1.
 End gen_commutativity.
 
-Module Empty.
-  Section defn.
-    Context {TE : Type}.
-
-    Inductive t : Type := empty : t.
-
-    Inductive EmptyGenStep : t -> option (t * TE) -> Prop :=
-      empty_step : EmptyGenStep empty None.
-
-    Global Instance emptyGen : Generator TE t :=
-      { gen_step := EmptyGenStep }.
-  End defn.
-
-  Lemma empty_generator : forall TE (l : list TE),
-      GenEnsemble empty l ->
-      l = [].
-  Proof.
-    intros.
-    inversion H.
-    - easy.
-    - simpl in H0. inversion H0.
-  Qed.
-End Empty.
-
 Section list_defn.
   Context (A : Type).
 
@@ -198,6 +174,8 @@ Section singleton_process.
   Qed.
 End singleton_process.
 
+Hint Resolve singleton_gen_comm : slot.
+
 Section parallel_defn.
   Context {TE G__l G__r : Type} `{Generator TE G__l} `{Generator (ProcessEvent TE) G__r}.
 
@@ -224,7 +202,6 @@ Section parallel_defn.
 End parallel_defn.
 
 Infix "<||>" := parallel (right associativity, at level 101) : slot_scope.
-Notation "[| |]" := (Empty.t) : slot_scope.
 Notation "[| x |]" := (singleton_process x) : slot_scope.
 Notation "[| x ; .. ; y ; z |]" := (parallel x (.. (parallel y (singleton_process z)) ..)) : slot_scope.
 
