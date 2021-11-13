@@ -125,3 +125,30 @@ Ltac decompose_state :=
          end.
 
 Hint Transparent compose_state : slot.
+
+Require Import Deterministic.
+
+From Coq Require Import
+     List.
+
+Import ListNotations.
+
+Inductive MyReq :=
+| var1 : @Var.req_t nat -> MyReq
+| var2 : @Var.req_t bool -> MyReq.
+
+Inductive Wrap (T : Type) :=
+  wrap : forall {req} (costr : req -> T) {rep : req -> Type} {H : @IOHandler req rep}, Wrap T.
+
+Global Arguments wrap {_} {_} _ {_} {_}.
+
+Fixpoint mkState {T : Type} (l : list (Wrap T)) : Type :=
+  match l with
+  | [] => True
+  | [@wrap _ _ _ H] => h_state
+  | (@wrap _ _ _ H) :: t => (h_state) * mkState t
+  end.
+
+Compute mkState [wrap var1; wrap var2].
+
+Definition ret_t (req : MyReq) :'
