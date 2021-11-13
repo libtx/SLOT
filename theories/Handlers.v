@@ -151,4 +151,21 @@ Fixpoint mkState {T : Type} (l : list (Wrap T)) : Type :=
 
 Compute mkState [wrap var1; wrap var2].
 
-Definition ret_t (req : MyReq) :'
+Ltac mkRep req l :=
+  lazymatch l with
+  | [@wrap ?Req ?req ?c ?rep ?H] =>
+
+  (* | (@wrap ?Req ?req ?c ?rep ?H) :: l => *)
+  (*   refine (match req with *)
+  (*           | ?c req => rep req *)
+  (*           | _ => ltac (mkRep req l) *)
+  (*           end) *)
+  end.
+
+Definition myRep (req : MyReq) : Type.
+Proof.
+  mkRep r [wrap var1; wrap var2].
+
+Definition ret_t (req : MyReq) : Type.
+  destruct req.
+  -
