@@ -1,5 +1,5 @@
 (* SLOT, a formally verified model-checker
-   Copyright (C) 2019-2021  k32
+   Copyright (C) 2019-2021, 2023  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -174,7 +174,7 @@ Section singleton_process.
   Qed.
 End singleton_process.
 
-Hint Resolve singleton_gen_comm : slot.
+#[export] Hint Resolve singleton_gen_comm : slot.
 
 Section parallel_defn.
   Context {TE G__l G__r : Type} `{Generator TE G__l} `{Generator (ProcessEvent TE) G__r}.
@@ -420,6 +420,6 @@ Section parallel_gen_comm.
   Qed.
 End parallel_gen_comm.
 
-Hint Unfold can_follow : slot.
-Hint Resolve singleton_gen_comm : slot.
-Hint Resolve parallel_gen_comm : slot.
+#[export] Hint Unfold can_follow : slot.
+#[export] Hint Resolve singleton_gen_comm : slot.
+#[export] Hint Resolve parallel_gen_comm : slot.

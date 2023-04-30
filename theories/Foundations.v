@@ -1,5 +1,5 @@
 (* SLOT, proofs about distributed systems design
-   Copyright (C) 2019-2021  k32
+   Copyright (C) 2019-2023  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -245,7 +245,7 @@ CoInductive Program {Request : Type} {Reply : Request -> Type} : Type :=
 
 (* begin details *)
 Notation "'do' V '<-' I ; C" := (p_cont (I) (fun V => C))
-    (at level 100, C at next level, V ident, right associativity) : slot_scope.
+    (at level 100, C at next level, V name, right associativity) : slot_scope.
 
 Notation "'done' I" := (p_cont (I) (fun _ => p_dead))
     (at level 100, right associativity) : slot_scope.

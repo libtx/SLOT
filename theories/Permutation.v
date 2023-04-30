@@ -18,7 +18,6 @@ standard library, but with an additional predicate that specifies
 whether the elements can be swapped *)
 From Coq Require Import
      List
-     Tactics
      Arith.Even
      Relations.
 
@@ -59,6 +58,6 @@ Section defn.
   Qed.
 End defn.
 
-Hint Constructors Permutation : slot.
-Hint Resolve perm_refl : slot.
-Hint Resolve perm_empty : slot.
+#[export] Hint Constructors Permutation : slot.
+#[export] Hint Resolve perm_refl : slot.
+#[export] Hint Resolve perm_empty : slot.

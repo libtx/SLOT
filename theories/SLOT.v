@@ -1,5 +1,5 @@
 (* SLOT, a formally verified model checker
-   Copyright (C) 2021  k32
+   Copyright (C) 2021-2023  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ Require Handlers.Deterministic
 
 Module Example.
   Import Handlers.Deterministic.
+
   Definition handler := Var.t nat <+> Mutex.t.
 
   Definition Req := handler_request_t handler.

@@ -1,5 +1,5 @@
 (* SLOT, proofs about distributed systems design
-   Copyright (C) 2019-2021  k32
+   Copyright (C) 2019-2023  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -64,8 +64,8 @@ Ltac ls_advance tac :=
 Tactic Notation "ls_advance" tactic3(tac) := ls_advance tac.
 Tactic Notation "ls_advance" := ls_advance (fun _ => idtac).
 
-Hint Transparent Ensembles.In Ensembles.Complement : slot.
-Hint Constructors ReachableByTrace : slot.
+#[export] Hint Transparent Ensembles.In Ensembles.Complement : slot.
+#[export] Hint Constructors ReachableByTrace : slot.
 (* Hint Resolve trace_elems_commute_symm : slot. *)
 
 Ltac unfold_ht :=
@@ -92,6 +92,6 @@ Ltac unfold_ht :=
 Ltac forward s' :=
   apply (rbt_cons _ s' _ _ _).
 
-Hint Constructors ReachableByTrace : slot.
-Hint Constructors TraceInvariant : slot.
-Hint Transparent Ensembles.In Ensembles.Complement : slot.
+#[export] Hint Constructors ReachableByTrace : slot.
+#[export] Hint Constructors TraceInvariant : slot.
+#[export] Hint Transparent Ensembles.In Ensembles.Complement : slot.
