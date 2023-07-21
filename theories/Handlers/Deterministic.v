@@ -18,8 +18,15 @@
 From Coq Require Import
      List.
 
-From stdpp Require Import
-     fin_maps.
+(* From stdpp Require Import *)
+(*      fin_maps. *)
+
+(* From Coq Require *)
+(*      ZArith.BinInt *)
+(*      FSets.FMapAVL. *)
+
+From LibTx Require Import
+     Storage.Classes.
 
 From SLOT Require Import
      Foundations
@@ -93,16 +100,16 @@ Module Log.
   Section defs.
     Context {Event : Type}.
 
-    Definition State : Type := list Event.
+    Definition State : Type := list (PID * Event).
 
-    Definition req_t := PID -> Event.
+    Definition req_t := Event.
 
     Definition ret_t := I.
 
-    Definition step (pid : PID) (s : State) (req : req_t) := (req pid :: s, ret_t).
+    Definition step (pid : PID) (s : State) (req : req_t) := ((pid, req) :: s, ret_t).
 
     Global Instance historyDetHandler : DeterministicHandler req_t (fun _ => True) :=
-      { det_h_state := list Event;
+      { det_h_state := State;
         det_h_state_transition := step;
       }.
   End defs.
@@ -114,7 +121,7 @@ Global Arguments Log.t : clear implicits.
 
 Module ProcessDictionary.
   Section defs.
-    Context {Val : Type} `{FinMap PID Map}.
+    Context {Val St : Type} `{Storage PID Val St}.
 
     Inductive req_t : Type :=
     | pd_get
@@ -128,12 +135,12 @@ Module ProcessDictionary.
       | pd_erase => True
       end.
 
-    Definition State := Map Val.
+    Definition State := St.
 
     Definition step (pid : PID) (s : State) (req : req_t) : State * ret_t req :=
       match req with
-      | pd_get => (s, s !! pid)
-      | pd_put new_val => (<[pid := new_val]> s, I)
+      | pd_get => (s, get pid s)
+      | pd_put new_val => (put pid new_val s, I)
       | pd_erase => (delete pid s, I)
       end.
 
