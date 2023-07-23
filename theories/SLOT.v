@@ -36,6 +36,7 @@ Module Example.
   Definition handler := ltac2:(makeClass handlerSpec).
   Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
   Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
+  Definition stateG := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
 
   Definition Req := handler_request_t handler.
   Definition Rep := handler_reply_t handler.
@@ -48,11 +49,11 @@ Module Example.
 
   Definition system := [| prog; prog |].
 
-  (* Goal forall n, *)
-  (*     -{{ fun s => val s = n }} GenEnsemble system {{ fun s => val s = n + 2 }}. *)
-  (* Proof with auto with slot. *)
-  (*   intros n. *)
-  (*   apply parallel_processes_ht... *)
-  (*   unfold_ht. inversion Ht. *)
-  (* Abort. *)
+  Goal forall n,
+      -{{ fun s => stateG s var = n }} GenEnsemble system {{ fun s => stateG s var = n + 2 }}.
+  Proof with auto with slot.
+    intros n.
+    apply parallel_processes_ht...
+    unfold_ht. inversion Ht.
+  Abort.
 End Example.

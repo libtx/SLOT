@@ -131,14 +131,14 @@ Ltac2 makeClass (handlers : Handlers) :=
 
 Import Constr.Unsafe.
 
-Ltac2 indRef (ind : constr) : inductive :=
+Local Ltac2 indRef (ind : constr) : inductive :=
   match kind ind with
   | Ind ind _ => ind
   | _         => throw_invalid_argument "Argument must be an instance of an inductive type"
   end.
 
 (* Emit AST that performs case analysis of term [what2match] of inductive type [indt] *)
-Ltac2 makeCase (return_type : constr) (what2match : constr) (indt : constr) (f : inductive -> int -> constr) :=
+Local Ltac2 makeCase (return_type : constr) (what2match : constr) (indt : constr) (f : inductive -> int -> constr) :=
   let indref := indRef indt in
   let type := '(fun _ : $indt => $return_type) in
   let d := Ind.data indref in
@@ -202,19 +202,55 @@ Ltac2 makeReqAst (hh : Handlers) (ind : constr) (reqT : constr) (class : constr)
 
 Ltac2 makeReq hh ind reqT class := Control.refine (fun () => makeReqAst hh ind reqT class).
 
+Ltac2 makeStateRetTypeAst (hh : Handlers) (ind : constr) (what2match : constr)  :=
+  let hh := hh () in
+  let indref := indRef ind in
+  let n := Ind.nconstructors (Ind.data indref) in
+  let get_state_t _ i :=
+    let class := (List.nth hh i) in
+    '($class.(h_state))
+  in
+  makeCase 'Type what2match ind get_state_t.
+
+(* Generate AST for a getter function of i-th element of a tuple *)
+Ltac2 tupleNth (what2match : constr) (n : int) (i : int) :=
+  let fst a := make (App 'fst (Array.of_list [a])) in
+  let snd a := make (App 'snd (Array.of_list [a])) in
+  let rec iter a := if Int.gt a 1 then
+                      fst (iter (Int.sub a 1))
+                    else
+                      what2match in
+  if Int.equal i 0 then
+    fst (iter (Int.sub n 1))
+  else
+    snd (iter (Int.sub n i)).
+
+Ltac2 makeStateGetterAst (hh : Handlers) (handler : constr) (ind : constr) :=
+  let indref := indRef ind in
+  let n := Ind.nconstructors (Ind.data indref) in
+  let state_arg_type := '($handler.(h_state)) in
+  let outer_binder := Constr.Binder.make (Some @state) state_arg_type in
+  let inner_binder := Constr.Binder.make (Some @id) ind in
+  let id := make (Rel 1) in
+  let return_type := makeStateRetTypeAst hh ind id in
+  let f _ i := tupleNth (make (Rel 2)) n i in
+  let ast := makeCase return_type id ind f in
+  make (Lambda outer_binder (make (Lambda inner_binder ast))).
+
+Ltac2 makeStateGetter (hh : Handlers) (handler : constr) (ind : constr) :=
+  Control.refine (fun () => makeStateGetterAst hh handler ind).
+
 From SLOT Require Deterministic.
 
 Section test.
-  Import Deterministic.
+  Import Deterministic Control.
+  Set Printing All.
 
   Inductive handlerId := var | self | log | var2.
   Ltac2 handlerSpec () := ['(Var.t bool); 'Self.t; '(Log.t nat); '(Var.t nat)].
 
   Definition handler := ltac2:(makeClass handlerSpec).
-
   Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
-
   Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
-
-  Eval cbv in req var2 (Var.read).
+  Definition stateGet := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
 End test.
