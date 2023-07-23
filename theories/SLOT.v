@@ -27,48 +27,32 @@ Require Handlers.Deterministic
 (* end: hide *)
 
 Module Example.
-  Import Handlers.Deterministic.
+  Import Handlers.Deterministic Handlers.Deterministic.Var Mutex.
 
-  Definition handler := Var.t nat <+> Mutex.t.
+  Inductive handlerId := var | mutex.
+
+  Ltac2 handlerSpec () := ['(Var.t nat); 'Mutex.t].
+
+  Definition handler := ltac2:(makeClass handlerSpec).
+  Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
+  Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
 
   Definition Req := handler_request_t handler.
   Definition Rep := handler_reply_t handler.
-  Definition State := @h_state _ _ handler.
-
-  Definition write (val : nat) : Req.
-    lift (Var.write val).
-  Defined.
-
-  Definition read : Req.
-    lift (@Var.read nat).
-  Defined.
-
-  Definition grab : Req.
-    lift Mutex.grab.
-  Defined.
-
-  Definition release : Req.
-    lift Mutex.release.
-  Defined.
-
-  Definition val (s : State) : nat.
-    cbv in s. destruct s.
-    exact n.
-  Defined.
 
   Definition prog : @Program Req Rep :=
-    do _ <- grab;
-    do x <- read;
-    do _ <- write (S x);
-    done release.
+    do _ <- req mutex grab;
+    do x <- req var read;
+    do _ <- req var (write (x + 1));
+    done (req mutex release).
 
   Definition system := [| prog; prog |].
 
-  Goal forall n,
-      -{{ fun s => val s = n }} GenEnsemble system {{ fun s => val s = n + 2 }}.
-  Proof with auto with slot.
-    intros n.
-    apply parallel_processes_ht...
-    unfold_ht. inversion Ht.
-  Abort.
+  (* Goal forall n, *)
+  (*     -{{ fun s => val s = n }} GenEnsemble system {{ fun s => val s = n + 2 }}. *)
+  (* Proof with auto with slot. *)
+  (*   intros n. *)
+  (*   apply parallel_processes_ht... *)
+  (*   unfold_ht. inversion Ht. *)
+  (* Abort. *)
 End Example.
