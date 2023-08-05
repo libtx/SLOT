@@ -277,6 +277,96 @@ Section parallel_tests.
   Qed.
 End parallel_tests.
 
+Module better_parallel.
+  Section defn.
+    Context `{Hhan : IOHandler}.
+
+    Record Runnable :=
+      { pid : PID;
+        req : Request;
+        cont : Reply req -> @Program Request Reply;
+      }.
+
+    Definition Processes := list Runnable.
+
+    Record Parallel :=
+      parallel
+        { last_pid : PID;
+          processes : Processes;
+        }.
+
+    Let TE := ProcessEvent (@IOp Request Reply).
+
+    Definition run_one (next : option (Parallel * TE)) (last_pid : PID) (r : Runnable) (remaining visited : Processes) : Prop :=
+      match r with
+        {| pid := pid; req := req; cont := cont |} =>
+          exists (rep : Reply req),
+          let r' := cont rep in
+          let pp' := match r' with
+                     | p_dead => visited ++ remaining
+                     | p_cont req cont => visited ++ ({| pid := pid; req := req; cont := cont |} :: remaining)
+                     end in
+          let g := {| last_pid := last_pid; processes := pp' |} in
+          next = Some (g, (pid @ rep <~ req))
+      end.
+
+    Fixpoint runit (next : option (Parallel * TE)) (last_pid : PID) (remaining visited : Processes) (acc : Prop) {struct remaining} :=
+      match remaining with
+      | [] => acc
+      | (r :: rest) =>
+          let acc := run_one next last_pid r rest visited \/ acc in
+          runit next last_pid rest (r :: visited) acc
+      end.
+
+    Definition ParallelStep (p : Parallel) (next : option (Parallel * TE)) : Prop :=
+      match p with
+        {| last_pid := last_pid; processes := pp |} =>
+          match p.(processes) with
+          | [] =>
+              next = None
+          | f :: rest =>
+              let acc := run_one next last_pid f rest [] in
+              runit next last_pid rest [f] acc
+          end
+      end.
+
+    Global Instance parGen : Generator TE Parallel :=
+      {| gen_step := ParallelStep |}.
+
+    Definition of_progs (progs : list (@Program Request Reply)) : Parallel :=
+      let fix go pid acc l :=
+        match l with
+        | [] => (pid, acc)
+        | p :: rest =>
+            let acc := match p with
+                       | p_dead => acc
+                       | p_cont req cont => {| pid := pid; req := req; cont := cont |} :: acc
+                       end in
+            go (S pid) acc rest
+        end in
+      let (last_pid, pp) := go 0 [] progs in
+      {| last_pid := last_pid; processes := pp |}.
+  End defn.
+
+  Section test.
+    Require Import Deterministic Handlers.
+    Let H := @Var.t nat.
+
+
+    Let prog : @Program (handler_request_t H) (handler_reply_t H) :=
+          do r <- Var.read;
+          done Var.write 1.
+
+    Let pp := of_progs [prog; prog; prog].
+
+    Eval cbn in fun next => ParallelStep pp next.
+
+    Goal forall t (Ht : GenEnsemble pp t), True.
+    Abort.
+
+  End test.
+End better_parallel.
+
 From SLOT Require Import
      Properties.
 
