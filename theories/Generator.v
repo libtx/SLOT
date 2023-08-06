@@ -357,13 +357,9 @@ Module better_parallel.
           do r <- Var.read;
           done Var.write 1.
 
-    Let pp := of_progs [prog; prog; prog].
+    Let pp := of_progs [prog; prog].
 
     Eval cbn in fun next => ParallelStep pp next.
-
-    Goal forall t (Ht : GenEnsemble pp t), True.
-    Abort.
-
   End test.
 End better_parallel.
 
@@ -383,50 +379,55 @@ Section optimize.
     let (pid2, _) := te2 in
     pid1 <= pid2 \/ not (events_commute te1 te2).
 
+  Definition can_follow_hd (te : TE) (t : list TE) : Prop :=
+    match t with
+    | [] => True
+    | hd :: _ => can_follow te hd
+    end.
+
   Inductive GenEnsembleOpt (g : Gen) : @TraceEnsemble TE :=
   | og_ens_nil :
       g  ~~>x ->
       GenEnsembleOpt g []
-  | og_ens_first : forall g' te,
-      g  ~~> g' & te ->
-      g' ~~>x ->
-      GenEnsembleOpt g [te]
-  | og_ens_cons : forall g' te te' t,
+  | og_ens_cons : forall g' te t,
       g ~~> g' & te ->
-      can_follow te te' ->
-      GenEnsembleOpt g' (te' :: t) ->
-      GenEnsembleOpt g (te :: te' :: t).
+      can_follow_hd te t ->
+      GenEnsembleOpt g' t ->
+      GenEnsembleOpt g (te :: t).
 
-  Fixpoint gen_ens_opt_add g g' te te' t (Hte : g ~~> g' & te)
-           (Ht : GenEnsembleOpt g' (te' :: t))
+  Lemma can_follow_hd_eq {te t1 t2} (Hfoll : can_follow_hd te t1) (Hhd : hd_error t1 = hd_error t2) :
+    can_follow_hd te t2.
+  Admitted.
+
+
+  Fixpoint gen_ens_opt_add g g' te t (Hte : g ~~> g' & te)
+           (Ht : GenEnsembleOpt g' t)
            (HG : generator_events_commute Gen)
-           (Hfoll : ~ can_follow te te') {struct Ht} :
-    exists t' : list TE, GenEnsembleOpt g (te' :: t') /\ Permutation events_commute (te :: te' :: t) (te' :: t').
+           (Hfoll : ~ can_follow_hd te t) {struct Ht} :
+    exists t', GenEnsembleOpt g t' /\ Permutation events_commute (te :: t) (t') /\
+            hd_error t = hd_error t'.
   Proof with auto with slot.
-    destruct te as [pid evt]. destruct te' as [pid' evt'].
-    firstorder. apply NNPP in H0. rename H0 into Hcomm.
-    assert (Hpids : pid <> pid') by lia.
-    inversion Ht; subst; clear Ht.
-    - exists [pid @ evt]. split.
-      + specialize (HG g g' g'0 (pid @ evt) (pid' @ evt') Hpids).
-        destruct HG as [g_ [Hg_ Hg_']]...
-        constructor 3 with g_...
-        * left. lia.
-        * constructor 2 with g'0...
-      + constructor 3...
-    - specialize (HG g g' g'0 (pid @ evt) (pid' @ evt') Hpids) as Hgen_comm.
+    destruct te as [pid evt].
+    inversion Ht as [ |g'' te' t' Hg'' Hte' Ht']; subst; clear Ht.
+    - exfalso. (* Hfoll cannot hold for an empty list *)
+      clear gen_ens_opt_add.
+      simpl in Hfoll. contradiction.
+    - destruct te' as [pid' evt'].
+      simpl in Hfoll. firstorder. apply NNPP in H0. rename H0 into Hcomm.
+      assert (Hpids : pid <> pid') by lia.
+      specialize (HG g g' g'' (pid @ evt) (pid' @ evt') Hpids) as Hgen_comm.
       destruct Hgen_comm as [g_ [Hg_ Hg_']]...
-      destruct (classic (can_follow (pid @ evt) te')) as [Hfoll' | Hfoll'].
-      + exists (pid @ evt :: te' :: t0). split.
-        * constructor 3 with g_...
-          -- left. lia.
-          -- constructor 3 with g'0...
-        * constructor 3...
-      + specialize (gen_ens_opt_add g_ g'0 (pid @ evt) te' t0) as IH. clear gen_ens_opt_add.
-        destruct IH as [t' [Ht' Hperm']]...
-        exists (te' :: t'). split.
-        * constructor 3 with g_...
-        * sauto.
+      destruct (classic (can_follow_hd (pid @ evt) t')) as [Hfoll' | Hfoll'].
+      + clear gen_ens_opt_add.
+        exists (pid' @ evt' :: pid @ evt :: t'). repeat split.
+        * constructor 2 with g_... sauto. constructor 2 with g''...
+        * now constructor.
+      + specialize (gen_ens_opt_add g_ g'' (pid @ evt) t' Hg_' Ht') as IH. clear gen_ens_opt_add.
+        destruct IH as [t'' [Ht'' [Hperm'' Hhd]]]...
+        exists (pid' @ evt' :: t''). repeat split.
+        * constructor 2 with g_...
+          eapply can_follow_hd_eq; eauto.
+        * apply perm_trans with (l' := pid' @ evt' :: pid @ evt :: t')...
   Qed.
 
   Fixpoint gen_ens_opt (g : Gen) (t : list TE) (Ht : GenEnsemble g t)
@@ -437,21 +438,15 @@ Section optimize.
     destruct Ht as [Hnil | g' te t Hte Ht].
     - exists []. split; now constructor.
     - apply gen_ens_opt in Ht. destruct Ht as [t' [Ht' Hperm]]; clear gen_ens_opt.
-      destruct t' as [ | te' t'].
-      + exists [te].
-        apply perm_empty in Hperm; subst.
-        split.
-        * inversion Ht'. constructor 2 with g'...
-        * repeat constructor.
-      + destruct (classic (can_follow te te')).
-        * exists (te :: te' :: t'). split.
-          -- constructor 3 with g'...
-          -- now constructor.
-        * eapply gen_ens_opt_add in Ht'; eauto.
-          destruct Ht' as [t'' [Ht'' Hperm'']].
-          exists (te' :: t''). split.
-          -- assumption.
-          -- apply perm_trans with (te :: te' :: t')...
+      destruct (classic (can_follow_hd te t')).
+      + exists (te :: t'). split.
+        * constructor 2 with g'...
+        * now repeat constructor.
+      + eapply gen_ens_opt_add in Ht'; eauto.
+        destruct Ht' as [t'' [Ht'' [Hperm'' Hhd]]].
+        exists t''. split.
+        * assumption.
+        * apply perm_trans with (te :: t')...
       + assumption.
   Qed.
 
