@@ -18,7 +18,6 @@ From SLOT Require Export
      Foundations
      Generator
      Commutativity
-     Tactics
      Handlers.
 
 From Hammer Require Import
@@ -30,6 +29,8 @@ Import ListNotations.
 (* begin: hide *)
 Require Handlers.Deterministic
         Handlers.Mutex.
+
+From Ltac2 Require Import Init List Ind Env Control Option Constr Std Array Notations Fresh Printf.
 (* end: hide *)
 
 Module Example.
@@ -77,42 +78,59 @@ Module Example.
         GenEnsembleOpt g' t'.
   Admitted.
 
-  Ltac clauses H :=
-    lazymatch type of H with
-    | ?A \/ ?B => destruct H as [H|H]; [idtac|clauses H]
-    | _ => idtac
+Section tests.
+
+  (* Ltac clauses H := *)
+  (*   lazymatch type of H with *)
+  (*   | ?A \/ ?B => destruct H as [H|H]; [idtac|clauses H] *)
+  (*   | _ => idtac *)
+  (*   end. *)
+
+  Ltac2 rec split_all_clauses (n : ident) :=
+    let h := hyp n in
+    let t := Constr.type h in
+    lazy_match! t with
+    | ?a \/ ?b => destruct $h as [$n | $n] > [() | split_all_clauses n]
+    | _ => ()
     end.
 
-  Ltac gen_par_unfold H :=
-    let g' := fresh "g" in
-    let te := fresh "te" in
-    let t' := fresh "t'" in
-    let Ht := fresh "Ht" in
-    let Ht' := fresh "Ht'" in
-    let Htete' := fresh "Htete'" in
-    let Hg' := fresh "Hg'" in
-    apply canned_par_opt_two in H;
-    destruct H as [g' [te [t' [Ht [Ht' [Htete' Hg']]]]]];
-    cbn in Ht';
-    clauses Ht';
-    let rep := fresh "rep" in
-    destruct Ht' as [rep Ht'];
-    inversion Ht'; subst; clear Ht'.
+  Ltac2 simpl_par_cons_rep (n : ident) (g : ident) (te : ident) :=
+    let rep := in_goal @rep in
+    let h := hyp n in
+    destruct $h as [$rep $n];
+    let h := hyp n in
+    let hte := in_goal @Hte in
+    injection $h as $n $hte;
+    subst $g;
+    subst $te.
 
-  Ltac gen_step :=
-    lazymatch goal with
-    | [ H : GenEnsembleOpt {| processes := [] |} ?t |- _] =>
-        apply canned_par_opt_nil in H; subst t
-    | [ H : GenEnsembleOpt {| processes := ?pp |} ?t |- _] =>
-        gen_par_unfold H
+  Ltac2 gen_par_cons_unfold (t : ident) (n : ident) cont :=
+    let g' := in_goal @g in
+    let te := in_goal @te in
+    let t' := in_goal @t' in
+    let ht := in_goal @Ht in
+    let htete' := in_goal @Htete' in
+    let hg' := in_goal @Hg' in
+    apply canned_par_opt_two in $n;
+    let h := hyp n in
+    destruct $h as [$g' [$te [$t' [$ht [$n [$htete' $hg']]]]]];
+    subst $t;
+    cbv in $n;
+    split_all_clauses n > [simpl_par_cons_rep n g' te; cont t' hg'..].
+
+  Ltac2 rec gen_par_unfold (t : ident) (n : ident) :=
+    lazy_match! type (hyp n) with
+    | GenEnsembleOpt {| processes := [] |} _ =>
+        apply canned_par_opt_nil in $n; subst $t
+    | GenEnsembleOpt {| processes := ?pp |} _ =>
+        gen_par_cons_unfold t n gen_par_unfold
     end.
 
   Goal forall n,
       -{{ fun s => stateG s var = n }} GenEnsembleOpt system {{ fun s => stateG s var = n + 2 }}.
   Proof with auto with slot.
-    intros n.
-    unfold_ht.
-    unfold Ensembles.In, system, better_parallel.of_progs in Ht.
-    repeat gen_step.
+    intros n t Hg s_begin s_end Hrbt Hpre.
+    unfold Ensembles.In, system, of_progs in Hg.
+    gen_par_unfold @t @Hg.
   Abort.
 End Example.
