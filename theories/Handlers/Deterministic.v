@@ -102,13 +102,17 @@ Module Log.
 
     Definition State : Type := list (PID * Event).
 
-    Definition req_t := Event.
+    Inductive req_t := log : Event -> req_t.
 
     Definition ret_t := I.
 
-    Definition step (pid : PID) (s : State) (req : req_t) := ((pid, req) :: s, ret_t).
+    Definition step (pid : PID) (s : State) (req : req_t) :=
+      match req with
+      | log content =>
+          ((pid, content) :: s, ret_t)
+      end.
 
-    Global Instance historyDetHandler : DeterministicHandler req_t (fun _ => True) :=
+    Instance historyDetHandler : DeterministicHandler req_t (fun _ => True) :=
       { det_h_state := State;
         det_h_state_transition := step;
       }.

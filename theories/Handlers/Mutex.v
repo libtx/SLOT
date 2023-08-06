@@ -27,6 +27,10 @@ From SLOT Require Import
 Section defs.
   Open Scope slot_scope.
 
+  Inductive state_t : Set :=
+  | unlocked : state_t
+  | locked : PID -> state_t.
+
   Inductive req_t : Set :=
   | grab    : req_t
   | release : req_t.
@@ -37,17 +41,15 @@ Section defs.
     | release => bool
     end.
 
-  Definition state_t := option PID.
-
   Let TE := TraceElem req_t ret_t.
 
   Inductive mutex_state_transition : state_t -> TE -> state_t -> Prop :=
   | mutex_grab : forall pid,
-      mutex_state_transition None (pid @ I <~ grab) (Some pid)
+      mutex_state_transition unlocked (pid @ I <~ grab) (locked pid)
   | mutex_release_ok : forall pid,
-      mutex_state_transition (Some pid) (pid @ true <~ release) None
+      mutex_state_transition (locked pid) (pid @ true <~ release) unlocked
   | mutex_release_fail : forall pid,
-      mutex_state_transition None (pid @ false <~ release) None.
+      mutex_state_transition unlocked (pid @ false <~ release) unlocked.
 
   Global Instance t : @IOHandler req_t ret_t :=
     { h_state := state_t;

@@ -20,7 +20,7 @@ From Coq Require Import
      Program
      Logic.Classical_Prop
      Logic.Decidable
-     Relations.
+     Classes.RelationClasses.
 
 Import ListNotations.
 
@@ -35,4 +35,11 @@ Section events_commute.
   Definition events_commute (e1 e2 : Event) :=
     forall (s s' : State),
       ReachableByTrace s [e1; e2] s' <-> ReachableByTrace s [e2; e1] s'.
+
+  Global Instance events_commuteSymm : Symmetric events_commute.
+  Proof.
+    intros a b Hab s s''.
+    unfold events_commute in *. specialize (Hab s s'').
+    now symmetry in Hab.
+  Qed.
 End events_commute.

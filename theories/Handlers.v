@@ -90,6 +90,12 @@ Section ComposeHandlers.
       forward (s_l', s_r')...
   Qed.
 
+  Lemma compose_comm_rev pid1 pid2 req1 req2 ret1 ret2 :
+    events_commute (pid1 @ ret1 <~ inr req1) (pid2 @ ret2 <~ inl req2).
+  Proof.
+    symmetry. apply compose_comm.
+  Qed.
+
   Definition lift_l (prop : S_l -> Prop) : compose_state -> Prop :=
     fun s => match s with
             (s_l, _) => prop s_l
@@ -100,6 +106,12 @@ Section ComposeHandlers.
             (_, s_r) => prop s_r
           end.
 End ComposeHandlers.
+
+Create HintDb slot_comm.
+#[global] Hint Resolve compose_comm : slot_comm.
+#[global] Hint Resolve compose_comm_rev : slot_comm.
+
+Print Hint *.
 
 Infix "<+>" := (compose)(at level 100).
 
