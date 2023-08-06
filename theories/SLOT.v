@@ -21,6 +21,9 @@ From SLOT Require Export
      Tactics
      Handlers.
 
+From Hammer Require Import
+     Tactics.
+
 From Coq Require Import List.
 Import ListNotations.
 
@@ -56,41 +59,60 @@ Module Example.
 
   Lemma canned_par_opt_nil {last_pid}
     {t : Trace Req Rep}
-    (H : Ensembles.In (GenEnsembleOpt {| last_pid := last_pid; processes := []|}) t) :
+    (H : GenEnsembleOpt {| last_pid := last_pid; processes := []|} t) :
     t = [].
   Proof.
     inversion H.
     - reflexivity.
     - inversion H0.
-    - inversion H0.
   Qed.
 
-  Lemma canned_par_opt_two {last_pid p1 p2 rest}
+  Lemma canned_par_opt_two {last_pid p rest}
     {t : Trace Req Rep}
-    (H : Ensembles.In (GenEnsembleOpt {| last_pid := last_pid; processes := p1 :: p2 :: rest|}) t) :
-    exists pid1 req rep,
-      t = [pid1 @ rep <~ req].
+    (H : GenEnsembleOpt {| last_pid := last_pid; processes := p :: rest|} t) :
+    exists g' te t',
+      t = te :: t' /\
+      {| last_pid := last_pid; processes := p :: rest|} ~~> g' & te /\
+        can_follow_hd te t' /\
+        GenEnsembleOpt g' t'.
   Admitted.
+
+  Ltac clauses H :=
+    lazymatch type of H with
+    | ?A \/ ?B => destruct H as [H|H]; [idtac|clauses H]
+    | _ => idtac
+    end.
+
+  Ltac gen_par_unfold H :=
+    let g' := fresh "g" in
+    let te := fresh "te" in
+    let t' := fresh "t'" in
+    let Ht := fresh "Ht" in
+    let Ht' := fresh "Ht'" in
+    let Htete' := fresh "Htete'" in
+    let Hg' := fresh "Hg'" in
+    apply canned_par_opt_two in H;
+    destruct H as [g' [te [t' [Ht [Ht' [Htete' Hg']]]]]];
+    cbn in Ht';
+    clauses Ht';
+    let rep := fresh "rep" in
+    destruct Ht' as [rep Ht'];
+    inversion Ht'; subst; clear Ht'.
+
+  Ltac gen_step :=
+    lazymatch goal with
+    | [ H : GenEnsembleOpt {| processes := [] |} ?t |- _] =>
+        apply canned_par_opt_nil in H; subst t
+    | [ H : GenEnsembleOpt {| processes := ?pp |} ?t |- _] =>
+        gen_par_unfold H
+    end.
 
   Goal forall n,
       -{{ fun s => stateG s var = n }} GenEnsembleOpt system {{ fun s => stateG s var = n + 2 }}.
   Proof with auto with slot.
     intros n.
     unfold_ht.
-    unfold system, better_parallel.of_progs in Ht.
-    inversion Ht.
-    3:{ inversion Ht.
-        3:{
-      apply canned_par_opt_two in Ht.
-    specialize (canned_par_opt_two Ht) as H.
-
-
-    cbn in Ht.
-    inversion Ht.
-    - exfalso. simpl in H. firstorder; discriminate.
-    - simpl in H. firstorder.
-
-    apply parallel_processes_ht...
-    unfold_ht. inversion Ht.
+    unfold Ensembles.In, system, better_parallel.of_progs in Ht.
+    repeat gen_step.
   Abort.
 End Example.
