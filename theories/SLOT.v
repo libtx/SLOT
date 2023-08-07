@@ -94,6 +94,12 @@ Section tests.
     | _ => ()
     end.
 
+  (* Test: *)
+  Goal True \/ True \/ True \/ True -> False.
+    intros H.
+    split_all_clauses @H > [() | () | () | ()].
+  Abort.
+
   Ltac2 simpl_par_cons_rep (n : ident) (g : ident) (te : ident) :=
     let rep := in_goal @rep in
     let h := hyp n in
@@ -104,7 +110,18 @@ Section tests.
     subst $g;
     subst $te.
 
-  Ltac2 gen_par_cons_unfold (t : ident) (n : ident) cont :=
+  (* Test: *)
+  Goal forall g te,
+      (exists rep : True, Some (g, te) = Some (1, 2)) ->
+      g = 1 /\ te = 2.
+    intros g te H.
+    simpl_par_cons_rep @H @g @te.
+    split; reflexivity.
+  Qed.
+
+  Ltac2 Type prev_hyps := {comm_hyp : ident; te : ident}.
+
+  Ltac2 gen_par_cons_unfold (prev : prev_hyps option) (t : ident) (n : ident) cont :=
     let g' := in_goal @g in
     let te := in_goal @te in
     let t' := in_goal @t' in
@@ -115,15 +132,26 @@ Section tests.
     let h := hyp n in
     destruct $h as [$g' [$te [$t' [$ht [$n [$htete' $hg']]]]]];
     subst $t;
-    cbv in $n;
-    split_all_clauses n > [simpl_par_cons_rep n g' te; cont t' hg'..].
+    cbn in $n;
+    split_all_clauses n >
+      [simpl_par_cons_rep n g' te;
+       cont t' hg'..].
 
   Ltac2 rec gen_par_unfold (t : ident) (n : ident) :=
     lazy_match! type (hyp n) with
     | GenEnsembleOpt {| processes := [] |} _ =>
-        apply canned_par_opt_nil in $n; subst $t
+        apply canned_par_opt_nil in $n ; subst $t
     | GenEnsembleOpt {| processes := ?pp |} _ =>
-        gen_par_cons_unfold t n gen_par_unfold
+        gen_par_cons_unfold t n (gen_par_unfold check_state)
+    end.
+
+  Ltac2 check_commut () :=
+    match! goal with
+    | [ h : can_follow_hd ?a [] |- _] =>
+        clear $h
+    | [ h : can_follow_hd ?te1 (?te2 :: _) |- _] =>
+        printf "found: %I %t %t" h te1 te2;
+        clear $h
     end.
 
   Goal forall n,
@@ -131,6 +159,8 @@ Section tests.
   Proof with auto with slot.
     intros n t Hg s_begin s_end Hrbt Hpre.
     unfold Ensembles.In, system, of_progs in Hg.
-    gen_par_unfold @t @Hg.
+    gen_par_unfold () @t @Hg.
+    repeat (check_commut ()).
+    check_commut ().
   Abort.
 End Example.
