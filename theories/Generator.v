@@ -397,8 +397,13 @@ Section optimize.
 
   Lemma can_follow_hd_eq {te t1 t2} (Hfoll : can_follow_hd te t1) (Hhd : hd_error t1 = hd_error t2) :
     can_follow_hd te t2.
-  Admitted.
-
+  Proof.
+    intros.
+    unfold can_follow_hd in *.
+    destruct t1, t2; try reflexivity.
+    - exfalso. inversion Hhd.
+    - simpl in Hhd. injection Hhd as H. now subst.
+  Qed.
 
   Fixpoint gen_ens_opt_add g g' te t (Hte : g ~~> g' & te)
            (Ht : GenEnsembleOpt g' t)
