@@ -15,6 +15,33 @@ Import ListNotations.
 
 Import better_parallel.
 
+Section canned_lemmas.
+  Context `{Hhandler : IOHandler}.
+  Let TE := ProcessEvent (IOp Request Reply).
+
+  Lemma canned_par_opt_nil {last_pid}
+    (t : list TE)
+    (Hgen : GenEnsembleOpt {| last_pid := last_pid; processes := []|} t) :
+    t = [].
+  Proof.
+    inversion Hgen.
+    - reflexivity.
+    - inversion H.
+  Qed.
+
+  Lemma canned_par_opt_cons {last_pid : PID}
+    {p : @Runnable Request Reply}
+    {rest : list (@Runnable Request Reply)}
+    (t : list TE)
+    (Hgen : GenEnsembleOpt {| last_pid := last_pid; processes := p :: rest|} t) :
+    exists g' te t',
+      t = te :: t' /\
+        {| last_pid := last_pid; processes := p :: rest|} ~~> g' & te /\
+        can_follow_hd te t' /\
+        GenEnsembleOpt g' t'.
+  Admitted.
+End canned_lemmas.
+
 (** A tactic that tries to find a contradiction to [can_follow_hd] hypothesis named [hi].
 
  pid_compare_tact is a tactic that finds evidence that [pid1 > pid2]
@@ -36,7 +63,7 @@ Ltac2 elim_by_comm0 pid_compare_tact commut_tact (hi : ident) :=
 
 Ltac2 elim_by_comm hi := elim_by_comm0
                            (fun () => ltac1:(lia))
-                           (fun () => (first [apply compose_comm | apply compose_comm_rev]))
+                           (fun () => (first [apply compose_comm | apply compose_comm_rev]; auto with slot))
                            hi.
 
 From SLOT Require Import Deterministic Mutex.
@@ -54,6 +81,11 @@ Section tests.
     intros.
     elim_by_comm @H.
   Qed.
+
+  Goal forall t (rep1 rep2 : nat) , can_follow_hd (1 @ rep1 <~ inl read) [0 @ rep2 <~ inl read; t] -> False.
+  Proof.
+    intros. (* TODO *)
+  Abort.
 
   Goal forall t (rep1 rep2 : nat) , can_follow_hd (0 @ rep1 <~ inl read) [1 @ rep2 <~ inr read; t] -> False.
   Proof.
@@ -129,53 +161,34 @@ Ltac2 perform_post_checks (s : state option) :=
   | None => fail
   | Some s =>
       let ch := s.(comm_hyp) in
+      printf "checking %I (%t)" ch (Constr.type (Control.hyp ch));
       elim_by_comm ch
   end.
 
-Section canned_lemmas.
-  Context `{Hhandler : IOHandler}.
-  Let TE := ProcessEvent (IOp Request Reply).
+Check @Parallel.
 
-  Lemma canned_par_opt_nil {last_pid}
-    (t : list TE)
-    (Hgen : GenEnsembleOpt {| last_pid := last_pid; processes := []|} t) :
-    t = [].
-  Proof.
-    inversion Hgen.
-    - reflexivity.
-    - inversion H.
-  Qed.
-
-  Lemma canned_par_opt_cons {last_pid : PID}
-    {p : @Runnable Request Reply}
-    {rest : list (@Runnable Request Reply)}
-    (t : list TE)
-    (Hgen : GenEnsembleOpt {| last_pid := last_pid; processes := p :: rest|} t) :
-    exists g' te t',
-      t = te :: t' /\
-        {| last_pid := last_pid; processes := p :: rest|} ~~> g' & te /\
-        can_follow_hd te t' /\
-        GenEnsembleOpt g' t'.
-  Admitted.
-End canned_lemmas.
-
-Ltac2 gen_par_step (t : ident) (gen_hyp_n : ident) :=
+Ltac2 gen_par_step (handler_instance : constr) (t : ident) (gen_hyp_n : ident) :=
   lazy_match! Constr.type (Control.hyp gen_hyp_n) with
   | @GenEnsembleOpt (@Parallel ?req_t ?rep_t) ?state_t ?event_t ?state_space_inst ?generator_inst {| processes := [] |} _ =>
       apply (@canned_par_opt_nil $req_t $rep_t) in $gen_hyp_n;
       subst $t;
       None
-  |  @GenEnsembleOpt (@Parallel ?req_t ?rep_t) ?state_t ?event_t ?state_space_inst ?generator_inst {| processes := ?pp |} _ =>
+  |  @GenEnsembleOpt (@Parallel ?req_t ?rep_t) ?state_t ?event_t ?state_space_inst ?generator_inst
+                     {| last_pid := ?pid; processes := ?pfirst :: ?prest |} ?t_hyp =>
       let g' := Fresh.in_goal @g in
       let te := Fresh.in_goal @te in
       let t' := Fresh.in_goal @t' in
       let ht := Fresh.in_goal @Ht in
       let hcomm := Fresh.in_goal @Htete' in
       let hg' := Fresh.in_goal @Hg' in
-      apply (@canned_par_opt_cons $req_t $rep_t) in $gen_hyp_n;
+      apply (@canned_par_opt_cons $req_t $rep_t $handler_instance $pid $pfirst $prest $t_hyp) in $gen_hyp_n;
       let h := Control.hyp gen_hyp_n in
       destruct $h as [$g' [$te [$t' [$ht [$gen_hyp_n [$hcomm $hg']]]]]];
+      (* subst $t; *)
       Some (g', te, t', ht, hcomm, hg')
+  | ?invalid =>
+      let msg := fprintf "gen_par_step invalid argument %t" invalid in
+      Control.throw (Init.Tactic_failure (Some msg))
   end.
 
 Section tests.
@@ -183,94 +196,103 @@ Section tests.
   Let Req := handler_request_t Handler.
   Let Rep := handler_reply_t Handler.
 
+  Let prog n : @Program Req Rep := done Var.write n.
+
   Goal forall t, GenEnsembleOpt (of_progs []) t -> t = [].
   Proof.
     intros t Hg.
     unfold of_progs in Hg.
-    gen_par_step @t @Hg.
+    gen_par_step 'Handler @t @Hg.
     reflexivity.
   Qed.
 
-  Goal forall t, GenEnsembleOpt (of_progs [done Var.write 1]) t -> False.
+  Goal forall t, GenEnsembleOpt (of_progs [prog 1]) t -> False.
   Proof.
     intros t Hg.
-    unfold of_progs in Hg.
-    gen_par_step @t @Hg > [()].
+    unfold of_progs, prog in Hg.
+    gen_par_step 'Handler @t @Hg > [()].
   Abort.
 
-  Goal forall t, GenEnsembleOpt (of_progs [done Var.write 1; done Var.write 2]) t -> False.
+  Goal forall t, GenEnsembleOpt (of_progs [prog 1; prog 2]) t -> False.
   Proof.
     intros t Hg.
-    unfold of_progs in Hg.
-    gen_par_step @t @Hg > [()].
+    unfold of_progs, prog in Hg.
+    gen_par_step 'Handler @t @Hg > [()].
   Abort.
 End tests.
 
-Ltac2 rec gen_par_unfold0 (t : ident) (gen_hyp_n : ident) (state : state option) hook :=
+Ltac2 rec gen_par_unfold0 (handler_instance : constr) (t : ident) (gen_hyp_n : ident) (state : state option) hook :=
   orelse
     (fun () => perform_post_checks state)
     (fun _ =>
        Option.may hook state >
-         [match gen_par_step t gen_hyp_n with
+         [match gen_par_step handler_instance t gen_hyp_n with
           | None =>
               Option.may hook state
           | Some (g', te, t', ht, hcomm, hg') =>
-              (* subst $t; *)
               cbn in $gen_hyp_n;
               let state := Some {comm_hyp := hcomm; te := te; trace := t} in
               split_all_clauses gen_hyp_n >
                 [simpl_par_cons_rep gen_hyp_n g' te;
-                 gen_par_unfold0 t' hg' state hook..]
+                 gen_par_unfold0 handler_instance t' hg' state hook..]
           end..]).
 
-Ltac2 gen_par_unfold (t : ident) (hyp_g : ident) hook :=
-  gen_par_unfold0 t hyp_g None hook.
+Ltac2 gen_par_unfold (handler_instance : constr) (t : ident) (hyp_g : ident) hook :=
+  gen_par_unfold0 handler_instance t hyp_g None hook.
 
 Section tests.
   Let Handler := Var.t nat.
   Let Req := handler_request_t Handler.
   Let Rep := handler_reply_t Handler.
 
+  Let P := @Program Req Rep.
+
   Goal forall t, GenEnsembleOpt (of_progs []) t -> t = [].
   Proof.
     intros t Hg.
     unfold of_progs in Hg.
-    gen_par_unfold @t @Hg (fun _ => ()).
+    gen_par_unfold 'Handler @t @Hg (fun _ => ()).
     reflexivity.
   Qed.
 
-  Goal forall t, GenEnsembleOpt (of_progs [done (Var.write 1)]) t -> t = [0 @ I <~ Var.write 1].
+  Goal forall t,
+      let p : P := done (Var.write 1) in
+      GenEnsembleOpt (of_progs [p]) t -> t = [0 @ I <~ Var.write 1].
   Proof.
-    intros t Hg.
+    intros t p Hg. subst p.
     unfold of_progs in Hg.
-    gen_par_unfold @t @Hg (fun _ => ()).
+    gen_par_unfold 'Handler @t @Hg (fun _ => ()).
     destruct rep.
     apply Ht.
   Qed.
 
-  Goal forall t, GenEnsembleOpt (of_progs [done (Var.write 1); done (Var.write 2)]) t ->
+  Goal forall t,
+      let pp : list P := [done (Var.write 1); done (Var.write 2)] in
+      GenEnsembleOpt (of_progs pp) t ->
             t = [0 @ I <~ Var.write 1; 1 @ I <~ Var.write 2] \/
               t = [1 @ I <~ Var.write 2; 0 @ I <~ Var.write 1].
   Proof.
-    intros t Hg.
+    intros t pp Hg. subst pp.
     unfold of_progs in Hg.
-    gen_par_unfold @t @Hg (fun _ => ());
+    gen_par_unfold 'Handler @t @Hg (fun _ => ());
       destruct rep; destruct rep0; subst.
     - left. reflexivity.
     - right. reflexivity.
   Qed.
 
-  Goal forall t, GenEnsembleOpt (of_progs [do _ <- (Var.write 1); done (Var.write 2)]) t ->
+  Goal forall t,
+      let p : P := do _ <- (Var.write 1); done (Var.write 2) in
+      GenEnsembleOpt (of_progs [p]) t ->
             t = [0 @ I <~ Var.write 1; 0 @ I <~ Var.write 2].
   Proof.
-    intros t Hg.
+    intros t p Hg. subst p.
     unfold of_progs in Hg.
-    gen_par_unfold @t @Hg (fun _ => ());
+    gen_par_unfold 'Handler @t @Hg (fun _ => ());
       destruct rep; destruct rep0; subst.
     - reflexivity.
   Qed.
 
-  Let prog : @Program Req Rep :=
+  Let prog : P :=
         do n <- Var.read;
         done Var.write (n + 1).
 
@@ -280,7 +302,7 @@ Section tests.
   Proof.
     intros t Hg.
     unfold system, of_progs, prog in Hg.
-    gen_par_unfold @t @Hg (fun s => ()) > [() | () | () | () | () | ()].
+    gen_par_unfold 'Handler @t @Hg (fun s => ()) > [() | () | () | () | () | ()].
   Abort.
 End tests.
 
@@ -314,13 +336,39 @@ Module Example.
 
   Ltac2 handlerSpec () := ['(Var.t nat); 'Mutex.t].
 
-  Definition handler := ltac2:(makeClass handlerSpec).
-  Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
-  Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
-  Definition stateG := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
-  Definition Req := handler_request_t handler.
-  Definition Rep := handler_reply_t handler.
-  Definition TE := ProcessEvent (@IOp Req Rep).
+  Let handler := ltac2:(makeClass handlerSpec).
+  Let reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
+  Let req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
+  Let stateG := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
+  Let Req := handler_request_t handler.
+  Let Rep := handler_reply_t handler.
+  Let TE := ProcessEvent (@IOp Req Rep).
+
+  (* An example program where all syscalls commute: *)
+  Let prog_inl : @Program Req Rep :=
+    do _ <- req var read;
+    done req var read.
+
+  Let prog_inr : @Program Req Rep :=
+    do _ <- req mutex release;
+    done req mutex release.
+
+  Goal forall t,
+      GenEnsembleOpt (of_progs [prog_inl; prog_inr]) t ->
+      exists n1 n2 r1 r2,
+        t = [0 @ n1 <~ req var read; 0 @ n2 <~ req var read; 1 @ r1 <~ req mutex release; 1 @ r2 <~ req mutex release].
+  Proof.
+    intros t Hg.
+    unfold of_progs, prog_inl, prog_inr, req in Hg.
+    gen_par_unfold 'handler @t @Hg (fun _ => ()).
+    - subst.
+      exists rep. exists rep0. exists rep1. exists rep2.
+      reflexivity.
+    - elim_by_comm @Htete'0.
+
+
+
+
 
   Definition prog : @Program Req Rep :=
     do _ <- req mutex grab;
@@ -330,7 +378,7 @@ Module Example.
 
   Import better_parallel.
 
-  Definition system := of_progs [prog; prog].
+  Let system := of_progs [prog; prog].
 
   Goal forall n,
       -{{ fun s => stateG s var = n }}
@@ -340,8 +388,19 @@ Module Example.
     intros n t Hg [s_begin1 s_begin2] [s_end1 s_end2] Hrbt Hpre.
     unfold stateG in *. simpl in *.
     unfold Ensembles.In, system, of_progs, prog in Hg.
-    Set Ltac2 Backtrace.
-    gen_par_unfold @t @Hg (fun _ => ()).
+    gen_par_unfold 'handler @t @Hg (fun _ => ()).
+  Abort.
+
+  Goal forall n,
+      -{{ fun s => stateG s var = n }}
+         GenEnsembleOpt system
+       {{ fun s => stateG s var = n + 2 }}.
+  Proof with auto with slot.
+    intros n t Hg [s_begin1 s_begin2] [s_end1 s_end2] Hrbt Hpre.
+    unfold stateG in *. simpl in *.
+    unfold Ensembles.In, system, of_progs, prog in Hg.
+  Abort.
+
 
       (fun _ => match handler_step @Hrbt with
              | None => ()
