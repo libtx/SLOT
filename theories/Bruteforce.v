@@ -59,7 +59,7 @@ Ltac2 elim_by_comm0 pid_compare_tact commut_tact (hi : ident) :=
     let h1 := Control.hyp hnoncomm in
     let h2 := Control.hyp hcomm in
     (destruct ($h1 $h2)) in
-  destruct $h as [$hpid|$hnoncomm] > [solve [ pid_compare_tact () ] | solve [ try_find_comm () ]].
+  destruct $h as [$hpid|$hnoncomm] > [solve [ pid_compare_tact () ] | solve [ try_find_comm () ] ].
 
 Ltac2 elim_by_comm hi := elim_by_comm0
                            (fun () => ltac1:(lia))
@@ -70,6 +70,11 @@ From SLOT Require Import Deterministic Mutex.
 
 Section tests.
   Import Var.
+
+  Let Handler := compose (Var.t nat) (Var.t nat).
+  Let Req := handler_request_t Handler.
+  Let Rep := handler_reply_t Handler.
+
   Goal forall t (rep1 rep2 : nat) , can_follow_hd (1 @ rep1 <~ inl read) [0 @ rep2 <~ inr read; t] -> False.
   Proof.
     intros.
@@ -78,6 +83,11 @@ Section tests.
 
   Goal forall t (rep1 rep2 : nat) , can_follow_hd (1 @ rep1 <~ inr read) [0 @ rep2 <~ inl read; t] -> False.
   Proof.
+    intros.
+    elim_by_comm @H.
+  Qed.
+
+  Goal forall rep1 rep2, can_follow_hd (1 @ rep1 <~ inl (write 1)) [0 @ rep2 <~ inr (write 1)] -> False.
     intros.
     elim_by_comm @H.
   Qed.
@@ -98,6 +108,8 @@ Section tests.
     intros.
     Fail elim_by_comm @H.
   Abort.
+
+
 End tests.
 
 (** Helper tactic to unfold nested [a /\ b /\ ...] or [a \/ b \/  ...] expressions *)
@@ -140,8 +152,9 @@ Ltac2 simpl_par_cons_rep (n : ident) (g : ident) (te : ident) :=
   let h := Control.hyp n in
   let hte := Fresh.in_goal @Hte in
   injection $h as $n $hte;
-  subst $g;
-  subst $te.
+  (* subst $g; *)
+  (* subst $te. *)
+  subst.
 
 Section tests.
   Goal forall g te,
@@ -154,18 +167,7 @@ Section tests.
   Qed.
 End tests.
 
-Local Ltac2 Type state := {comm_hyp : ident; te : ident; trace : ident}.
-
-Ltac2 perform_post_checks (s : state option) :=
-  match s with
-  | None => fail
-  | Some s =>
-      let ch := s.(comm_hyp) in
-      printf "checking %I (%t)" ch (Constr.type (Control.hyp ch));
-      elim_by_comm ch
-  end.
-
-Check @Parallel.
+Local Ltac2 Type state := {comm_hyp : ident; te : ident; trace : ident; depth : int}.
 
 Ltac2 gen_par_step (handler_instance : constr) (t : ident) (gen_hyp_n : ident) :=
   lazy_match! Constr.type (Control.hyp gen_hyp_n) with
@@ -221,21 +223,58 @@ Section tests.
   Abort.
 End tests.
 
+Ltac2 maybe_elim_by_comm (state : state option)  cont :=
+  match state with
+  | None =>
+      cont ()
+  | Some {comm_hyp := h; depth := d} =>
+      printf "maybe elim by comm %i %I:%t" d h (Constr.type (Control.hyp h));
+      Control.plus (fun () => elim_by_comm h) (fun _ => Control.enter cont)
+  end.
+
+Section tests.
+  Goal True -> True.
+    maybe_elim_by_comm None (fun () => constructor).
+  Qed.
+
+  Goal forall (rep1 rep2 : nat), can_follow_hd (1 @ rep1 <~ inl Var.read) [0 @ rep2 <~ inr Var.read] -> False.
+    intros.
+    maybe_elim_by_comm (Some {comm_hyp := @H; te := @unused; trace := @unused; depth := 1})
+      (fun () => fail).
+  Qed.
+
+  Goal forall (rep1 rep2 : True), can_follow_hd (1 @ rep1 <~ inl (Var.write 1)) [0 @ rep2 <~ inr (Var.write 1)] -> False.
+    intros.
+    maybe_elim_by_comm (Some {comm_hyp := @H; te := @unused; trace := @unused; depth := 1})
+      (fun () => fail).
+  Qed.
+End tests.
+
+Local Ltac2 inc_depth state :=
+  match state with
+  | None => 1
+  | Some {depth := d} =>
+      Int.add d 1
+  end.
+
 Ltac2 rec gen_par_unfold0 (handler_instance : constr) (t : ident) (gen_hyp_n : ident) (state : state option) hook :=
-  orelse
-    (fun () => perform_post_checks state)
-    (fun _ =>
-       Option.may hook state >
-         [match gen_par_step handler_instance t gen_hyp_n with
-          | None =>
-              Option.may hook state
-          | Some (g', te, t', ht, hcomm, hg') =>
-              cbn in $gen_hyp_n;
-              let state := Some {comm_hyp := hcomm; te := te; trace := t} in
-              split_all_clauses gen_hyp_n >
-                [simpl_par_cons_rep gen_hyp_n g' te;
-                 gen_par_unfold0 handler_instance t' hg' state hook..]
-          end..]).
+  let loop () :=
+    hook () >
+      [match gen_par_step handler_instance t gen_hyp_n with
+       | None =>
+           hook ()
+       | Some (g', te, t', ht, hcomm, hg') =>
+           cbn in $gen_hyp_n;
+           let state := Some {comm_hyp := hcomm; te := te; trace := t'; depth := inc_depth state} in
+           split_all_clauses gen_hyp_n >
+             [simpl_par_cons_rep gen_hyp_n g' te;
+              gen_par_unfold0 handler_instance t' hg' state hook..]
+       end..] in
+  let post_process state :=
+    let t := state.(trace) in
+    subst $t in
+  Option.may post_process state;
+  maybe_elim_by_comm state loop.
 
 Ltac2 gen_par_unfold (handler_instance : constr) (t : ident) (hyp_g : ident) hook :=
   gen_par_unfold0 handler_instance t hyp_g None hook.
@@ -263,7 +302,7 @@ Section tests.
     unfold of_progs in Hg.
     gen_par_unfold 'Handler @t @Hg (fun _ => ()).
     destruct rep.
-    apply Ht.
+    reflexivity.
   Qed.
 
   Goal forall t,
@@ -304,6 +343,18 @@ Section tests.
     unfold system, of_progs, prog in Hg.
     gen_par_unfold 'Handler @t @Hg (fun s => ()) > [() | () | () | () | () | ()].
   Abort.
+
+  Let handler := compose (Var.t nat) (Var.t nat).
+
+  Goal forall t, GenEnsembleOpt (of_progs [done inl (Var.write 1); done inr (Var.write 2)]) t ->
+            t = [0 @ I <~ inl (Var.write 1); 1 @ I <~ inr (Var.write 2)].
+  Proof.
+    intros t H.
+    unfold of_progs in H.
+    gen_par_unfold 'handler @t @H (fun s => ()).
+    - destruct rep. destruct rep0. reflexivity.
+
+    - elim_by_comm @Htete'.
 End tests.
 
 Ltac2 handler_step (hypn : ident) : (ident * ident * ident) option :=
@@ -336,20 +387,20 @@ Module Example.
 
   Ltac2 handlerSpec () := ['(Var.t nat); 'Mutex.t].
 
-  Let handler := ltac2:(makeClass handlerSpec).
-  Let reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
-  Let req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
-  Let stateG := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
-  Let Req := handler_request_t handler.
-  Let Rep := handler_reply_t handler.
-  Let TE := ProcessEvent (@IOp Req Rep).
+  Definition handler := ltac2:(makeClass handlerSpec).
+  Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
+  Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
+  Definition stateG := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
+  Definition Req := handler_request_t handler.
+  Definition Rep := handler_reply_t handler.
+  Definition TE := ProcessEvent (@IOp Req Rep).
 
   (* An example program where all syscalls commute: *)
-  Let prog_inl : @Program Req Rep :=
+  Definition prog_inl : @Program Req Rep :=
     do _ <- req var read;
     done req var read.
 
-  Let prog_inr : @Program Req Rep :=
+  Definition prog_inr : @Program Req Rep :=
     do _ <- req mutex release;
     done req mutex release.
 
@@ -361,8 +412,17 @@ Module Example.
     intros t Hg.
     unfold of_progs, prog_inl, prog_inr, req in Hg.
     gen_par_unfold 'handler @t @Hg (fun _ => ()).
-    - subst.
-      exists rep. exists rep0. exists rep1. exists rep2.
+    Focus 2. elim_by_comm @Htete'0.
+
+    gen_par_unfold 'handler @t @Hg (fun s =>
+                                      let i := s.(trace) in
+                                      let ite := s.(te) in
+                                      printf "state's t=%I" i;
+                                      try (subst $i);
+                                      multi_match! goal with
+                                          | [ h : can_follow_hd ?x ?t |- _] => printf "%t %t" x t
+                                    end).
+    - exists rep. exists rep0. exists rep1. exists rep2.
       reflexivity.
     - elim_by_comm @Htete'0.
 
