@@ -100,14 +100,14 @@ End list_defn.
 
 Section process.
   Section defn.
-    Context {Request : Type} {Reply : Request -> Type}.
+    Context {Request : Type} {Reply : Request -> Type} {Return : Type}.
 
     Let TE := IOp Request Reply.
-    Let t := @Program Request Reply.
+    Let t := @Program Request Reply Return.
 
     Definition ThreadGenStep (gen : t) (next : option (t * TE)) : Prop :=
       match gen with
-      | p_dead =>
+      | p_dead _ =>
           next = None
       | p_cont req cont =>
           exists (ret : Reply req),
@@ -126,13 +126,15 @@ Section process.
       | false => bool
       end.
 
-    Let my_prog : @Program Req Rep :=
+    Let my_prog : @Program Req Rep True :=
       do x <- true;
       match x with
       | 0 =>
-        done false
+        do _ <- false;
+        return I
       | _ =>
-        done true
+        do _ <- true;
+        return I
       end.
 
     Goal forall t,
@@ -284,7 +286,8 @@ Module better_parallel.
     Record Runnable :=
       { pid : PID;
         req : Request;
-        cont : Reply req -> @Program Request Reply;
+        ret_t : Type;
+        cont : Reply req -> @Program Request Reply ret_t;
       }.
 
     Definition Processes := list Runnable.
@@ -303,7 +306,7 @@ Module better_parallel.
           exists (rep : Reply req),
           let r' := cont rep in
           let pp' := match r' with
-                     | p_dead => visited ++ remaining
+                     | p_dead _ => visited ++ remaining
                      | p_cont req cont => visited ++ ({| pid := pid; req := req; cont := cont |} :: remaining)
                      end in
           let g := {| last_pid := last_pid; processes := pp' |} in
@@ -333,19 +336,23 @@ Module better_parallel.
     Global Instance parGen : Generator TE Parallel :=
       {| gen_step := ParallelStep |}.
 
-    Definition of_progs (progs : list (@Program Request Reply)) : Parallel :=
-      let fix go pid acc l :=
-        match l with
-        | [] => (pid, acc)
-        | p :: rest =>
-            let acc := match p with
-                       | p_dead => acc
-                       | p_cont req cont => {| pid := pid; req := req; cont := cont |} :: acc
-                       end in
-            go (S pid) acc rest
-        end in
-      let (last_pid, pp) := go 0 [] progs in
-      {| last_pid := last_pid; processes := pp |}.
+    Definition spawn {ret_t : Type} (prog : @Program Request Reply ret_t) (par : Parallel) : Parallel :=
+      match prog with
+      | p_dead _ => par
+      | p_cont req cont =>
+          match par with
+            {| last_pid := pid; processes := processes |} =>
+              let runnable := {| pid := pid; req := req; cont := cont |} in
+              {| last_pid := S pid;
+                processes := runnable :: processes
+              |}
+          end
+      end.
+
+    Definition empty := {| last_pid := 0; processes := [] |}.
+
+    Definition of_progs {Return : Type} (progs : list (@Program Request Reply Return)) : Parallel :=
+      fold_left (fun par prog => spawn prog par) progs empty.
   End defn.
 
   Section test.
@@ -353,11 +360,12 @@ Module better_parallel.
     Let H := @Var.t nat.
 
 
-    Let prog : @Program (handler_request_t H) (handler_reply_t H) :=
+    Let prog : @Program (handler_request_t H) (handler_reply_t H) True :=
           do r <- Var.read;
-          done Var.write 1.
+          do _ <- Var.write 1;
+          return I.
 
-    Let pp := of_progs [prog; prog].
+    Let pp := (spawn prog (spawn prog empty)).
 
     Eval cbn in fun next => ParallelStep pp next.
   End test.

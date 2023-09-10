@@ -1,5 +1,5 @@
 (* SLOT, proofs about distributed systems design
-   Copyright (C) 2019-2021  k32
+   Copyright (C) 2019-2023  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -27,9 +27,6 @@ From SLOT Require Export
 
 Section defns.
   Context `{Hssp : StateSpace}.
-
-  Definition PossibleTrace t :=
-    exists s s', ReachableByTrace s t s'.
 
   (** [rbt_split] is an important observation that there is a point in
   the state space for each intermediate step of the trace

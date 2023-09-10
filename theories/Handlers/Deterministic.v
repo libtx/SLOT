@@ -18,8 +18,8 @@
 From Coq Require Import
      List.
 
-(* From stdpp Require Import *)
-(*      fin_maps. *)
+From LibTx Require
+     Storage.
 
 (* From Coq Require *)
 (*      ZArith.BinInt *)
@@ -169,3 +169,37 @@ Module Self.
 
   Definition t := deterministicHandler selfDetHandler.
 End Self.
+
+Module KVsnap.
+  Section defs.
+    Context {K V State} `{Hstate : KeysSnapshot K V State}.
+
+    Inductive req_t :=
+    | kv_apply : @Wlog_elem K V -> req_t
+    | kv_read : K -> req_t
+    | kv_keys : req_t.
+
+    Definition ret_t req : Type :=
+      match req with
+      | kv_apply _ => True
+      | kv_read _ => option V
+      | kv_keys => list K
+      end.
+
+    Definition step (_ : PID) (s : State) (req : req_t) : State * ret_t req :=
+      match req with
+      | kv_apply op => (wlog_elem_apply op s, I)
+      | kv_read k => (s, get k s)
+      | kv_keys => (s, keys_snapshot s)
+      end.
+
+    Global Instance varDetHandler : DeterministicHandler req_t ret_t :=
+      { det_h_state := State;
+        det_h_state_transition := step;
+      }.
+
+    Definition t := deterministicHandler varDetHandler.
+  End defs.
+
+  Global Arguments t {_} {_} State {_} {_}.
+End KVsnap.

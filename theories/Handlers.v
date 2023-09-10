@@ -262,7 +262,26 @@ Section test.
   Ltac2 handlerSpec () := ['(Var.t bool); 'Self.t; '(Log.t nat); '(Var.t nat)].
 
   Definition handler := ltac2:(makeClass handlerSpec).
+  Check handler.
   Definition reqT := ltac2:(makeRequestType handlerSpec 'handlerId).
   Definition req := ltac2:(makeReq handlerSpec 'handlerId 'reqT 'handler).
   Definition stateGet := ltac2:(makeStateGetter handlerSpec 'handler 'handlerId).
+  Check stateGet.
 End test.
+
+
+(* Record Haandler (idx : Type) := *)
+(*   mkHandler *)
+(*     { Req : Type; *)
+(*       Rep : Req -> Type; *)
+(*       ReqT : idx -> Type; *)
+(*       class : @IOHandler Req Rep; *)
+(*     }. *)
+
+(* Ltac2 handlerFactory idx spec := *)
+(*   let class := makeClass spec in *)
+(*   let Req := '(handler_request_t $class) in *)
+(*   let Rep := '(handler_request_t $class) in *)
+(*   let reqT := makeRequestType spec idx in *)
+(*   let req := makeReq spec idx reqT class in *)
+(*   mkHandler Req Rep reqT class. *)
