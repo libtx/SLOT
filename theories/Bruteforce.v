@@ -108,8 +108,6 @@ Section tests.
     intros.
     Fail elim_by_comm @H.
   Abort.
-
-
 End tests.
 
 (** Helper tactic to unfold nested [a /\ b /\ ...] or [a \/ b \/  ...] expressions *)
@@ -198,27 +196,30 @@ Section tests.
   Let Req := handler_request_t Handler.
   Let Rep := handler_reply_t Handler.
 
-  Let prog n : @Program Req Rep := done Var.write n.
+  Let prog n : @Program Req Rep True :=
+        do _ <- Var.write n;
+        return I.
 
-  Goal forall t, GenEnsembleOpt (of_progs []) t -> t = [].
+  Goal forall t, GenEnsembleOpt empty t -> t = [].
   Proof.
     intros t Hg.
-    unfold of_progs in Hg.
+    unfold empty in Hg.
     gen_par_step 'Handler @t @Hg.
     reflexivity.
   Qed.
 
-  Goal forall t, GenEnsembleOpt (of_progs [prog 1]) t -> False.
+  Goal forall t, GenEnsembleOpt (spawn (prog 1) empty) t -> False.
   Proof.
     intros t Hg.
-    unfold of_progs, prog in Hg.
+    unfold spawn, empty, prog in Hg.
+    Set Ltac2 Backtrace.
     gen_par_step 'Handler @t @Hg > [()].
   Abort.
 
-  Goal forall t, GenEnsembleOpt (of_progs [prog 1; prog 2]) t -> False.
+  Goal forall t, GenEnsembleOpt (spawn (prog 1) (spawn (prog 2) empty)) t -> False.
   Proof.
     intros t Hg.
-    unfold of_progs, prog in Hg.
+    unfold spawn, empty, prog in Hg.
     gen_par_step 'Handler @t @Hg > [()].
   Abort.
 End tests.
@@ -284,22 +285,22 @@ Section tests.
   Let Req := handler_request_t Handler.
   Let Rep := handler_reply_t Handler.
 
-  Let P := @Program Req Rep.
+  Let P := @Program Req Rep True.
 
-  Goal forall t, GenEnsembleOpt (of_progs []) t -> t = [].
+  Goal forall t, GenEnsembleOpt empty t -> t = [].
   Proof.
     intros t Hg.
-    unfold of_progs in Hg.
+    unfold empty in Hg.
     gen_par_unfold 'Handler @t @Hg (fun _ => ()).
     reflexivity.
   Qed.
 
   Goal forall t,
       let p : P := done (Var.write 1) in
-      GenEnsembleOpt (of_progs [p]) t -> t = [0 @ I <~ Var.write 1].
+      GenEnsembleOpt (spawn p empty) t -> t = [0 @ I <~ Var.write 1].
   Proof.
     intros t p Hg. subst p.
-    unfold of_progs in Hg.
+    unfold empty, spawn in Hg.
     gen_par_unfold 'Handler @t @Hg (fun _ => ()).
     destruct rep.
     reflexivity.
@@ -312,7 +313,7 @@ Section tests.
               t = [1 @ I <~ Var.write 2; 0 @ I <~ Var.write 1].
   Proof.
     intros t pp Hg. subst pp.
-    unfold of_progs in Hg.
+    cbn in Hg.
     gen_par_unfold 'Handler @t @Hg (fun _ => ());
       destruct rep; destruct rep0; subst.
     - left. reflexivity.
@@ -325,7 +326,7 @@ Section tests.
             t = [0 @ I <~ Var.write 1; 0 @ I <~ Var.write 2].
   Proof.
     intros t p Hg. subst p.
-    unfold of_progs in Hg.
+    cbn in Hg.
     gen_par_unfold 'Handler @t @Hg (fun _ => ());
       destruct rep; destruct rep0; subst.
     - reflexivity.
@@ -340,7 +341,7 @@ Section tests.
   Goal forall t, GenEnsembleOpt system t -> False.
   Proof.
     intros t Hg.
-    unfold system, of_progs, prog in Hg.
+    cbn in Hg.
     gen_par_unfold 'Handler @t @Hg (fun s => ()) > [() | () | () | () | () | ()].
   Abort.
 
@@ -350,7 +351,7 @@ Section tests.
             t = [0 @ I <~ inl (Var.write 1); 1 @ I <~ inr (Var.write 2)].
   Proof.
     intros t H.
-    unfold of_progs in H.
+    cbn in H.
     gen_par_unfold 'handler @t @H (fun s => ()).
     - destruct rep. destruct rep0. reflexivity.
   Qed.
@@ -395,11 +396,11 @@ Module Example.
   Definition TE := ProcessEvent (@IOp Req Rep).
 
   (* An example program where all syscalls commute: *)
-  Definition prog_inl : @Program Req Rep :=
+  Definition prog_inl : @Program Req Rep True :=
     do _ <- req var read;
     done req var read.
 
-  Definition prog_inr : @Program Req Rep :=
+  Definition prog_inr : @Program Req Rep True :=
     do _ <- req mutex release;
     done req mutex release.
 
@@ -409,13 +410,13 @@ Module Example.
         t = [0 @ n1 <~ req var read; 0 @ n2 <~ req var read; 1 @ r1 <~ req mutex release; 1 @ r2 <~ req mutex release].
   Proof.
     intros t Hg.
-    unfold of_progs, prog_inl, prog_inr, req in Hg.
+    cbn in Hg.
     gen_par_unfold 'handler @t @Hg (fun _ => ()).
     - exists rep. exists rep0. exists rep1. exists rep2.
       reflexivity.
   Qed.
 
-  Definition prog : @Program Req Rep :=
+  Definition prog : @Program Req Rep True :=
     do _ <- req mutex grab;
     do x <- req var read;
     do _ <- req var (write (x + 1));
@@ -430,7 +431,7 @@ Module Example.
   Proof with auto with slot.
     intros n t Hg [s_begin1 s_begin2] [s_end1 s_end2] Hrbt Hpre.
     unfold stateG in *. simpl in *.
-    unfold Ensembles.In, system, of_progs, prog in Hg.
+    cbn in Hg. unfold Ensembles.In in Hg.
     gen_par_unfold 'handler @t @Hg
       (fun _ => match handler_step @Hrbt with
              | None => ()

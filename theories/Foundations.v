@@ -150,6 +150,13 @@ Inductive TraceInvariant `{StateSpace} (prop : State -> Prop) : list Event -> Pr
     TraceInvariant prop t ->
     TraceInvariant prop (te :: t).
 
+Definition PossibleTrace `{Hssp : StateSpace} t :=
+  exists s s', ReachableByTrace s t s'.
+
+Definition TraceSpec `{Hssp : StateSpace} (spec : list Event -> Prop) :=
+  forall t,
+    spec t <-> PossibleTrace t.
+
 (** * Ensembles of traces
 
     Trace ensembles play one of central roles in SLOT, because from
@@ -235,9 +242,9 @@ Global Instance handlerStateSpace `{IOHandler} : StateSpace h_state (TraceElem R
 
  *)
 
-CoInductive Program {Request : Type} {Reply : Request -> Type} : Type :=
+CoInductive Program {Request : Type} {Reply : Request -> Type} {Ret : Type} : Type :=
 | p_dead : (* Program terminted *)
-    Program
+    Ret -> Program
 | p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
       (continuation : Reply pending_req -> Program)
@@ -247,8 +254,12 @@ CoInductive Program {Request : Type} {Reply : Request -> Type} : Type :=
 Notation "'do' V '<-' I ; C" := (p_cont (I) (fun V => C))
     (at level 100, C at next level, V name, right associativity) : slot_scope.
 
-Notation "'done' I" := (p_cont (I) (fun _ => p_dead))
+Notation "'return' R" := (p_dead R)
     (at level 100, right associativity) : slot_scope.
+
+Notation "'done' R" := (p_cont (R) (fun _ => p_dead I))
+    (at level 100, right associativity) : slot_scope.
+
 
 Notation "'call' V '<-' I ; C" := (I (fun V => C))
     (at level 100, C at next level, V ident,
