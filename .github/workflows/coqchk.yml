@@ -3,12 +3,18 @@ name: coqchk
 on: [push, pull_request]
 
 jobs:
-  coqchk:
-    runs-on: ubuntu-latest
-
+  build:
+    runs-on: ubuntu-latest  # container actions require GNU/Linux
+    strategy:
+      matrix:
+        coq_version:
+          - '8.17'
+        ocaml_version: ['default']
+      fail-fast: true
     steps:
-    - uses: actions/checkout@v1
-
-    - name: Run
-      run: |
-        docker run  -v $(pwd):/opt/build ghcr.io/libtx/docker-ci:master bash -c 'eval $(opam env); make validate'
+      - uses: actions/checkout@v3
+      - uses: coq-community/docker-coq-action@v1
+        with:
+          opam_file: 'coq-libtx-storage.opam'
+          coq_version: ${{ matrix.coq_version }}
+          ocaml_version: ${{ matrix.ocaml_version }}

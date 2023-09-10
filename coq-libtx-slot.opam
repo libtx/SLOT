@@ -10,7 +10,7 @@ description: """
 """
 
 build: [
-  [make "-j%{jobs}%"]
+  [make "-j%{jobs}%" "validate"]
 ]
 install: [make "install"]
 depends: [
