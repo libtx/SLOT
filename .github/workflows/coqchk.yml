@@ -10,11 +10,21 @@ jobs:
         coq_version:
           - '8.17'
         ocaml_version: ['default']
-      fail-fast: true
+      fail-fast: true  # don't stop jobs if one fails
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+        with:
+          ref: 'main'
+          repository: 'libtx/Storage'
+          path: '.deps/Storage'
+      # Build the main project:
       - uses: coq-community/docker-coq-action@v1
         with:
-          opam_file: 'coq-libtx-storage.opam'
+          opam_file: 'coq-libtx-slot.opam'
           coq_version: ${{ matrix.coq_version }}
           ocaml_version: ${{ matrix.ocaml_version }}
+          before_install: |
+            pwd
+            find $WORKDIR
+            opam pin add -n -y -k path coq-libtx-storage .deps/Storage
