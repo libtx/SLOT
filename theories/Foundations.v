@@ -29,6 +29,52 @@ Declare Scope slot_scope.
 Open Scope slot_scope.
 (* end hide *)
 
+Section transition_system.
+  Context {State Label Result : Type}.
+
+
+  Definition terminating_transition_system := State -> (Label * State) + Result -> Prop.
+End transition_system.
+
+Section trace.
+  Context {event : Type}.
+
+  Definition Trace := list event.
+
+  Section fluent.
+    Context `{Fluent : TransitionSystem}.
+
+    Inductive TraceProp : State -> list Label -> State -> Prop :=
+    | tp_nil : forall s,
+        TraceProp s [] s
+    | tp_cons : forall s s' s'' label trace,
+        possible_transition s label s' ->
+        TraceProp s' trace s'' ->
+        TraceProp s (label :: trace) s''.
+  End fluent.
+
+  Section fluent.
+    Context {F : Type} (fluent : F -> event -> F -> Prop).
+
+    Inductive FluentProp : F -> F -> TraceProp :=
+    | f_nil : forall f,
+        FluentProp f f []
+    | f_cons : forall f f' f'' evt trace,
+        fluent f evt f' ->
+        FluentProp f' f'' trace ->
+        FluentProp f f'' (evt :: trace).
+  End fluent.
+End trace.
+
+Section trace_compose.
+  Context {e1 e2 : Type}.
+
+  Definition CompositeEvent : Type := e1 + e2.
+
+  Definition star (p1 : @TraceProp e1) (p2 : @TraceProp e2) (t : CompositeTrace) : Prop :=
+
+
+
 (** ** State space
 
 [StateSpace] class is an abstraction used to describe side effects of
