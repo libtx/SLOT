@@ -21,7 +21,8 @@
 From Coq Require Import
      Program
      List
-     Ensembles.
+     Ensembles
+     RelationClasses.
 
 Import ListNotations.
 
@@ -32,48 +33,119 @@ Open Scope slot_scope.
 Section transition_system.
   Context {State Label Result : Type}.
 
+  Inductive Future :=
+  | fut_cont : Label -> State -> Future
+  | fut_result : Result -> Future.
 
-  Definition terminating_transition_system := State -> (Label * State) + Result -> Prop.
+  Class TransitionSystem :=
+    { future : State -> Future -> Prop
+    }.
 End transition_system.
 
-Section trace.
-  Context {event : Type}.
+Notation "'~[' A ']~>' B" := (fut_cont A B) (at level 20).
+Notation "'~>x' A" := (fut_result A)(at level 20).
 
-  Definition Trace := list event.
+Section trans_prod.
+  Context {S1 S2 Label R1 R2 : Type}
+    `(T1 : TransitionSystem S1 Label R1) `(T2 : TransitionSystem S2 Label R2).
+  Inductive TransProd  :=
+    trans_prod : S1 -> S2 -> TransProd.
 
-  Section fluent.
-    Context `{Fluent : TransitionSystem}.
+  Inductive TransProdResult :=
+  | tpr_l : R1 -> S2 -> TransProdResult
+  | tpr_r : R2 -> S1 -> TransProdResult.
 
-    Inductive TraceProp : State -> list Label -> State -> Prop :=
-    | tp_nil : forall s,
-        TraceProp s [] s
-    | tp_cons : forall s s' s'' label trace,
-        possible_transition s label s' ->
-        TraceProp s' trace s'' ->
-        TraceProp s (label :: trace) s''.
-  End fluent.
+  Inductive TransProdFuture : TransProd -> @Future TransProd Label TransProdResult -> Prop :=
+  | tpf_cc : forall (label : Label) (s1 s1' : S1) (s2 s2' : S2),
+      future s1 (~[label]~> s1')->
+      future s2 (~[label]~> s2') ->
+      TransProdFuture (trans_prod s1 s2) (~[label]~> (trans_prod s1' s2'))
+  | tpf_rc : forall s1 s2 r,
+      future s1 (~>x r) ->
+      TransProdFuture (trans_prod s1 s2) (~>x (tpr_l r s2))
+  | tpf_cr : forall s1 s2 r,
+      future s2 (~>x r) ->
+      TransProdFuture (trans_prod s1 s2) (~>x (tpr_r r s1)).
 
-  Section fluent.
-    Context {F : Type} (fluent : F -> event -> F -> Prop).
+  Global Instance transMult : @TransitionSystem TransProd Label TransProdResult :=
+    { future := TransProdFuture }.
+End trans_prod.
 
-    Inductive FluentProp : F -> F -> TraceProp :=
-    | f_nil : forall f,
-        FluentProp f f []
-    | f_cons : forall f f' f'' evt trace,
-        fluent f evt f' ->
-        FluentProp f' f'' trace ->
-        FluentProp f f'' (evt :: trace).
-  End fluent.
-End trace.
+Section trans_sum.
+  Context {S1 L1 R1 S2 L2 R2} `{T1 : TransitionSystem S1 L1 R1} `{T2 : TransitionSystem S2 L2 R2}.
 
-Section trace_compose.
-  Context {e1 e2 : Type}.
+  Inductive TransSum  :=
+    trans_sum : S1 -> S2 -> TransSum.
 
-  Definition CompositeEvent : Type := e1 + e2.
+  Let Label : Type := L1 + L2.
 
-  Definition star (p1 : @TraceProp e1) (p2 : @TraceProp e2) (t : CompositeTrace) : Prop :=
+  Let Result : Type := R1 * R2.
 
+  Inductive TransSumFuture : TransSum -> @Future TransSum Label Result -> Prop :=
+  | tsf_rr : forall s1 s2 r1 r2,
+      future s1 (~>x r1) ->
+      future s2 (~>x r2) ->
+      TransSumFuture (trans_sum s1 s2) (~>x (r1, r2))
+  | tsf_l : forall s1 s1' s2 label,
+      future s1 (~[label]~> s1') ->
+      TransSumFuture (trans_sum s1 s2) (~[inl label]~> trans_sum s1' s2)
+  | tsf_r : forall s1 s2 s2' label,
+      future s2 (~[label]~> s2') ->
+      TransSumFuture (trans_sum s1 s2) (~[inr label]~> trans_sum s1 s2').
 
+  Global Instance transSum : @TransitionSystem TransSum Label Result :=
+    { future := TransSumFuture }.
+End trans_sum.
+
+Section reachability.
+  Context `{HT : TransitionSystem}.
+
+  Inductive ReachableBy : State -> list Label -> State -> Prop :=
+  | tsrb_nil : forall s,
+      ReachableBy s [] s
+  | tsrb_cons : forall s s' s'' t l,
+      future s (~[l]~> s') ->
+      ReachableBy s' t s'' ->
+      ReachableBy s (l :: t) s''.
+End reachability.
+
+Section trace_ensemble.
+  Context `{HT : TransitionSystem}.
+
+  (*
+  Inductive TraceEnsemble : State -> list Label -> Result -> Prop :=
+    trace_ensemble : forall s s' t r,
+        future s' (~>x r) ->
+        ReachableBy s t s' ->
+        TraceEnsemble s t r. *)
+
+  Inductive CompleteEnsemble : State -> list Label -> Result -> Prop :=
+  | te_nil : forall s r,
+      future s (~>x r) ->
+      CompleteEnsemble s [] r
+  | te_cons : forall s s' l t r,
+      future s (~[l]~> s') ->
+      CompleteEnsemble s' t r ->
+      CompleteEnsemble s (l :: t) r.
+End trace_ensemble.
+
+Section commutativity.
+  Context `{HT : TransitionSystem}.
+
+  Definition labels_commute (l1 l2 : Label) : Prop :=
+    forall (s s' : State),
+      ReachableBy s [l1; l2] s' <-> ReachableBy s [l2; l1] s'.
+
+  Global Instance events_commuteSymm : Symmetric labels_commute.
+  Proof.
+    intros a b Hab s s''.
+    unfold labels_commute in *. specialize (Hab s s'').
+    now symmetry in Hab.
+  Qed.
+End commutativity.
+
+Class CanonicalOrder {L : Type} :=
+  { canonical_order : L -> L -> bool }.
 
 (** ** State space
 
