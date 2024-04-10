@@ -1,5 +1,5 @@
 (* SLOT, proofs about distributed systems design
-   Copyright (C) 2019-2023  k32
+   Copyright (C) 2019-2024  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,9 +22,13 @@ From Coq Require Import
      Program
      List
      Ensembles
+     Relation_Definitions
      RelationClasses.
 
 Import ListNotations.
+
+From Hammer Require Import
+     Tactics.
 
 Declare Scope slot_scope.
 Open Scope slot_scope.
@@ -42,110 +46,249 @@ Section transition_system.
     }.
 End transition_system.
 
-Notation "'~[' A ']~>' B" := (fut_cont A B) (at level 20).
-Notation "'~>x' A" := (fut_result A)(at level 20).
+Global Arguments TransitionSystem (_ _ _) : clear implicits.
+
+Notation "A '~[' L ']~>' S" := (A (fut_cont L S)) (at level 20) : slot_scope.
+Notation "A '~|' R" := (A (fut_result R)) (at level 20) : slot_scope.
 
 Section trans_prod.
-  Context {S1 S2 Label R1 R2 : Type}
-    `(T1 : TransitionSystem S1 Label R1) `(T2 : TransitionSystem S2 Label R2).
-  Inductive TransProd  :=
-    trans_prod : S1 -> S2 -> TransProd.
+  (* Product of transition systems: *)
+  Context {Label S1 S2 R1 R2 : Type}
+    `{T1 : TransitionSystem S1 Label R1} `{T2 : TransitionSystem S2 Label R2}.
+
+  Let State : Type := S1 * S2.
 
   Inductive TransProdResult :=
-  | tpr_l : R1 -> S2 -> TransProdResult
-  | tpr_r : R2 -> S1 -> TransProdResult.
+  | tpr_l : forall (result_left : R1) (state_right  : S2), TransProdResult
+  | tpr_r : forall (state_left  : S1) (result_right : R2), TransProdResult.
 
-  Inductive TransProdFuture : TransProd -> @Future TransProd Label TransProdResult -> Prop :=
+  Inductive TransProdFuture : State -> @Future State Label TransProdResult -> Prop :=
   | tpf_cc : forall (label : Label) (s1 s1' : S1) (s2 s2' : S2),
-      future s1 (~[label]~> s1')->
-      future s2 (~[label]~> s2') ->
-      TransProdFuture (trans_prod s1 s2) (~[label]~> (trans_prod s1' s2'))
+      future s1 ~[label]~> s1' ->
+      future s2 ~[label]~> s2' ->
+      TransProdFuture (s1, s2) ~[label]~> (s1', s2')
   | tpf_rc : forall s1 s2 r,
-      future s1 (~>x r) ->
-      TransProdFuture (trans_prod s1 s2) (~>x (tpr_l r s2))
+      future s1 ~| r ->
+      TransProdFuture (s1, s2) ~| (tpr_l r s2)
   | tpf_cr : forall s1 s2 r,
-      future s2 (~>x r) ->
-      TransProdFuture (trans_prod s1 s2) (~>x (tpr_r r s1)).
+      future s2 ~| r ->
+      TransProdFuture (s1, s2) ~| (tpr_r s1 r).
 
-  Global Instance transMult : @TransitionSystem TransProd Label TransProdResult :=
+  Instance transProd : @TransitionSystem State Label TransProdResult :=
     { future := TransProdFuture }.
 End trans_prod.
 
+Global Arguments transProd {_ _ _ _ _} (_ _).
+
+Infix "<*>" := (transProd) (at level 98) : slot_scope.
+
 Section trans_sum.
+  (* Sum of transition systems: *)
   Context {S1 L1 R1 S2 L2 R2} `{T1 : TransitionSystem S1 L1 R1} `{T2 : TransitionSystem S2 L2 R2}.
 
-  Inductive TransSum  :=
-    trans_sum : S1 -> S2 -> TransSum.
+  Let State : Type := S1 * S2.
 
   Let Label : Type := L1 + L2.
 
   Let Result : Type := R1 * R2.
 
-  Inductive TransSumFuture : TransSum -> @Future TransSum Label Result -> Prop :=
+  Inductive TransSumFuture : State -> @Future State Label Result -> Prop :=
   | tsf_rr : forall s1 s2 r1 r2,
-      future s1 (~>x r1) ->
-      future s2 (~>x r2) ->
-      TransSumFuture (trans_sum s1 s2) (~>x (r1, r2))
+      future s1 ~| r1 ->
+      future s2 ~| r2 ->
+      TransSumFuture (s1, s2) ~| (r1, r2)
   | tsf_l : forall s1 s1' s2 label,
-      future s1 (~[label]~> s1') ->
-      TransSumFuture (trans_sum s1 s2) (~[inl label]~> trans_sum s1' s2)
+      future s1 ~[label]~> s1' ->
+      TransSumFuture (s1, s2) ~[inl label]~> (s1', s2)
   | tsf_r : forall s1 s2 s2' label,
-      future s2 (~[label]~> s2') ->
-      TransSumFuture (trans_sum s1 s2) (~[inr label]~> trans_sum s1 s2').
+      future s2 ~[label]~> s2' ->
+      TransSumFuture (s1, s2) ~[inr label]~> (s1, s2').
 
-  Global Instance transSum : @TransitionSystem TransSum Label Result :=
+  Instance transSum : @TransitionSystem State Label Result :=
     { future := TransSumFuture }.
 End trans_sum.
 
-Section reachability.
+Global Arguments transSum {_ _ _ _ _ _} (_ _).
+
+Infix "<+>" := (transSum) (at level 99) : slot_scope.
+
+Section state_reachability.
   Context `{HT : TransitionSystem}.
 
   Inductive ReachableBy : State -> list Label -> State -> Prop :=
   | tsrb_nil : forall s,
       ReachableBy s [] s
-  | tsrb_cons : forall s s' s'' t l,
-      future s (~[l]~> s') ->
-      ReachableBy s' t s'' ->
-      ReachableBy s (l :: t) s''.
-End reachability.
+  | tsrb_cons : forall s s' s'' label trace,
+      future s ~[label]~> s' ->
+      ReachableBy s' trace s'' ->
+      ReachableBy s (label :: trace) s''.
 
-Section trace_ensemble.
+  Definition HoareTriple (precondition  : State -> Prop)
+                         (trace         : list Label)
+                         (postcondition : State -> Prop) :=
+    forall s s',
+      ReachableBy s trace s' -> precondition s ->
+      postcondition s'.
+End state_reachability.
+
+Notation "'{{' a '}}' t '{{' b '}}'" := (HoareTriple a t b) (at level 40) : slot_scope.
+Notation "'{{}}' t '{{' b '}}'" := (HoareTriple (const True) t b) (at level 39) : slot_scope.
+
+Inductive TraceInvariant `{TransitionSystem} (prop : State -> Prop) : list Label -> Prop :=
+| inv_nil :
+    TraceInvariant prop []
+| inv_cons : forall label trace,
+    {{prop}} [label] {{prop}} ->
+    TraceInvariant prop trace ->
+    TraceInvariant prop (label :: trace).
+
+Section result_reachability.
   Context `{HT : TransitionSystem}.
 
-  (*
-  Inductive TraceEnsemble : State -> list Label -> Result -> Prop :=
-    trace_ensemble : forall s s' t r,
-        future s' (~>x r) ->
-        ReachableBy s t s' ->
-        TraceEnsemble s t r. *)
+  Inductive RReachableBy : State -> list Label -> Result -> Prop :=
+  | tsrrb_nil : forall s result,
+      future s ~| result ->
+      RReachableBy s [] result
+  | tsrrbt_cons : forall s s' label trace result,
+      future s ~[label]~> s' ->
+      RReachableBy s' trace result ->
+      RReachableBy s (label :: trace) result.
 
-  Inductive CompleteEnsemble : State -> list Label -> Result -> Prop :=
-  | te_nil : forall s r,
-      future s (~>x r) ->
-      CompleteEnsemble s [] r
-  | te_cons : forall s s' l t r,
-      future s (~[l]~> s') ->
-      CompleteEnsemble s' t r ->
-      CompleteEnsemble s (l :: t) r.
-End trace_ensemble.
+  Definition RHoareTriple (precondition  : State -> Prop)
+                          (trace         : list Label)
+                          (postcondition : Result -> Prop) :=
+    forall s result,
+      RReachableBy s trace result -> precondition s ->
+      postcondition result.
+End result_reachability.
+
+Notation "'{{' a '}}' t '{<' b '>}'" := (RHoareTriple a t b) (at level 40) : slot_scope.
+Notation "'{{}}' t '{<' b '>}'" := (RHoareTriple (const True) t b) (at level 39) : slot_scope.
+
+(* begin hide *)
+Global Arguments In {_}.
+Global Arguments Complement {_}.
+Global Arguments Disjoint {_}.
+(* end hide *)
+
+Section trace_ensembles.
+  Context `{HT : TransitionSystem}.
+
+  Definition TraceEnsemble := Ensemble (list Label).
+
+  (** Hoare logic of trace ensembles consists of a single rule: *)
+  Definition EHoareTriple (precondition  : State -> Prop)
+                          (ensemble      : TraceEnsemble)
+                          (postcondition : State -> Prop) :=
+    forall t, In ensemble t ->
+         {{ precondition }} t {{ postcondition }}.
+
+  Definition EnsembleInvariant (prop : State -> Prop) (ens : TraceEnsemble) : Prop :=
+    forall (t : list Label), ens t -> TraceInvariant prop t.
+
+  (** Hoare logic of trace ensembles consists of a single rule: *)
+  Definition ERHoareTriple (precondition  : State -> Prop)
+                           (ensemble      : TraceEnsemble)
+                           (postcondition : Result -> Prop) :=
+    forall t, In ensemble t ->
+              {{ precondition }} t {< postcondition >}.
+End trace_ensembles.
+
+Notation "'-{{' a '}}' e '{{' b '}}'" := (EHoareTriple a e b)(at level 40) : slot_scope.
+Notation "'-{{}}' e '{{' b '}}'" := (EHoareTriple (const True) e b)(at level 40) : slot_scope.
+Notation "'-{{}}' e '{{}}'" := (forall t, e t -> exists s s', ReachableBy s t s')(at level 38) : slot_scope.
+
+Notation "'-{{' a '}}' e '{<' b '>}'" := (ERHoareTriple a e b)(at level 40) : slot_scope.
+Notation "'-{{}}' e '{<' b '>}'" := (ERHoareTriple (const True) e b)(at level 40) : slot_scope.
 
 Section commutativity.
-  Context `{HT : TransitionSystem}.
+  Section defn.
+    Context `{HT : TransitionSystem}.
 
-  Definition labels_commute (l1 l2 : Label) : Prop :=
-    forall (s s' : State),
-      ReachableBy s [l1; l2] s' <-> ReachableBy s [l2; l1] s'.
+    Definition labels_commute (l1 l2 : Label) : Prop :=
+      forall (s s' : State),
+        ReachableBy s [l1; l2] s' <-> ReachableBy s [l2; l1] s'.
 
-  Global Instance events_commuteSymm : Symmetric labels_commute.
-  Proof.
-    intros a b Hab s s''.
-    unfold labels_commute in *. specialize (Hab s s'').
-    now symmetry in Hab.
-  Qed.
+    Global Instance events_commuteSymm : Symmetric labels_commute.
+    Proof.
+      intros a b Hab s s''.
+      unfold labels_commute in *. specialize (Hab s s'').
+      now symmetry in Hab.
+    Qed.
+  End defn.
+
+  Section summ.
+    Context {S1 L1 R1 S2 L2 R2 : Type}
+      `{T1 : TransitionSystem S1 L1 R1} `{T2 : TransitionSystem S2 L2 R2}.
+
+    Lemma transition_system_sum_comm (l1 : L1) (l2 : L2) :
+      @labels_commute _ _ _ (T1 <+> T2) (inl l1) (inr l2).
+    Proof.
+      unfold labels_commute. intros s s'.
+      split; sauto.
+    Qed.
+  End summ.
+
+  Section product.
+    Context {Label S1 R1 S2 R2 : Type}
+      `{T1 : TransitionSystem S1 Label R1} `{T2 : TransitionSystem S2 Label R2}.
+
+    Lemma transition_system_prod_comm (l1 : Label) (l2 : Label) :
+      @labels_commute _ _ _ T1 l1 l2 ->
+      @labels_commute _ _ _ T2 l1 l2 ->
+      @labels_commute _ _ _ (T1 <*> T2) l1 l2.
+    Proof.
+      unfold labels_commute. intros Hl Hr [s_l s_r] [s_l'' s_r''].
+      split; intros H.
+      - specialize (Hl s_l s_l''). specialize (Hr s_r s_r'').
+        inversion_clear H; inversion_clear H1; inversion_clear H2; subst.
+        simpl in *.
+        constructor 2 with (s' := s').
+        simpl.
+
+        inversion_clear H0.
+        inversion_clear H.
+        simpl in *.
+    Abort.
+  End product.
 End commutativity.
 
-Class CanonicalOrder {L : Type} :=
-  { canonical_order : L -> L -> bool }.
+
+Section canonical_order.
+  Class CanonicalOrder (Label : Type) :=
+    {
+      canon_rel : relation Label;
+      canon_decidable a b : {canon_rel a b} + {~canon_rel a b};
+      canon_trans : Transitive canon_rel;
+      canon_irrefl : Irreflexive canon_rel;
+    }.
+
+  Section comm.
+    Context `{TransitionSystem} `{CanonicalOrder Label}.
+
+    Definition can_follow (a b : Label) :=
+      (~labels_commute a b) \/ (canon_rel a b).
+
+    Definition can_follow_hd (label : Label) (trace : list Label) : Prop :=
+      match trace with
+      | [] => True
+      | head :: _ => can_follow label head
+      end.
+
+    Inductive CanonicalTrace : list Label -> Prop :=
+    | canontr_nil : CanonicalTrace []
+    | canontr_cons : forall label trace,
+        can_follow_hd label trace ->
+        CanonicalTrace trace ->
+        CanonicalTrace (label :: trace).
+
+    Theorem canon_trace_replacement  :
+      (forall t,
+
+
+
+  End comm.
+End canonical_order.
 
 (** ** State space
 
