@@ -34,6 +34,12 @@ Declare Scope slot_scope.
 Open Scope slot_scope.
 (* end hide *)
 
+(* begin hide *)
+Global Arguments In {_}.
+Global Arguments Complement {_}.
+Global Arguments Disjoint {_}.
+(* end hide *)
+
 Section transition_system.
   Context {State Label Result : Type}.
 
@@ -50,6 +56,105 @@ Global Arguments TransitionSystem (_ _ _) : clear implicits.
 
 Notation "A '~[' L ']~>' S" := (A (fut_cont L S)) (at level 20) : slot_scope.
 Notation "A '~|' R" := (A (fut_result R)) (at level 20) : slot_scope.
+
+Section state_reachability.
+  Context `{HT : TransitionSystem}.
+
+  Inductive Trace : list Label -> State -> State -> Prop :=
+  | tr_nil : forall s,
+      Trace [] s s
+  | tr_cons : forall s s' s'' label trace,
+      future s ~[label]~> s' ->
+      Trace trace s'  s'' ->
+      Trace (label :: trace) s s''.
+
+  Definition HoareTriple (precondition  : State -> Prop)
+                         (trace         : list Label)
+                         (postcondition : State -> Prop) :=
+    forall s s',
+      Trace trace s s' -> precondition s ->
+      postcondition s'.
+
+  Definition RHoareTriple (precondition  : State -> Prop)
+                          (trace         : list Label)
+                          (postcondition : Result -> Prop) :=
+    let postcondition' s := exists2 result, future s ~| result & postcondition result
+    in HoareTriple precondition trace postcondition'.
+End state_reachability.
+
+Global Arguments Trace {_ _ _} (_).
+
+Notation "'{{' a '}}' t '{{' b '}}'" := (HoareTriple a t b) (at level 40) : slot_scope.
+Notation "'{{}}' t '{{' b '}}'" := (HoareTriple (const True) t b) (at level 39) : slot_scope.
+
+Notation "'{{' a '}}' t '{<' b '>}'" := (RHoareTriple a t b) (at level 40) : slot_scope.
+Notation "'{{}}' t '{<' b '>}'" := (RHoareTriple (const True) t b) (at level 39) : slot_scope.
+
+Section invariant.
+  Context `{HT : TransitionSystem} (invariant : State -> Prop).
+
+  Let invariant_future s f := future s f \/ invariant s.
+
+  Local Instance invTransSys : @TransitionSystem State Label Result :=
+    {
+      future := invariant_future
+    }.
+
+  Definition TraceInvariant (trace : list Label) : Prop :=
+    forall s s',
+      Trace invTransSys trace s s'.
+End invariant.
+
+Section trace_ensembles.
+  Context `{HT : TransitionSystem}.
+
+  Definition TraceEnsemble := Ensemble (list Label).
+
+  (** Hoare logic of trace ensembles consists of a single rule: *)
+  Definition EHoareTriple (precondition  : State -> Prop)
+                          (ensemble      : TraceEnsemble)
+                          (postcondition : State -> Prop) :=
+    forall t, In ensemble t ->
+         {{ precondition }} t {{ postcondition }}.
+
+  (** Same, but for the results: *)
+  Definition ERHoareTriple (precondition  : State -> Prop)
+                           (ensemble      : TraceEnsemble)
+                           (postcondition : Result -> Prop) :=
+    forall t, In ensemble t ->
+              {{ precondition }} t {< postcondition >}.
+
+  Definition OccupiedTraceEnsemble (e : TraceEnsemble) : Prop :=
+    exists t s s',
+      e t -> Trace HT t s s'.
+
+  Definition FullyOccupiedTraceEnsemble (e : TraceEnsemble) : Prop :=
+    forall t,
+      e t -> exists s s', Trace HT t s s'.
+End trace_ensembles.
+
+Notation "'-{{' a '}}' e '{{' b '}}'" := (EHoareTriple a e b)(at level 40) : slot_scope.
+Notation "'-{{}}' e '{{' b '}}'" := (EHoareTriple (const True) e b)(at level 40) : slot_scope.
+
+Notation "'-{{' a '}}' e '{<' b '>}'" := (ERHoareTriple a e b)(at level 40) : slot_scope.
+Notation "'-{{}}' e '{<' b '>}'" := (ERHoareTriple (const True) e b)(at level 40) : slot_scope.
+
+Section commutativity.
+  Section defn.
+    Context `{HT : TransitionSystem}.
+
+    Definition labels_commute (l1 l2 : Label) : Prop :=
+      forall (s s' : State),
+        Trace HT [l1; l2] s s' <-> Trace HT [l2; l1] s s'.
+
+    Global Instance events_commuteSymm : Symmetric labels_commute.
+    Proof.
+      intros a b Hab s s''.
+      unfold labels_commute in *. specialize (Hab s s'').
+      now symmetry in Hab.
+    Qed.
+  End defn.
+End commutativity.
 
 Section trans_prod.
   (* Product of transition systems: *)
@@ -76,6 +181,33 @@ Section trans_prod.
 
   Instance transProd : @TransitionSystem State Label TransProdResult :=
     { future := TransProdFuture }.
+
+  Lemma transition_system_prod_comm (l1 : Label) (l2 : Label) :
+    @labels_commute _ _ _ T1 l1 l2 ->
+    @labels_commute _ _ _ T2 l1 l2 ->
+    @labels_commute _ _ _ transProd l1 l2.
+  Proof.
+    unfold labels_commute, transProd.
+    intros HT1 HT2 [s_l s_r] [s''_l s''_r].
+    specialize (HT1 s_l s''_l). specialize (HT2 s_r s''_r).
+    split; intros H.
+    { inversion H. clear H. inversion H5. clear H5. inversion H10. clear H10. subst.
+      destruct s' as [s'_l s'_r].
+      inversion_clear H2. inversion_clear H7.
+      destruct HT1 as [HT1 _]. destruct HT2 as [HT2 _].
+      assert (HT1p : Trace T1 [l1; l2] s_l s''_l) by sauto. specialize (HT1 HT1p). clear HT1p.
+      assert (HT2p : Trace T2 [l1; l2] s_r s''_r) by sauto. specialize (HT2 HT2p). clear HT2p.
+      sauto.
+    }
+    { inversion H. clear H. inversion H5. clear H5. inversion H10. clear H10. subst.
+      destruct s' as [s'_l s'_r].
+      inversion_clear H2. inversion_clear H7.
+      destruct HT1 as [_ HT1]. destruct HT2 as [_ HT2].
+      assert (HT1p : Trace T1 [l2; l1] s_l s''_l) by sauto. specialize (HT1 HT1p). clear HT1p.
+      assert (HT2p : Trace T2 [l2; l1] s_r s''_r) by sauto. specialize (HT2 HT2p). clear HT2p.
+      sauto.
+    }
+  Qed.
 End trans_prod.
 
 Global Arguments transProd {_ _ _ _ _} (_ _).
@@ -106,153 +238,18 @@ Section trans_sum.
 
   Instance transSum : @TransitionSystem State Label Result :=
     { future := TransSumFuture }.
+
+  Lemma transition_system_sum_comm (l1 : L1) (l2 : L2) :
+    @labels_commute _ _ _ transSum (inl l1) (inr l2).
+  Proof.
+    unfold labels_commute. intros s s'.
+    split; sauto.
+  Qed.
 End trans_sum.
 
 Global Arguments transSum {_ _ _ _ _ _} (_ _).
 
 Infix "<+>" := (transSum) (at level 99) : slot_scope.
-
-Section state_reachability.
-  Context `{HT : TransitionSystem}.
-
-  Inductive ReachableBy : State -> list Label -> State -> Prop :=
-  | tsrb_nil : forall s,
-      ReachableBy s [] s
-  | tsrb_cons : forall s s' s'' label trace,
-      future s ~[label]~> s' ->
-      ReachableBy s' trace s'' ->
-      ReachableBy s (label :: trace) s''.
-
-  Definition HoareTriple (precondition  : State -> Prop)
-                         (trace         : list Label)
-                         (postcondition : State -> Prop) :=
-    forall s s',
-      ReachableBy s trace s' -> precondition s ->
-      postcondition s'.
-End state_reachability.
-
-Notation "'{{' a '}}' t '{{' b '}}'" := (HoareTriple a t b) (at level 40) : slot_scope.
-Notation "'{{}}' t '{{' b '}}'" := (HoareTriple (const True) t b) (at level 39) : slot_scope.
-
-Inductive TraceInvariant `{TransitionSystem} (prop : State -> Prop) : list Label -> Prop :=
-| inv_nil :
-    TraceInvariant prop []
-| inv_cons : forall label trace,
-    {{prop}} [label] {{prop}} ->
-    TraceInvariant prop trace ->
-    TraceInvariant prop (label :: trace).
-
-Section result_reachability.
-  Context `{HT : TransitionSystem}.
-
-  Inductive RReachableBy : State -> list Label -> Result -> Prop :=
-  | tsrrb_nil : forall s result,
-      future s ~| result ->
-      RReachableBy s [] result
-  | tsrrbt_cons : forall s s' label trace result,
-      future s ~[label]~> s' ->
-      RReachableBy s' trace result ->
-      RReachableBy s (label :: trace) result.
-
-  Definition RHoareTriple (precondition  : State -> Prop)
-                          (trace         : list Label)
-                          (postcondition : Result -> Prop) :=
-    forall s result,
-      RReachableBy s trace result -> precondition s ->
-      postcondition result.
-End result_reachability.
-
-Notation "'{{' a '}}' t '{<' b '>}'" := (RHoareTriple a t b) (at level 40) : slot_scope.
-Notation "'{{}}' t '{<' b '>}'" := (RHoareTriple (const True) t b) (at level 39) : slot_scope.
-
-(* begin hide *)
-Global Arguments In {_}.
-Global Arguments Complement {_}.
-Global Arguments Disjoint {_}.
-(* end hide *)
-
-Section trace_ensembles.
-  Context `{HT : TransitionSystem}.
-
-  Definition TraceEnsemble := Ensemble (list Label).
-
-  (** Hoare logic of trace ensembles consists of a single rule: *)
-  Definition EHoareTriple (precondition  : State -> Prop)
-                          (ensemble      : TraceEnsemble)
-                          (postcondition : State -> Prop) :=
-    forall t, In ensemble t ->
-         {{ precondition }} t {{ postcondition }}.
-
-  Definition EnsembleInvariant (prop : State -> Prop) (ens : TraceEnsemble) : Prop :=
-    forall (t : list Label), ens t -> TraceInvariant prop t.
-
-  (** Hoare logic of trace ensembles consists of a single rule: *)
-  Definition ERHoareTriple (precondition  : State -> Prop)
-                           (ensemble      : TraceEnsemble)
-                           (postcondition : Result -> Prop) :=
-    forall t, In ensemble t ->
-              {{ precondition }} t {< postcondition >}.
-End trace_ensembles.
-
-Notation "'-{{' a '}}' e '{{' b '}}'" := (EHoareTriple a e b)(at level 40) : slot_scope.
-Notation "'-{{}}' e '{{' b '}}'" := (EHoareTriple (const True) e b)(at level 40) : slot_scope.
-Notation "'-{{}}' e '{{}}'" := (forall t, e t -> exists s s', ReachableBy s t s')(at level 38) : slot_scope.
-
-Notation "'-{{' a '}}' e '{<' b '>}'" := (ERHoareTriple a e b)(at level 40) : slot_scope.
-Notation "'-{{}}' e '{<' b '>}'" := (ERHoareTriple (const True) e b)(at level 40) : slot_scope.
-
-Section commutativity.
-  Section defn.
-    Context `{HT : TransitionSystem}.
-
-    Definition labels_commute (l1 l2 : Label) : Prop :=
-      forall (s s' : State),
-        ReachableBy s [l1; l2] s' <-> ReachableBy s [l2; l1] s'.
-
-    Global Instance events_commuteSymm : Symmetric labels_commute.
-    Proof.
-      intros a b Hab s s''.
-      unfold labels_commute in *. specialize (Hab s s'').
-      now symmetry in Hab.
-    Qed.
-  End defn.
-
-  Section summ.
-    Context {S1 L1 R1 S2 L2 R2 : Type}
-      `{T1 : TransitionSystem S1 L1 R1} `{T2 : TransitionSystem S2 L2 R2}.
-
-    Lemma transition_system_sum_comm (l1 : L1) (l2 : L2) :
-      @labels_commute _ _ _ (T1 <+> T2) (inl l1) (inr l2).
-    Proof.
-      unfold labels_commute. intros s s'.
-      split; sauto.
-    Qed.
-  End summ.
-
-  Section product.
-    Context {Label S1 R1 S2 R2 : Type}
-      `{T1 : TransitionSystem S1 Label R1} `{T2 : TransitionSystem S2 Label R2}.
-
-    Lemma transition_system_prod_comm (l1 : Label) (l2 : Label) :
-      @labels_commute _ _ _ T1 l1 l2 ->
-      @labels_commute _ _ _ T2 l1 l2 ->
-      @labels_commute _ _ _ (T1 <*> T2) l1 l2.
-    Proof.
-      unfold labels_commute. intros Hl Hr [s_l s_r] [s_l'' s_r''].
-      split; intros H.
-      - specialize (Hl s_l s_l''). specialize (Hr s_r s_r'').
-        inversion_clear H; inversion_clear H1; inversion_clear H2; subst.
-        simpl in *.
-        constructor 2 with (s' := s').
-        simpl.
-
-        inversion_clear H0.
-        inversion_clear H.
-        simpl in *.
-    Abort.
-  End product.
-End commutativity.
-
 
 Section canonical_order.
   Class CanonicalOrder (Label : Type) :=
@@ -275,18 +272,14 @@ Section canonical_order.
       | head :: _ => can_follow label head
       end.
 
-    Inductive CanonicalTrace : list Label -> Prop :=
-    | canontr_nil : CanonicalTrace []
-    | canontr_cons : forall label trace,
+    Inductive CanonicalTrace : list Label -> State -> State -> Prop :=
+    | canontr_nil : forall s,
+        CanonicalTrace [] s s
+    | canontr_cons : forall s s' s'' label trace,
+        future s ~[label]~> s' ->
         can_follow_hd label trace ->
-        CanonicalTrace trace ->
-        CanonicalTrace (label :: trace).
-
-    Theorem canon_trace_replacement  :
-      (forall t,
-
-
-
+        CanonicalTrace trace s' s'' ->
+        CanonicalTrace (label :: trace) s s''.
   End comm.
 End canonical_order.
 
