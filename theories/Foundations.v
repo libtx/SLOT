@@ -19,16 +19,19 @@
 
 (* begin hide *)
 From Coq Require Import
-     Program
-     List
-     Ensembles
-     Relation_Definitions
-     RelationClasses.
+  Program
+  List
+  Ensembles
+  Relation_Definitions
+  RelationClasses.
 
 Import ListNotations.
 
 From Hammer Require Import
-     Tactics.
+  Tactics.
+
+From SLOT Require Export
+  RestrictedPermutation.
 
 Declare Scope slot_scope.
 Open Scope slot_scope.
@@ -39,6 +42,33 @@ Global Arguments In {_}.
 Global Arguments Complement {_}.
 Global Arguments Disjoint {_}.
 (* end hide *)
+
+(** * Nondeterministic Labeled Transition System
+
+[TransitionSystem] class is the base abstraction of SLOT. It is used
+both to describe side effects of syscalls, as well as state of the
+process scheduler.
+
+[Future] is a datatype that represents valid transitions:
+
+ - [fut_cont] constructor represents a state transition via a label
+
+ - [fut_result] constructor represents a terminal state producing
+   result of a computation
+
+*** Parameters:
+
+ - <<State>> — set of points of the state space
+
+ - <<Label>> — set of transitions
+
+ - <<Result>> — set of results
+
+*** Methods:
+
+[future s Future] represents a valid state transition.
+
+*)
 
 Section transition_system.
   Context {State Label Result : Type}.
@@ -57,6 +87,21 @@ Global Arguments TransitionSystem (_ _ _) : clear implicits.
 Notation "A '~[' L ']~>' S" := (A (fut_cont L S)) (at level 20) : slot_scope.
 Notation "A '~|' R" := (A (fut_result R)) (at level 20) : slot_scope.
 
+(** ** Paths through the state space
+
+[Trace] is a datatype describing paths through the state space. Its
+first constructor [tr_nil] states the fact that empty trace doesn't
+change the state of the system. In other words, state of the system
+doesn't drift by itself.
+
+The second constructor [tr_cons] declares that transition [label] that
+changes state of the system from [s] to [s'] followed by applying all
+labels in [trace] to [s'], resulting in state [s''], is equivalent to
+executing a trace [te :: trace], transitioning the system from [s] to
+[s'']
+
+*)
+
 Section state_reachability.
   Context `{HT : TransitionSystem}.
 
@@ -65,9 +110,16 @@ Section state_reachability.
       Trace [] s s
   | tr_cons : forall s s' s'' label trace,
       future s ~[label]~> s' ->
-      Trace trace s'  s'' ->
+      Trace trace s' s'' ->
       Trace (label :: trace) s s''.
 
+
+  (** ** Hoare logic of traces
+
+    [HoareTriple] is a type of judgments about trace execution,
+    stating that if precondition [pre] holds for the initial state
+    [s], and there is path [trace] through the state space leading to
+    state [s'], then postcondition [post] must hold for [s']. *)
   Definition HoareTriple (precondition  : State -> Prop)
                          (trace         : list Label)
                          (postcondition : State -> Prop) :=
@@ -75,6 +127,12 @@ Section state_reachability.
       Trace trace s s' -> precondition s ->
       postcondition s'.
 
+  (** ** Hoare triple for terminal states
+
+    [RHoareTriple] is a type of judgments about trace execution,
+    stating that if precondition [pre] holds for the initial state
+    [s], and [trace] leads to some terminal state with result
+    [result], then postcondition [post] must hold for [result]. *)
   Definition RHoareTriple (precondition  : State -> Prop)
                           (trace         : list Label)
                           (postcondition : Result -> Prop) :=
@@ -90,7 +148,16 @@ Notation "'{{}}' t '{{' b '}}'" := (HoareTriple (const True) t b) (at level 39) 
 Notation "'{{' a '}}' t '{<' b '>}'" := (RHoareTriple a t b) (at level 40) : slot_scope.
 Notation "'{{}}' t '{<' b '>}'" := (RHoareTriple (const True) t b) (at level 39) : slot_scope.
 
-Section invariant.
+(** ** Invariants
+
+  [StateInvariant] is a type of judgments stating that if execution
+  of a trace starts in a state where property [prop] holds, then the
+  same property will hold for each intermediate state during
+  execution of the trace. In other words: [prop] is a subset of the
+  state space, and if the system starts off in this subset, it always
+  stays in it.
+*)
+Section state_invariant.
   Context `{HT : TransitionSystem} (invariant : State -> Prop).
 
   Let invariant_future s f := future s f \/ invariant s.
@@ -100,11 +167,16 @@ Section invariant.
       future := invariant_future
     }.
 
-  Definition TraceInvariant (trace : list Label) : Prop :=
+  Definition StateInvariant (trace : list Label) : Prop :=
     forall s s',
       Trace invTransSys trace s s'.
-End invariant.
+End state_invariant.
 
+(** * Ensembles of traces
+
+    Trace ensembles play one of central roles in SLOT, because from
+    SLOT point of view any system is nothing but a collection
+    (ensemble) of event traces that it can produce. *)
 Section trace_ensembles.
   Context `{HT : TransitionSystem}.
 
@@ -141,11 +213,11 @@ Notation "'-{{}}' e '{<' b '>}'" := (ERHoareTriple (const True) e b)(at level 40
 
 Section commutativity.
   Section defn.
-    Context `{HT : TransitionSystem}.
+    Context `{TS : TransitionSystem}.
 
     Definition labels_commute (l1 l2 : Label) : Prop :=
       forall (s s' : State),
-        Trace HT [l1; l2] s s' <-> Trace HT [l2; l1] s s'.
+        Trace TS [l1; l2] s s' <-> Trace TS [l2; l1] s s'.
 
     Global Instance events_commuteSymm : Symmetric labels_commute.
     Proof.
@@ -156,8 +228,88 @@ Section commutativity.
   End defn.
 End commutativity.
 
+Section trace_properties.
+  Context `{TS : TransitionSystem}.
+
+  (** [trace_split] is an important observation that there is a point
+  in the state space for each intermediate step of the trace
+  execution: *)
+  Lemma trace_split : forall s s'' t1 t2,
+      Trace TS (t1 ++ t2) s s'' ->
+      exists s', Trace TS t1 s s' /\ Trace TS t2 s' s''.
+  Proof with sauto.
+    intros.
+    generalize dependent s.
+    induction t1; intros.
+    - exists s. split...
+    - simpl in H.
+      inversion_clear H.
+      specialize (IHt1 s' H1).
+      destruct IHt1.
+      exists x. split...
+  Qed.
+
+  (** [trace_concat] lemma demonstrates that traces can be composed: *)
+  Lemma trace_concat : forall s s' s'' t1 t2,
+      Trace TS t1 s s' ->
+      Trace TS t2 s' s'' ->
+      Trace TS (t1 ++ t2) s s''.
+  Proof with sauto.
+    intros.
+    generalize dependent s.
+    induction t1...
+  Qed.
+
+  Lemma trace_commutateive_permutation s s' t t' :
+    Trace TS t s s' ->
+    RestrictedPermutation labels_commute t t' ->
+    Trace TS t' s s'.
+  Proof with sauto.
+    intros Hls Hperm.
+    generalize dependent s.
+    induction Hperm; intros; try sauto.
+    - replace (a :: b :: l) with ([a; b] ++ l) in Hls by reflexivity.
+      replace (b :: a :: l) with ([b; a] ++ l) by reflexivity.
+      apply trace_split in Hls.
+      destruct Hls as [s_ [Hs_ Hs']].
+      apply H in Hs_.
+      apply trace_concat with (s' := s_)...
+  Qed.
+End trace_properties.
+
+Section trace_equivalence.
+  Context `{T : TransitionSystem} (e e' : @TraceEnsemble Label).
+
+  Definition sufficient_replacement :=
+    forall t s s', e t ->
+              Trace T t s s' ->
+              exists t', e' t' /\ Trace T t' s s'.
+
+  Definition sufficient_replacement_p :=
+    forall t, e t ->
+         exists t', e' t' /\ RestrictedPermutation labels_commute t t'.
+
+  Theorem ht_sufficient_replacement P Q :
+    sufficient_replacement ->
+    -{{P}} e' {{Q}} -> -{{P}} e {{Q}}.
+  Proof.
+    intros He2 Heht t Ht s s' Hls Hpre.
+    destruct (He2 t s s' Ht Hls) as [t' [Ht' Hls']].
+    eapply Heht; eauto.
+  Qed.
+
+  Lemma comm_perm_sufficient_replacement :
+    sufficient_replacement_p ->
+    sufficient_replacement.
+  Proof.
+    intros Hsrp t s s' Ht Hls.
+    destruct (Hsrp t Ht) as [t' [Ht' Hperm]].
+    eapply trace_commutateive_permutation in Hperm; eauto.
+  Qed.
+End trace_equivalence.
+
+(** * Product of transition systems *)
 Section trans_prod.
-  (* Product of transition systems: *)
   Context {Label S1 S2 R1 R2 : Type}
     `{T1 : TransitionSystem S1 Label R1} `{T2 : TransitionSystem S2 Label R2}.
 
@@ -214,8 +366,8 @@ Global Arguments transProd {_ _ _ _ _} (_ _).
 
 Infix "<*>" := (transProd) (at level 98) : slot_scope.
 
+(** * Sum of transition systems *)
 Section trans_sum.
-  (* Sum of transition systems: *)
   Context {S1 L1 R1 S2 L2 R2} `{T1 : TransitionSystem S1 L1 R1} `{T2 : TransitionSystem S2 L2 R2}.
 
   Let State : Type := S1 * S2.
@@ -251,17 +403,25 @@ Global Arguments transSum {_ _ _ _ _ _} (_ _).
 
 Infix "<+>" := (transSum) (at level 99) : slot_scope.
 
+From Coq Require Import
+  Decidable.
+
+(** ** Canonical Traces *)
 Section canonical_order.
-  Class CanonicalOrder (Label : Type) :=
+  Class CanonicalOrder {Label} (canon_rel : relation Label) :=
     {
-      canon_rel : relation Label;
-      canon_decidable a b : {canon_rel a b} + {~canon_rel a b};
-      canon_trans : Transitive canon_rel;
-      canon_irrefl : Irreflexive canon_rel;
+      (* Non-strict total order: *)
+      canon_decidable a b : decidable (canon_rel a b);
+      canon_total a b : canon_rel a b \/ canon_rel b a;
+      canon_trans :: Transitive canon_rel;
+      (* Reflexivity is important for ordering of events produced by
+      the same process: *)
+      canon_reflexive :: Reflexive canon_rel;
+      canon_antisymmetric a b := canon_rel a b -> canon_rel b a -> a = b;
     }.
 
   Section comm.
-    Context `{TransitionSystem} `{CanonicalOrder Label}.
+    Context `{T : TransitionSystem} `{Hcanon : CanonicalOrder Label} (commut_dec : forall a b, decidable (labels_commute a b)).
 
     Definition can_follow (a b : Label) :=
       (~labels_commute a b) \/ (canon_rel a b).
@@ -269,8 +429,31 @@ Section canonical_order.
     Definition can_follow_hd (label : Label) (trace : list Label) : Prop :=
       match trace with
       | [] => True
-      | head :: _ => can_follow label head
+      | head :: _ =>
+          can_follow label head
       end.
+
+    Lemma canon_rel_asymm a b : ~canon_rel a b -> canon_rel b a.
+    Proof.
+      intros H.
+      destruct (canon_total b a); destruct (canon_total a b); firstorder.
+    Qed.
+
+    Lemma can_follow_dec a b : decidable (can_follow a b).
+    Proof.
+      unfold can_follow.
+      specialize (commut_dec a b) as Hdcomm.
+      specialize (canon_decidable a b) as Hdcanon.
+      apply dec_not in Hdcomm.
+      apply dec_or; assumption.
+    Qed.
+
+    Lemma can_follow_hd_dec a t : decidable (can_follow_hd a t).
+    Proof.
+      destruct t.
+      - simpl. apply dec_True.
+      - simpl. apply can_follow_dec.
+    Qed.
 
     Inductive CanonicalTrace : list Label -> State -> State -> Prop :=
     | canontr_nil : forall s,
@@ -280,229 +463,133 @@ Section canonical_order.
         can_follow_hd label trace ->
         CanonicalTrace trace s' s'' ->
         CanonicalTrace (label :: trace) s s''.
+
+    Lemma can_follow_hd_eq {te t1 t2} (Hfoll : can_follow_hd te t1) (Hhd : hd_error t1 = hd_error t2) :
+      can_follow_hd te t2.
+    Proof.
+      intros.
+      unfold can_follow_hd in *.
+      destruct t1, t2; try reflexivity.
+      - exfalso. inversion Hhd.
+      - simpl in Hhd. injection Hhd as H. now subst.
+    Qed.
+
+    Fixpoint canon_trace_add s s' s'' label t (Hlabel : future s ~[label]~> s')
+                             (Ht : CanonicalTrace t s' s'')
+                             (Hfoll : ~can_follow_hd label t) {struct Ht} :
+      exists t', CanonicalTrace t' s s'' /\
+                 RestrictedPermutation labels_commute (label :: t) t' /\
+                 (hd_error t = hd_error t').
+    Proof with sauto.
+      inversion Ht as [| A s_ B label' t' Hs_ Hfoll' Ht']; subst; clear Ht.
+      - exfalso. (* Hfoll cannot hold for an empty list *)
+        clear canon_trace_add.
+        unfold not, can_follow_hd in Hfoll.
+        contradiction.
+      - assert (Hl'lcanon : canon_rel label' label). {
+          clear canon_trace_add.
+          firstorder.
+        }
+        assert (Hlcomm : labels_commute label label'). {
+          clear canon_trace_add.
+          unfold can_follow_hd, can_follow in Hfoll.
+          destruct (commut_dec label label').
+          + assumption.
+          + firstorder.
+        }
+        (* Use label commutativity to derive states visited by [label'; label] path: *)
+        assert (Hll' : Trace T [label; label'] s s_). {
+          constructor 2 with s'. assumption. constructor 2 with s_. assumption. constructor.
+        }
+        apply Hlcomm in Hll'.
+        inversion Hll'. inversion H4. inversion H10. subst.
+        (* Case analysis: can we attach [label] to [t']? *)
+        destruct (can_follow_hd_dec label t') as [Hfoll'' | Hfoll''].
+        + exists (label' :: label :: t').
+          repeat split.
+          * constructor 2 with s'0...
+          * constructor. assumption.
+        + specialize (canon_trace_add s'0 s_ s'' label t' H7 Ht' Hfoll'').
+          destruct canon_trace_add as [t'' [Ht'' [Hcomm'' Hhd'']]].
+          exists (label' :: t'').
+          repeat split.
+          * constructor 2 with s'0; auto.
+            eapply can_follow_hd_eq; eauto.
+          * sauto.
+    Defined.
+
+    Fixpoint canon_trace_ (s s'' : State) (t : list Label) (Ht : Trace T t s s'')
+          {struct Ht} :
+      exists t' : list Label, CanonicalTrace t' s s'' /\ RestrictedPermutation labels_commute t t'.
+    Proof with sauto.
+      destruct Ht.
+      - exists []...
+      - apply canon_trace_ in Ht. clear canon_trace_. destruct Ht as [t' [Ht' Hperm]].
+        destruct (can_follow_hd_dec label t').
+        + exists (label :: t')...
+        + eapply canon_trace_add in Ht'; eauto.
+          destruct Ht' as [t'' [Ht'' [Hperm'' Hhd]]].
+          exists t''.
+          sauto.
+    Qed.
+
+    Theorem canonicalize_trace s s' :
+      sufficient_replacement_p (fun t => Trace T t s s') (fun t => CanonicalTrace t s s').
+    Proof.
+      intros t Ht.
+      now apply canon_trace_.
+    Qed.
   End comm.
 End canonical_order.
 
-(** ** State space
-
-[StateSpace] class is an abstraction used to describe side effects of
-syscalls.
-
-*** Parameters:
-
- - <<State>> — set of points of the state space
-
- - <<Event>> — set of events
-
-*** Methods:
-
-[state_transition s e s'] is a type of statements that read as "Event
-[e] can transition the system from state [s] to [s']".
-
- *)
-Class StateSpace (State Event : Type) :=
-  { state_transition : State -> Event -> State -> Prop;
-  }.
-
-Notation "a '~[' b ']~>' c" := (state_transition a b c)(at level 40) : slot_scope.
-
-(** For example suppose <<S>> is [nat] and <<TE>> is [Inductive TE := increment.]
-
-Then the state transition method for the side effects of <<TE>> can be defined like this:
-
-[[
-state_transition s event s' =
-  match event with
-  | increment => s' = s + 1
-  end.
-]]
-
-Note that side effects can be nondeterminisic. Let's extend our definition
-of TE with "Russian roulette" operation that either leaves the state unchanged
-or sets it to zero:
-
-[[
-Inductive TE := increment
-              | rr.
-]]
-
-State transition predicate for this operation will look like this:
-
-[[
-state_transition s event s'  =
-  match event with
-  | increment => s' = s + 1
-  | rr        => s' = s \/ s' = 0
-  end.
-]]
-
-*)
-
-(** ** Paths through the state space
-
-[ReachableByTrace] is a datatype describing paths through the state space. Its
-first constructor [rbt_nil] states the fact that the empty trace
-doesn't change the state of the system. In other words, state of the
-system doesn't drift by itself.
-
-The second constructor [rbt_cons] declares that performing a syscall
-[te] transitioning the system from [s] to [s'] followed by execution
-of all syscalls in [trace], transitioning the system from [s'] to
-[s''], is equivalent to executing a path [te :: trace] from [s] to
-[s''] *)
-
-Section reachable_by_trace.
-  Context `{StateSpace}.
-
-  Inductive ReachableByTrace : State -> list Event -> State -> Prop :=
-  | rbt_nil : forall s,
-      ReachableByTrace s [] s
-  | rbt_cons : forall s s' s'' evt trace,
-      s ~[evt]~> s' ->
-      ReachableByTrace s' trace  s'' ->
-      ReachableByTrace s (evt :: trace) s''.
-End reachable_by_trace.
-
-(** ** Hoare logic of traces
-
-    [HoareTriple] is a type of judgments about trace execution,
-    stating that if precondition [pre] holds for the initial state
-    [s], and there is path [trace] through the state space leading
-    to a point [s'], then postcondition [post] must hold for
-    [s']. *)
-Section hoare.
-  Context `{StateSpace}.
-
-  Definition HoareTriple (precondition  : State -> Prop)
-                         (trace         : list Event)
-                         (postcondition : State -> Prop) :=
-    forall s s',
-      ReachableByTrace s trace s' -> precondition s ->
-      postcondition s'.
-End hoare.
-
-(* begin details *)
-Notation "'{{' a '}}' t '{{' b '}}'" := (HoareTriple a t b) (at level 40) : slot_scope.
-Notation "'{{}}' t '{{' b '}}'" := (HoareTriple (const True) t b) (at level 39) : slot_scope.
-(* end details *)
-
-(** ** Invariants
-
-  [TraceInvariant] is a type of judgments stating that if execution
-  of a trace starts in a state where property [prop] holds, then the
-  same property will hold for each intermediate state during
-  execution of the trace. In other words: [prop] is a subset of the
-  state space, and if the system starts off in this subset, it always
-  stays in it.
-*)
-
-Inductive TraceInvariant `{StateSpace} (prop : State -> Prop) : list Event -> Prop :=
-| inv_nil :
-    TraceInvariant prop []
-| inv_cons : forall te t,
-    {{prop}} [te] {{prop}} ->
-    TraceInvariant prop t ->
-    TraceInvariant prop (te :: t).
-
-Definition PossibleTrace `{Hssp : StateSpace} t :=
-  exists s s', ReachableByTrace s t s'.
-
-Definition TraceSpec `{Hssp : StateSpace} (spec : list Event -> Prop) :=
-  forall t,
-    spec t <-> PossibleTrace t.
-
-(** * Ensembles of traces
-
-    Trace ensembles play one of central roles in SLOT, because from
-    SLOT point of view any system is nothing but a collection of event
-    traces that it can produce.
- *)
-
-(* begin hide *)
-Global Arguments In {_}.
-Global Arguments Complement {_}.
-Global Arguments Disjoint {_}.
-(* end hide *)
-
-Section ensembles.
-  Context `{StateSpace}.
-
-  Definition TraceEnsemble := Ensemble (list Event).
-
-  (** Hoare logic of trace ensembles consists of a single rule: *)
-  Definition EHoareTriple (precondition  : State -> Prop)
-                          (ensemble      : TraceEnsemble)
-                          (postcondition : State -> Prop) :=
-    forall t, In ensemble t ->
-         {{ precondition }} t {{ postcondition }}.
-
-  Definition EnsembleInvariant (prop : State -> Prop) (ens : TraceEnsemble) : Prop :=
-    forall (t : list Event), ens t -> TraceInvariant prop t.
-End ensembles.
-
-(* begin details *)
-Global Arguments TraceEnsemble : clear implicits.
-
-Notation "'-{{' a '}}' e '{{' b '}}'" := (EHoareTriple a e b)(at level 40) : slot_scope.
-Notation "'-{{}}' e '{{' b '}}'" := (EHoareTriple (const True) e b)(at level 40) : slot_scope.
-Notation "'-{{}}' e '{{}}'" := (forall t, e t -> exists s s', ReachableByTrace s t s')(at level 38) : slot_scope.
-(* end details *)
-
-
-(** ** Process ID in SLOT is a natural number: *)
-Definition PID := nat.
-
-Record ProcessEvent {Event : Type} :=
-  proc_te { te_pid : PID;
-            te_event : Event
-          }.
-
-(* begin hide *)
-Global Arguments ProcessEvent : clear implicits.
-Global Arguments proc_te {_}.
-(* end hide *)
-
-(* begin details *)
-Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
-(* end details *)
 
 (** * Input/output
 
  *)
 
+Section iodefs.
+  Context {PID : Set}.
 
-Record IOp (Request : Type) (Reply : Request -> Type) :=
-  iop { iop_req : Request;
-        iop_rep : Reply iop_req;
+  Record ProcessEvent {Event : Type} :=
+    proc_te { te_pid : PID;
+              te_event : Event
+            }.
+
+  Record IOp (Request : Type) (Reply : Request -> Type) :=
+    iop { iop_req : Request;
+          iop_rep : Reply iop_req;
+        }.
+
+  Definition TraceElem (Request : Type) (Reply : Request -> Type) : Type := @ProcessEvent (IOp Request Reply).
+
+  Class IOHandler {Request : Type} {Reply : Request -> Type} : Type :=
+    mkHandler
+      { h_state : Type;
+        h_state_transition : h_state -> TraceElem Request Reply -> h_state -> Prop;
       }.
+
+  Global Instance ioHandlerTransitionSystem `(IOHandler) : @TransitionSystem h_state (TraceElem Request Reply) True :=
+    {
+      future s f :=
+        match f with
+        | fut_result _ => False
+        | fut_cont l s' => h_state_transition s l s'
+        end
+    }.
+End iodefs.
 
 Global Arguments iop {_ _} iop_req iop_rep.
 
 Notation "a <~ b" := (iop b a) (at level 49).
-
-Definition TraceElem (Request : Type) (Reply : Request -> Type) := ProcessEvent (IOp Request Reply).
-Definition Trace (Request : Type) (Reply : Request -> Type) := list (TraceElem Request Reply).
-
-Class IOHandler {Request : Type} {Reply : Request -> Type} : Type :=
-  mkHandler
-    { h_state : Type;
-      h_state_transition : h_state -> TraceElem Request Reply -> h_state -> Prop;
-    }.
-
-Global Instance handlerStateSpace `{IOHandler} : StateSpace h_state (TraceElem Request Reply) :=
-  {| state_transition := h_state_transition |}.
-
-(** * Single thread program
-
- *)
+Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
 
 CoInductive Program {Request : Type} {Reply : Request -> Type} {Ret : Type} : Type :=
 | p_dead : (* Program terminted *)
     Ret -> Program
 | p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
-      (continuation : Reply pending_req -> Program)
-    , Program.
+           (continuation : Reply pending_req -> Program)
+         , Program.
 
 (* begin details *)
 Notation "'do' V '<-' I ; C" := (p_cont (I) (fun V => C))
@@ -514,32 +601,31 @@ Notation "'return' R" := (p_dead R)
 Notation "'done' R" := (p_cont (R) (fun _ => p_dead I))
     (at level 100, right associativity) : slot_scope.
 
-
 Notation "'call' V '<-' I ; C" := (I (fun V => C))
     (at level 100, C at next level, V ident,
      right associativity,
-     only parsing) : slot_scope.
-(* end details *)
+      only parsing) : slot_scope.
+
+(** ** Process ID in SLOT is a natural number: *)
+Definition PID := nat.
+
 
 (** * Concurrency
 
- Now let's introduce concurrency. We represent concurrent processes by
- interleaving of traces.
-
  *)
 
-Section interleaving.
-  Context {Event : Type}.
+(* Section interleaving. *)
+(*   Context {Event : Type}. *)
 
-  (** Set of all possible interleaving of two traces is a trace
-  ensemble. As we later prove in [interleaving_to_permutation], this
-  definition is dual to [Permutation] of two traces. *)
-  Inductive Interleaving : list Event -> list Event -> TraceEnsemble Event :=
-  | ilv_cons_l : forall te t1 t2 t,
-      Interleaving t1 t2 t ->
-      Interleaving (te :: t1) t2 (te :: t)
-  | ilv_cons_r : forall te t1 t2 t,
-      Interleaving t1 t2 t ->
-      Interleaving t1 (te :: t2) (te :: t)
-  | ilv_nil : Interleaving [] [] [].
-End interleaving.
+(*   (** Set of all possible interleaving of two traces is a trace *)
+(*   ensemble. As we later prove in [interleaving_to_permutation], this *)
+(*   definition is dual to [RestrictedPermutation] of two traces. *) *)
+(*   Inductive Interleaving : list Event -> list Event -> TraceEnsemble Event := *)
+(*   | ilv_cons_l : forall te t1 t2 t, *)
+(*       Interleaving t1 t2 t -> *)
+(*       Interleaving (te :: t1) t2 (te :: t) *)
+(*   | ilv_cons_r : forall te t1 t2 t, *)
+(*       Interleaving t1 t2 t -> *)
+(*       Interleaving t1 (te :: t2) (te :: t) *)
+(*   | ilv_nil : Interleaving [] [] []. *)
+(* End interleaving. *)

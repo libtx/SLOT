@@ -18,7 +18,6 @@ standard library, but with an additional predicate that specifies
 whether the elements can be swapped *)
 From Coq Require Import
      List
-     Arith.Even
      Relations.
 
 From Hammer Require Import
@@ -30,34 +29,34 @@ Section defn.
   Context {T : Type} (can_swap : T -> T -> Prop).
   Let L := list T.
 
-  Inductive Permutation : L -> L -> Prop :=
+  Inductive RestrictedPermutation : L -> L -> Prop :=
   | perm_nil :
-      Permutation [] []
+      RestrictedPermutation [] []
   | perm_cons : forall a l1 l2,
-      Permutation l1 l2 ->
-      Permutation (a :: l1) (a :: l2)
+      RestrictedPermutation l1 l2 ->
+      RestrictedPermutation (a :: l1) (a :: l2)
   | perm_swap : forall a b l,
       can_swap a b ->
-      Permutation (a :: b :: l) (b :: a :: l)
+      RestrictedPermutation (a :: b :: l) (b :: a :: l)
   | perm_trans : forall l l' l'',
-      Permutation l l' ->
-      Permutation l' l'' ->
-      Permutation l l''.
+      RestrictedPermutation l l' ->
+      RestrictedPermutation l' l'' ->
+      RestrictedPermutation l l''.
 
-  Lemma perm_empty a : Permutation a [] -> a = [].
+  Lemma perm_empty a : RestrictedPermutation a [] -> a = [].
   Proof.
     intros H.
     remember [] as b eqn:Hb.
     induction H; subst; try now inversion Hb.
-    - rewrite IHPermutation1, IHPermutation2; auto.
+    - rewrite IHRestrictedPermutation1, IHRestrictedPermutation2; auto.
   Qed.
 
-  Lemma perm_refl t : Permutation t t.
+  Lemma perm_refl t : RestrictedPermutation t t.
   Proof.
     induction t; now constructor.
   Qed.
 End defn.
 
-#[export] Hint Constructors Permutation : slot.
+#[export] Hint Constructors RestrictedPermutation : slot.
 #[export] Hint Resolve perm_refl : slot.
 #[export] Hint Resolve perm_empty : slot.
