@@ -105,14 +105,13 @@ executing a trace [te :: trace], transitioning the system from [s] to
 Section state_reachability.
   Context `{HT : TransitionSystem}.
 
-  Inductive Trace : list Label -> State -> State -> Prop :=
+  Inductive Trace : State -> State -> list Label -> Prop :=
   | tr_nil : forall s,
-      Trace [] s s
+      Trace s s []
   | tr_cons : forall s s' s'' label trace,
       future s ~[label]~> s' ->
-      Trace trace s' s'' ->
-      Trace (label :: trace) s s''.
-
+      Trace s' s'' trace ->
+      Trace s s'' (label :: trace).
 
   (** ** Hoare logic of traces
 
@@ -124,7 +123,7 @@ Section state_reachability.
                          (trace         : list Label)
                          (postcondition : State -> Prop) :=
     forall s s',
-      Trace trace s s' -> precondition s ->
+      Trace s s' trace -> precondition s ->
       postcondition s'.
 
   (** ** Hoare triple for terminal states
@@ -169,7 +168,7 @@ Section state_invariant.
 
   Definition StateInvariant (trace : list Label) : Prop :=
     forall s s',
-      Trace invTransSys trace s s'.
+      Trace invTransSys s s' trace.
 End state_invariant.
 
 (** * Ensembles of traces
@@ -198,11 +197,11 @@ Section trace_ensembles.
 
   Definition OccupiedTraceEnsemble (e : TraceEnsemble) : Prop :=
     exists t s s',
-      e t -> Trace HT t s s'.
+      e t -> Trace HT s s' t.
 
   Definition FullyOccupiedTraceEnsemble (e : TraceEnsemble) : Prop :=
     forall t,
-      e t -> exists s s', Trace HT t s s'.
+      e t -> exists s s', Trace HT s s' t.
 End trace_ensembles.
 
 Notation "'-{{' a '}}' e '{{' b '}}'" := (EHoareTriple a e b)(at level 40) : slot_scope.
@@ -217,7 +216,7 @@ Section commutativity.
 
     Definition labels_commute (l1 l2 : Label) : Prop :=
       forall (s s' : State),
-        Trace TS [l1; l2] s s' <-> Trace TS [l2; l1] s s'.
+        Trace TS s s' [l1; l2] <-> Trace TS s s' [l2; l1].
 
     Global Instance events_commuteSymm : Symmetric labels_commute.
     Proof.
@@ -235,8 +234,8 @@ Section trace_properties.
   in the state space for each intermediate step of the trace
   execution: *)
   Lemma trace_split : forall s s'' t1 t2,
-      Trace TS (t1 ++ t2) s s'' ->
-      exists s', Trace TS t1 s s' /\ Trace TS t2 s' s''.
+      Trace TS s s'' (t1 ++ t2) ->
+      exists s', Trace TS s s' t1 /\ Trace TS s' s'' t2.
   Proof with sauto.
     intros.
     generalize dependent s.
@@ -251,9 +250,9 @@ Section trace_properties.
 
   (** [trace_concat] lemma demonstrates that traces can be composed: *)
   Lemma trace_concat : forall s s' s'' t1 t2,
-      Trace TS t1 s s' ->
-      Trace TS t2 s' s'' ->
-      Trace TS (t1 ++ t2) s s''.
+      Trace TS s s' t1 ->
+      Trace TS s' s'' t2 ->
+      Trace TS s s'' (t1 ++ t2).
   Proof with sauto.
     intros.
     generalize dependent s.
@@ -261,9 +260,9 @@ Section trace_properties.
   Qed.
 
   Lemma trace_commutateive_permutation s s' t t' :
-    Trace TS t s s' ->
+    Trace TS s s' t ->
     RestrictedPermutation labels_commute t t' ->
-    Trace TS t' s s'.
+    Trace TS s s' t'.
   Proof with sauto.
     intros Hls Hperm.
     generalize dependent s.
@@ -282,8 +281,8 @@ Section trace_equivalence.
 
   Definition sufficient_replacement :=
     forall t s s', e t ->
-              Trace T t s s' ->
-              exists t', e' t' /\ Trace T t' s s'.
+              Trace T s s' t ->
+              exists t', e' t' /\ Trace T s s' t'.
 
   Definition sufficient_replacement_p :=
     forall t, e t ->
@@ -345,18 +344,18 @@ Section trans_prod.
     split; intros H.
     { inversion H. clear H. inversion H5. clear H5. inversion H10. clear H10. subst.
       destruct s' as [s'_l s'_r].
-      inversion_clear H2. inversion_clear H7.
+      inversion_clear H4. inversion_clear H9.
       destruct HT1 as [HT1 _]. destruct HT2 as [HT2 _].
-      assert (HT1p : Trace T1 [l1; l2] s_l s''_l) by sauto. specialize (HT1 HT1p). clear HT1p.
-      assert (HT2p : Trace T2 [l1; l2] s_r s''_r) by sauto. specialize (HT2 HT2p). clear HT2p.
+      assert (HT1p : Trace T1 s_l s''_l [l1; l2]) by sauto. specialize (HT1 HT1p). clear HT1p.
+      assert (HT2p : Trace T2 s_r s''_r [l1; l2] ) by sauto. specialize (HT2 HT2p). clear HT2p.
       sauto.
     }
     { inversion H. clear H. inversion H5. clear H5. inversion H10. clear H10. subst.
       destruct s' as [s'_l s'_r].
-      inversion_clear H2. inversion_clear H7.
+      inversion_clear H4. inversion_clear H9.
       destruct HT1 as [_ HT1]. destruct HT2 as [_ HT2].
-      assert (HT1p : Trace T1 [l2; l1] s_l s''_l) by sauto. specialize (HT1 HT1p). clear HT1p.
-      assert (HT2p : Trace T2 [l2; l1] s_r s''_r) by sauto. specialize (HT2 HT2p). clear HT2p.
+      assert (HT1p : Trace T1 s_l s''_l [l2; l1]) by sauto. specialize (HT1 HT1p). clear HT1p.
+      assert (HT2p : Trace T2 s_r s''_r [l2; l1]) by sauto. specialize (HT2 HT2p). clear HT2p.
       sauto.
     }
   Qed.
@@ -455,14 +454,14 @@ Section canonical_order.
       - simpl. apply can_follow_dec.
     Qed.
 
-    Inductive CanonicalTrace : list Label -> State -> State -> Prop :=
+    Inductive CanonicalTrace : State -> State -> list Label -> Prop :=
     | canontr_nil : forall s,
-        CanonicalTrace [] s s
+        CanonicalTrace s s []
     | canontr_cons : forall s s' s'' label trace,
         future s ~[label]~> s' ->
         can_follow_hd label trace ->
-        CanonicalTrace trace s' s'' ->
-        CanonicalTrace (label :: trace) s s''.
+        CanonicalTrace s' s'' trace ->
+        CanonicalTrace s s'' (label :: trace).
 
     Lemma can_follow_hd_eq {te t1 t2} (Hfoll : can_follow_hd te t1) (Hhd : hd_error t1 = hd_error t2) :
       can_follow_hd te t2.
@@ -475,9 +474,9 @@ Section canonical_order.
     Qed.
 
     Fixpoint canon_trace_add s s' s'' label t (Hlabel : future s ~[label]~> s')
-                             (Ht : CanonicalTrace t s' s'')
+                             (Ht : CanonicalTrace s' s'' t)
                              (Hfoll : ~can_follow_hd label t) {struct Ht} :
-      exists t', CanonicalTrace t' s s'' /\
+      exists t', CanonicalTrace s s'' t' /\
                  RestrictedPermutation labels_commute (label :: t) t' /\
                  (hd_error t = hd_error t').
     Proof with sauto.
@@ -498,7 +497,7 @@ Section canonical_order.
           + firstorder.
         }
         (* Use label commutativity to derive states visited by [label'; label] path: *)
-        assert (Hll' : Trace T [label; label'] s s_). {
+        assert (Hll' : Trace T s s_ [label; label']). {
           constructor 2 with s'. assumption. constructor 2 with s_. assumption. constructor.
         }
         apply Hlcomm in Hll'.
@@ -509,7 +508,7 @@ Section canonical_order.
           repeat split.
           * constructor 2 with s'0...
           * constructor. assumption.
-        + specialize (canon_trace_add s'0 s_ s'' label t' H7 Ht' Hfoll'').
+        + specialize (canon_trace_add s'0 s_ s'' label t' H9 Ht' Hfoll'').
           destruct canon_trace_add as [t'' [Ht'' [Hcomm'' Hhd'']]].
           exists (label' :: t'').
           repeat split.
@@ -518,9 +517,9 @@ Section canonical_order.
           * sauto.
     Defined.
 
-    Fixpoint canon_trace_ (s s'' : State) (t : list Label) (Ht : Trace T t s s'')
+    Fixpoint canon_trace_ (s s'' : State) (t : list Label) (Ht : Trace T s s'' t)
           {struct Ht} :
-      exists t' : list Label, CanonicalTrace t' s s'' /\ RestrictedPermutation labels_commute t t'.
+      exists t' : list Label, CanonicalTrace s s'' t' /\ RestrictedPermutation labels_commute t t'.
     Proof with sauto.
       destruct Ht.
       - exists []...
@@ -534,7 +533,7 @@ Section canonical_order.
     Qed.
 
     Theorem canonicalize_trace s s' :
-      sufficient_replacement_p (fun t => Trace T t s s') (fun t => CanonicalTrace t s s').
+      sufficient_replacement_p (Trace T s s') (CanonicalTrace s s').
     Proof.
       intros t Ht.
       now apply canon_trace_.
@@ -608,7 +607,6 @@ Notation "'call' V '<-' I ; C" := (I (fun V => C))
 
 (** ** Process ID in SLOT is a natural number: *)
 Definition PID := nat.
-
 
 (** * Concurrency
 

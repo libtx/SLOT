@@ -1,5 +1,5 @@
 (* SLOT, a formally verified model checker
-   Copyright (C) 2019-2023  k32
+   Copyright (C) 2019-2024  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,9 +20,7 @@ From Coq Require Import
 Import ListNotations.
 
 From SLOT Require Import
-     Foundations
-     Properties
-     Tactics.
+     Foundations.
 
 Section defs.
   Open Scope slot_scope.
