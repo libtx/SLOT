@@ -624,51 +624,82 @@ End trace.
 
 (** * Generic scheduler *)
 Section gen_scheduler.
-  Context {Thread : Type} {SchedulerState : Type} {TraceElem : Type}
+  Context {Thread SchedulerState TraceElem : Type}
     (step : Thread -> list Thread -> SchedulerState -> TraceElem -> Prop).
 
-  Inductive GenSchedStep : list Thread -> list Thread -> SchedulerState -> Prop :=
-  | gen_sched_skip : forall x l l' s',
-      GenSchedStep l l' s' ->
-      GenSchedStep (x :: l) (x :: l') s'
+  Inductive GenSchedStep : list Thread -> list Thread -> SchedulerState -> TraceElem -> Prop :=
+  | gen_sched_skip : forall x l l' s' te,
+      GenSchedStep l l' s' te ->
+      GenSchedStep (x :: l) (x :: l') s' te
   | gen_sched_apply : forall x x' l s' te,
       step x x' s' te ->
-      GenSchedStep (x :: l) (x' ++ l) s'.
+      GenSchedStep (x :: l) (x' ++ l) s' te.
 End gen_scheduler.
 
 Section node_scheduler.
   Context `{IOHandler}.
-  Context (node_id next_pid : positive).
+  Context (node_id : positive).
 
   Let Thread : Type := (positive * @Program Request Reply).
 
-  Inductive NodeSchedulerStep : Thread -> list Thread -> positive -> @TraceElem Request Reply -> Prop :=
-  | nsc_dead :
-    forall pid ret,
-      let te := te_exit (node_id, pid) ret in
-      NodeSchedulerStep
-        (pid, p_dead ret)
-        []
-        next_pid
-        te
-  | nsc_spawn :
-    forall pid new cont,
-      let new_pid := (node_id, next_pid) in
-      let te := te_spawn (node_id, pid) new new_pid in
-      NodeSchedulerStep
-        (pid, p_spawn new cont)
-        [(pid, cont new_pid); (next_pid, new)]
-        (Pos.succ next_pid)
-        te
-  | nsc_do_iop :
-    forall pid request reply cont,
-      let te := te_iop (mk_IOp _ _ (node_id, pid) request reply) in
-      NodeSchedulerStep
-        (pid, p_cont request cont)
-        [(pid, cont reply)]
-        next_pid
-        te.
+  Section prop.
+    Context (next_pid : positive).
+
+    Inductive NodeSchedulerStep : Thread -> list Thread -> positive -> @TraceElem Request Reply -> Prop :=
+    | nsc_dead :
+      forall pid ret,
+        let te := te_exit (node_id, pid) ret in
+        NodeSchedulerStep
+          (pid, p_dead ret)
+          []
+          next_pid
+          te
+    | nsc_spawn :
+      forall pid new cont,
+        let new_pid := (node_id, next_pid) in
+        let te := te_spawn (node_id, pid) new new_pid in
+        NodeSchedulerStep
+          (pid, p_spawn new cont)
+          [(pid, cont new_pid); (next_pid, new)]
+          (Pos.succ next_pid)
+          te
+    | nsc_do_iop :
+      forall pid request reply cont,
+        let te := te_iop (mk_IOp _ _ (node_id, pid) request reply) in
+        NodeSchedulerStep
+          (pid, p_cont request cont)
+          [(pid, cont reply)]
+          next_pid
+          te.
+  End prop.
+
+  Record NodeSchedulerState :=
+    mkNodeScheduler
+      {
+        next_pid : positive;
+        threads : list Thread;
+      }.
+
+  Definition NodeScheduler (s s' : NodeSchedulerState) (te : @TraceElem Request Reply) : Prop :=
+    let (next_pid, l) := s in
+    let (next_pid', l') := s' in
+    GenSchedStep (NodeSchedulerStep next_pid) l l' next_pid' te.
 End node_scheduler.
+
+Section network_scheduler.
+  Context `{IOH : IOHandler}.
+
+  Definition Node : Type := positive * @NodeSchedulerState Request Reply.
+
+  Inductive NetSchedulerStep : Node -> list Node -> () -> @TraceElem Request Reply -> Prop :=
+  | net_sched :
+    forall node ns ns' te,
+      NodeScheduler node ns ns' te ->
+      NetSchedulerStep (node, ns) [(node, ns')] () te.
+
+  Definition NetScheduler (s s' : list Node) (te : @TraceElem Request Reply) : Prop :=
+    GenSchedStep NetSchedulerStep s s' () te.
+End network_scheduler.
 
 (** * Concurrency
 
