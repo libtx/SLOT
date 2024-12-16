@@ -85,7 +85,7 @@ End transition_system.
 Global Arguments TransitionSystem (_ _ _) : clear implicits.
 
 Notation "A '~[' L ']~>' S" := (A (fut_cont L S)) (at level 20) : slot_scope.
-Notation "A '~|' R" := (A (fut_result R)) (at level 20) : slot_scope.
+Notation "A '~>[' R ']'"  := (A (fut_result R)) (at level 20) : slot_scope.
 
 (** ** Paths through the state space
 
@@ -135,7 +135,7 @@ Section state_reachability.
   Definition RHoareTriple (precondition  : State -> Prop)
                           (trace         : list Label)
                           (postcondition : Result -> Prop) :=
-    let postcondition' s := exists2 result, future s ~| result & postcondition result
+    let postcondition' s := exists2 result, future s ~>[ result ] & postcondition result
     in HoareTriple precondition trace postcondition'.
 End state_reachability.
 
@@ -324,11 +324,11 @@ Section trans_prod.
       future s2 ~[label]~> s2' ->
       TransProdFuture (s1, s2) ~[label]~> (s1', s2')
   | tpf_rc : forall s1 s2 r,
-      future s1 ~| r ->
-      TransProdFuture (s1, s2) ~| (tpr_l r s2)
+      future s1 ~>[r] ->
+      TransProdFuture (s1, s2) ~>[tpr_l r s2]
   | tpf_cr : forall s1 s2 r,
-      future s2 ~| r ->
-      TransProdFuture (s1, s2) ~| (tpr_r s1 r).
+      future s2 ~>[r] ->
+      TransProdFuture (s1, s2) ~>[tpr_r s1 r].
 
   Instance transProd : @TransitionSystem State Label TransProdResult :=
     { future := TransProdFuture }.
@@ -377,9 +377,9 @@ Section trans_sum.
 
   Inductive TransSumFuture : State -> @Future State Label Result -> Prop :=
   | tsf_rr : forall s1 s2 r1 r2,
-      future s1 ~| r1 ->
-      future s2 ~| r2 ->
-      TransSumFuture (s1, s2) ~| (r1, r2)
+      future s1~>[r1] ->
+      future s2~>[r2] ->
+      TransSumFuture (s1, s2) ~>[(r1, r2)]
   | tsf_l : forall s1 s1' s2 label,
       future s1 ~[label]~> s1' ->
       TransSumFuture (s1, s2) ~[inl label]~> (s1', s2)
@@ -496,7 +496,8 @@ Section canonical_order.
           + assumption.
           + firstorder.
         }
-        (* Use label commutativity to derive states visited by [label'; label] path: *)
+        (* Use label commutativity to derive an intermediate state on
+        the [label'; label] path: *)
         assert (Hll' : Trace T s s_ [label; label']). {
           constructor 2 with s'. assumption. constructor 2 with s_. assumption. constructor.
         }
@@ -504,11 +505,13 @@ Section canonical_order.
         inversion Hll'. inversion H4. inversion H10. subst.
         (* Case analysis: can we attach [label] to [t']? *)
         destruct (can_follow_hd_dec label t') as [Hfoll'' | Hfoll''].
-        + exists (label' :: label :: t').
+        + (* Yes, we can. Proof by construction: *)
+          exists (label' :: label :: t').
           repeat split.
           * constructor 2 with s'0...
           * constructor. assumption.
-        + specialize (canon_trace_add s'0 s_ s'' label t' H9 Ht' Hfoll'').
+        + (* No, we cannot. Proof by induction *)
+          specialize (canon_trace_add s'0 s_ s'' label t' H9 Ht' Hfoll'').
           destruct canon_trace_add as [t'' [Ht'' [Hcomm'' Hhd'']]].
           exists (label' :: t'').
           repeat split.
@@ -528,8 +531,7 @@ Section canonical_order.
         + exists (label :: t')...
         + eapply canon_trace_add in Ht'; eauto.
           destruct Ht' as [t'' [Ht'' [Hperm'' Hhd]]].
-          exists t''.
-          sauto.
+          exists t''...
     Qed.
 
     Theorem canonicalize_trace s s' :
@@ -541,50 +543,23 @@ Section canonical_order.
   End comm.
 End canonical_order.
 
+Require Import ZArith.
+Open Scope positive_scope.
+Require Import String.
 
-(** * Input/output
+Definition PID : Type := positive * positive.
 
- *)
+Inductive ProgramReturn :=
+| normal
+| error : string -> ProgramReturn.
 
-Section iodefs.
-  Context {PID : Set}.
-
-  Record ProcessEvent {Event : Type} :=
-    proc_te { te_pid : PID;
-              te_event : Event
-            }.
-
-  Record IOp (Request : Type) (Reply : Request -> Type) :=
-    iop { iop_req : Request;
-          iop_rep : Reply iop_req;
-        }.
-
-  Definition TraceElem (Request : Type) (Reply : Request -> Type) : Type := @ProcessEvent (IOp Request Reply).
-
-  Class IOHandler {Request : Type} {Reply : Request -> Type} : Type :=
-    mkHandler
-      { h_state : Type;
-        h_state_transition : h_state -> TraceElem Request Reply -> h_state -> Prop;
-      }.
-
-  Global Instance ioHandlerTransitionSystem `(IOHandler) : @TransitionSystem h_state (TraceElem Request Reply) True :=
-    {
-      future s f :=
-        match f with
-        | fut_result _ => False
-        | fut_cont l s' => h_state_transition s l s'
-        end
-    }.
-End iodefs.
-
-Global Arguments iop {_ _} iop_req iop_rep.
-
-Notation "a <~ b" := (iop b a) (at level 49).
-Notation "p @ t" := (proc_te p t) (at level 50) : slot_scope.
-
-CoInductive Program {Request : Type} {Reply : Request -> Type} {Ret : Type} : Type :=
+CoInductive Program {Request : Type} {Reply : Request -> Type} : Type :=
 | p_dead : (* Program terminted *)
-    Ret -> Program
+    ProgramReturn -> Program
+| p_spawn : (* Spawn a new process *)
+    forall (new : Program)
+           (continuation : PID -> Program)
+         , Program
 | p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
            (continuation : Reply pending_req -> Program)
@@ -605,20 +580,106 @@ Notation "'call' V '<-' I ; C" := (I (fun V => C))
      right associativity,
       only parsing) : slot_scope.
 
-(** ** Process ID in SLOT is a natural number: *)
-Definition PID := nat.
+Notation "'spawn' V '<-' I ; C" := (p_spawn (I) (fun V => C))
+    (at level 100, C at next level, V ident,
+     right associativity) : slot_scope.
+(* end details *)
+
+(** * Input/output
+
+ *)
+
+Section iodefs.
+  Record IOp (Request : Type) (Reply : Request -> Type) :=
+    mk_IOp {
+        iop_pid : PID;
+        iop_req : Request;
+        iop_rep : Reply iop_req;
+      }.
+
+  Class IOHandler {Request : Type} {Reply : Request -> Type} : Type :=
+    mkHandler
+      { h_state : Type;
+        h_state_transition : h_state -> IOp Request Reply -> h_state -> Prop;
+      }.
+
+  Global Instance ioHandlerTransitionSystem `(IOHandler) : @TransitionSystem h_state (IOp Request Reply) True :=
+    {
+      future s f :=
+        match f with
+        | fut_result _ => False
+        | fut_cont l s' => h_state_transition s l s'
+        end
+    }.
+End iodefs.
+
+Section trace.
+  Context `{IOHandler}.
+
+  Inductive TraceElem :=
+  | te_iop : IOp Request Reply -> TraceElem
+  | te_spawn : PID -> @Program Request Reply -> PID -> TraceElem
+  | te_exit : PID -> ProgramReturn -> TraceElem.
+End trace.
+
+(** * Generic scheduler *)
+Section gen_scheduler.
+  Context {Thread : Type} {SchedulerState : Type} {TraceElem : Type}
+    (step : Thread -> list Thread -> SchedulerState -> TraceElem -> Prop).
+
+  Inductive GenSchedStep : list Thread -> list Thread -> SchedulerState -> Prop :=
+  | gen_sched_skip : forall x l l' s',
+      GenSchedStep l l' s' ->
+      GenSchedStep (x :: l) (x :: l') s'
+  | gen_sched_apply : forall x x' l s' te,
+      step x x' s' te ->
+      GenSchedStep (x :: l) (x' ++ l) s'.
+End gen_scheduler.
+
+Section node_scheduler.
+  Context `{IOHandler}.
+  Context (node_id next_pid : positive).
+
+  Let Thread : Type := (positive * @Program Request Reply).
+
+  Inductive NodeSchedulerStep : Thread -> list Thread -> positive -> @TraceElem Request Reply -> Prop :=
+  | nsc_dead :
+    forall pid ret,
+      let te := te_exit (node_id, pid) ret in
+      NodeSchedulerStep
+        (pid, p_dead ret)
+        []
+        next_pid
+        te
+  | nsc_spawn :
+    forall pid new cont,
+      let new_pid := (node_id, next_pid) in
+      let te := te_spawn (node_id, pid) new new_pid in
+      NodeSchedulerStep
+        (pid, p_spawn new cont)
+        [(pid, cont new_pid); (next_pid, new)]
+        (Pos.succ next_pid)
+        te
+  | nsc_do_iop :
+    forall pid request reply cont,
+      let te := te_iop (mk_IOp _ _ (node_id, pid) request reply) in
+      NodeSchedulerStep
+        (pid, p_cont request cont)
+        [(pid, cont reply)]
+        next_pid
+        te.
+End node_scheduler.
 
 (** * Concurrency
 
  *)
-
 (* Section interleaving. *)
 (*   Context {Event : Type}. *)
 
-(*   (** Set of all possible interleaving of two traces is a trace *)
-(*   ensemble. As we later prove in [interleaving_to_permutation], this *)
-(*   definition is dual to [RestrictedPermutation] of two traces. *) *)
-(*   Inductive Interleaving : list Event -> list Event -> TraceEnsemble Event := *)
+(*   (** Set of all possible interleaving of two traces is a trace *) *)
+(* (*   ensemble. As we later prove in [interleaving_to_permutation], this *) *)
+(* (*   definition is dual to [RestrictedPermutation] of two traces. *) *)
+(*   Inductive Interleaving : list Event -> list Event -> Ensemble (list Event) := *)
 (*   | ilv_cons_l : forall te t1 t2 t, *)
 (*       Interleaving t1 t2 t -> *)
 (*       Interleaving (te :: t1) t2 (te :: t) *)
@@ -627,3 +688,30 @@ Definition PID := nat.
 (*       Interleaving t1 (te :: t2) (te :: t) *)
 (*   | ilv_nil : Interleaving [] [] []. *)
 (* End interleaving. *)
+
+(* Section singleton_process. *)
+(*   (* Context {Gen State Event} `{StateSpace State (ProcessEvent Event)} `{Generator Event Gen}. *) *)
+
+(*   (* Record SingletonProcess := *) *)
+(*   (*   singleton_process { _ : Gen }. *) *)
+
+(*   Inductive SingletonStep : SingletonProcess -> option (SingletonProcess * (ProcessEvent Event)) -> Prop := *)
+(*   | wrs_nil : forall g, *)
+(*       g ~~>x -> *)
+(*       SingletonStep (singleton_process g) None *)
+(*   | wrp_cons : forall g g' evt, *)
+(*       g ~~> g' & evt -> *)
+(*       SingletonStep (singleton_process g) (Some (singleton_process g', 0 @ evt)). *)
+
+(*   Global Instance singletonGen : Generator (ProcessEvent Event) SingletonProcess := *)
+(*     { gen_step := SingletonStep }. *)
+
+(*   Lemma singleton_gen_comm : *)
+(*     generator_events_commute SingletonProcess. *)
+(*   Proof. *)
+(*     intros g g' g'' te1 te2 Hpids Hg Hg'. *)
+(*     exfalso. *)
+(*     inversion Hg; inversion Hg'; subst. *)
+(*     sauto. *)
+(*   Qed. *)
+(* End singleton_process. *)
