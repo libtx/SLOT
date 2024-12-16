@@ -624,16 +624,24 @@ End trace.
 
 (** * Generic scheduler *)
 Section gen_scheduler.
-  Context {Thread SchedulerState TraceElem : Type}
-    (step : Thread -> list Thread -> SchedulerState -> TraceElem -> Prop).
+  Context {State GlobalState Label : Type}
+    (step : GlobalState -> GlobalState -> State -> list State -> Label -> Prop).
 
-  Inductive GenSchedStep : list Thread -> list Thread -> SchedulerState -> TraceElem -> Prop :=
-  | gen_sched_skip : forall x l l' s' te,
-      GenSchedStep l l' s' te ->
-      GenSchedStep (x :: l) (x :: l') s' te
-  | gen_sched_apply : forall x x' l s' te,
-      step x x' s' te ->
-      GenSchedStep (x :: l) (x' ++ l) s' te.
+  Record SchedulerState :=
+    mkSchedState
+      { gen_sched_l : list State;
+        gen_sched_s : GlobalState;
+      }.
+
+  Inductive GenSchedStep : SchedulerState -> @Future SchedulerState Label () -> Prop :=
+  | gen_sched_empty : forall s,
+      GenSchedStep {| gen_sched_l := []; gen_sched_s := s |} ~>[ () ]
+  | gen_sched_skip : forall a s s' l l' te,
+      GenSchedStep {| gen_sched_l := l; gen_sched_s := s |} ~[ te ]~> {| gen_sched_l := l'; gen_sched_s := s' |} ->
+      GenSchedStep {| gen_sched_l := a :: l; gen_sched_s := s |} ~[ te ]~> {| gen_sched_l := a :: l'; gen_sched_s := s' |}
+  | gen_sched_apply : forall a a' s s' l te,
+      step s s' a a' te ->
+      GenSchedStep {| gen_sched_l := a :: l; gen_sched_s := s |} ~[ te ]~> {| gen_sched_l := a' ++ l; gen_sched_s := s' |}.
 End gen_scheduler.
 
 Section node_scheduler.
@@ -645,51 +653,51 @@ Section node_scheduler.
   Section prop.
     Context (next_pid : positive).
 
-    Inductive NodeSchedulerStep : Thread -> list Thread -> positive -> @TraceElem Request Reply -> Prop :=
+    Inductive NodeSchedulerStep : positive -> Thread -> list Thread -> @TraceElem Request Reply -> Prop :=
     | nsc_dead :
       forall pid ret,
         let te := te_exit (node_id, pid) ret in
         NodeSchedulerStep
+          next_pid
           (pid, p_dead ret)
           []
-          next_pid
           te
     | nsc_spawn :
       forall pid new cont,
         let new_pid := (node_id, next_pid) in
         let te := te_spawn (node_id, pid) new new_pid in
         NodeSchedulerStep
+          (Pos.succ next_pid)
           (pid, p_spawn new cont)
           [(pid, cont new_pid); (next_pid, new)]
-          (Pos.succ next_pid)
           te
     | nsc_do_iop :
       forall pid request reply cont,
         let te := te_iop (mk_IOp _ _ (node_id, pid) request reply) in
         NodeSchedulerStep
+          next_pid
           (pid, p_cont request cont)
           [(pid, cont reply)]
-          next_pid
           te.
   End prop.
 
-  Record NodeSchedulerState :=
-    mkNodeScheduler
-      {
-        next_pid : positive;
-        threads : list Thread;
-      }.
+  Check @SchedulerState.
 
-  Definition NodeScheduler (s s' : NodeSchedulerState) (te : @TraceElem Request Reply) : Prop :=
-    let (next_pid, l) := s in
-    let (next_pid', l') := s' in
-    GenSchedStep (NodeSchedulerStep next_pid) l l' next_pid' te.
+  Definition NodeSchedulerState : Type := @SchedulerState Thread positive.
+
+  Definition NodeScheduler := GenSchedStep NodeSchedulerStep.
 End node_scheduler.
 
 Section network_scheduler.
   Context `{IOH : IOHandler}.
 
   Definition Node : Type := positive * @NodeSchedulerState Request Reply.
+
+  Inductive NetSchedulerStep : () -> () -> Node -> list Node -> @TraceElem Request Reply -> Prop :=
+  | net_sched : forall ns ns' te,
+      NodeScheduler ns ~[te]~> ns' ->
+      NetSchedulerStep () () ns [ns'] te.
+
 
   Inductive NetSchedulerStep : Node -> list Node -> () -> @TraceElem Request Reply -> Prop :=
   | net_sched :
