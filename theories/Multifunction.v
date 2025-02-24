@@ -45,18 +45,20 @@ End mfun.
 Global Arguments morphism {_ _ _ _}.
 Global Arguments morphism_covariance {_ _ _ _}.
 
-Notation "A '~[' B ']~>' C" := (morphism B A C) (at level 20) : slot_scope.
+Declare Scope slot_scope.
 Open Scope slot_scope.
+
+Notation "A '~[' B ']~>' C" := (morphism B A C) (at level 20) : slot_scope.
 
 Ltac morph_shift morphism point :=
   lazymatch goal with
   | [Hequiv : point == ?A, Hmorph : ?A ~[morphism]~> ?B |- _] =>
-      symmetry in Hequiv; morph_shift point morphism
+      symmetry in Hequiv; morph_shift morphism point
   | [Hequiv : ?A == point, Hmorph : ?A ~[morphism]~> ?B |- _] =>
       let B' := fresh B "'" in
       let Hequiv' := fresh "Hequiv_" B "_" B' in
       let Hmorph' := fresh "Hmorph_" point "_" B' in
-      idtac "equiv=" Hequiv "morph=" Hmorph "B'=" B';
+      (* idtac "equiv=" Hequiv "morph=" Hmorph "B'=" B'; *)
       destruct (morphism_covariance _ _ _ _ Hequiv Hmorph) as [B' [Hmorph' Hequiv']]
   end.
 
@@ -378,7 +380,6 @@ Section canonical_trace.
       (* Use commutativity to derive an intermediate state on
          the [g ∘ f] path: *)
       assert (exists{v' == v}, x ~[g ∘ f]~> v') as Hv'. {
-        symmetry in Hyy'.
         morph_shift g y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].
@@ -561,8 +562,6 @@ Section VM.
              {| threads := do_io pid lc req ret cont threads';
                 world := world'
              |}.
-
-  Search PermutationA.
 
   Program Instance vmEquiv : Setoid VM :=
     {| equiv a b :=
