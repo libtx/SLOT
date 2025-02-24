@@ -14,10 +14,9 @@ build: [
 ]
 install: [make "install"]
 depends: [
-  "coq" {(>= "8.17" & < "8.21~") | (= "dev")}
-  "coq-record-update"
+  "coq" {(>= "8.20" & < "9.0~") | (= "dev")}
   "coq-hammer"
-  "coq-libtx-storage"
+  "coq-libtx-storage" {(>= "0.1.1")}
 ]
 
 tags: [
