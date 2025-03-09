@@ -53,12 +53,12 @@ Notation "A '~[' B ']~>' C" := (morphism B A C) (at level 20) : slot_scope.
 Ltac morph_shift morphism point :=
   lazymatch goal with
   | [Hequiv : point == ?A, Hmorph : ?A ~[morphism]~> ?B |- _] =>
+      (* FIXME: ideally we should not modify the original hypothesis *)
       symmetry in Hequiv; morph_shift morphism point
   | [Hequiv : ?A == point, Hmorph : ?A ~[morphism]~> ?B |- _] =>
       let B' := fresh B "'" in
       let Hequiv' := fresh "Hequiv_" B "_" B' in
       let Hmorph' := fresh "Hmorph_" point "_" B' in
-      (* idtac "equiv=" Hequiv "morph=" Hmorph "B'=" B'; *)
       destruct (morphism_covariance _ _ _ _ Hequiv Hmorph) as [B' [Hmorph' Hequiv']]
   end.
 
@@ -490,6 +490,20 @@ Section VM.
   CoInductive Program : Type :=
   | p_dead : (* Program terminted *)
       Program
+  | p_yield :
+      (* Interrupt the computation without producing any side effects.
+      This primitive is used to softly introduce the concept of
+      Erlang's "reductions", and to side-step termination checker,
+      making programs non-Turing in a practically useful, as opposed
+      to forced, way.
+
+      In Erlang, reduction counting improves responsiveness of the
+      system, in SLOT it *additionally* gives a structural argument
+      "for free". *)
+    forall {CTX : Type}
+      (ctx : CTX)
+      (continuation : CTX -> Program),
+    Program
   | p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
            (continuation : Reply pending_req -> Program),
@@ -536,6 +550,14 @@ Section VM.
                       |} in
     new_thread :: rest.
 
+  Definition do_yield {CTX : Type} pid lc (ctx : CTX) (cont : CTX -> Program) rest :=
+    let new_thread := {|
+                       t_pid := pid;
+                       t_last_child := lc;
+                       t_prog := cont ctx
+                     |} in
+    new_thread :: rest.
+
   Inductive VMStep : relation VM :=
   | vm_proc_down : forall pid lc threads threads' world,
       Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_dead |}, threads') ->
@@ -544,6 +566,14 @@ Section VM.
              |}
              {| threads := threads';
                 world := world
+             |}
+  | vm_proc_yield : forall pid lc CTX ctx cont threads threads' world,
+      Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := @p_yield CTX ctx cont |}, threads') ->
+      VMStep {| threads := threads;
+                world := world
+             |}
+             {| threads := do_yield pid lc ctx cont threads';
+                 world := world
              |}
   | vm_proc_spawn : forall pid lc cont child threads threads' world,
       Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_spawn child cont |}, threads') ->
@@ -597,8 +627,7 @@ Section VM.
         let go (acc : positive * list Thread) (prog : Program) :=
           let (pid, threads) := acc in
           let thread := {| t_pid := [pid]; t_prog := prog; t_last_child := 1 |} in
-          (Pos.succ pid, thread :: threads)
-        in
+          (Pos.succ pid, thread :: threads) in
         let (_, threads) := fold_left go threads (1%positive, []) in
         threads;
     |}.
@@ -687,6 +716,7 @@ Section test.
       t = [].
   Proof.
     intros t Ht.
+    apply canonicalize_trace in Ht.
     unfold initialState, initVM in Ht.
   Abort.
 End test.
