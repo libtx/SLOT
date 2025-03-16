@@ -69,7 +69,10 @@ Section compose.
   Let G := @MFun B C HB HC.
 
   Program Definition compose (f : F) (g : G) : MFun A C :=
-     {| morphism := fun x z => exists y, morphism f x y /\ morphism g y z; |}.
+    {|
+      morphism x z :=
+        exists y, morphism f x y /\ morphism g y z;
+    |}.
   Next Obligation.
     rename y into z. rename H0 into y.
     morph_shift f x'.
@@ -277,15 +280,28 @@ Section canonical_order.
   Class CanonicalOrder (canon_rel : relation A) := {
       canon_rel_dec a b : decidable (canon_rel a b);
 
-      canon_total a b : canon_rel a b \/ canon_rel b a;
-
-      canon_trans :: Transitive canon_rel;
-      (* Reflexivity is important for ordering of events produced by
-      the same process: *)
-      canon_reflexive :: Reflexive canon_rel;
-      canon_antisymmetric a b := canon_rel a b -> canon_rel b a -> a = b;
+      canon_rel_total a b : canon_rel a b \/ canon_rel b a;
     }.
 End canonical_order.
+
+Section mfun_canon_order.
+  Context {Dom Cod} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod}.
+
+  Let morph := Dom -> Cod -> Prop.
+  Let mfun := @MFun Dom Cod Hsd Hsc.
+
+  Context {r : relation morph} `{CanonicalOrder _ r}.
+
+  Definition mfun_morph_rel (x y : mfun) := r (morphism x) (morphism y).
+
+  Global Program Instance canonOrderMfun : CanonicalOrder mfun_morph_rel.
+  Next Obligation.
+    sauto.
+  Qed.
+  Next Obligation.
+    sauto.
+  Qed.
+End mfun_canon_order.
 
 Section canonical_trace.
   Context {A : Type} `{Hsetoid : Setoid A}.
@@ -468,21 +484,95 @@ Definition PID : Set := list positive.
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
-  Record IOp := mkIOp {
-      pid : PID;
-      req : Request;
-      ret : Reply req
-    }.
+  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
+    @MFun State (Ret * State) HState (@setoidPair _ _ HRet HState).
 
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
-      h_trans : IOp -> @MFun h_state h_state h_setoid h_setoid
+      h_handler (pid : PID) (req : Request) : MFunRet (Reply req) h_state;
     }.
 End IOHandler.
 
+From LibTx Require Storage.
+Module stor := LibTx.Storage.Classes.
+
+From LibTx Require Import
+  Instances.List.
+
+From Coq Require
+  Classes.EquivDec.
+
+Module EqDec := EquivDec.
+
+Section storage_handler.
+  Context {Key Val Container : Type} `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
+
+  Inductive StorageReq : Type :=
+  | get : Key -> StorageReq
+  | put : Key -> Val -> StorageReq
+  | delete : Key -> StorageReq.
+
+  Definition StorageRet (req : StorageReq) : Type :=
+    match req with
+    | get k => option Val
+    | put k v => True
+    | delete k => True
+    end.
+
+  Program Definition storage_get (k : Key) : MFunRet (option Val) Container :=
+    {| morphism s x :=
+         x = (stor.get k s, s)
+    |}.
+  Next Obligation.
+    sauto.
+  Qed.
+
+  Program Definition storage_put (k : Key) (v : Val) : MFunRet True Container :=
+    {| morphism s x :=
+         x = (I, stor.put k v s)
+    |}.
+  Next Obligation.
+    exists (I, stor.put k v x'). split.
+    - reflexivity.
+    - destruct t. split.
+      + reflexivity.
+      + now rewrite H.
+  Qed.
+
+  Program Definition storage_delete (k : Key) : MFunRet True Container :=
+    {| morphism s x :=
+        x = (I, stor.delete k s)
+    |}.
+  Next Obligation.
+    exists (I, stor.delete k x'). split.
+    - reflexivity.
+    - destruct t. split.
+      + reflexivity.
+      + now rewrite H.
+  Qed.
+
+  Definition StorageStep (req : StorageReq) : MFunRet (StorageRet req) Container :=
+    match req with
+    | get k => storage_get k
+    | put k v => storage_put k v
+    | delete k => storage_delete k
+    end.
+
+  Instance storageHandler : @IOHandler StorageReq StorageRet :=
+    {|
+      h_state := Container;
+      h_setoid := stor.s_eq_setoid;
+      h_handler _ req := StorageStep req
+    |}.
+End storage_handler.
+
+Global Arguments storageHandler (_ _) {_} (_).
+
 From Coq Require Import
-  SetoidPermutation.
+  Sorting.Permutation.
+From SLOT Require Import
+  ListSelector.
 
 Section VM.
   Context `{H : IOHandler}.
@@ -514,8 +604,12 @@ Section VM.
       Program.
 
   Record Thread :=
-    { t_pid : PID;
+    { (* PID of the thread: *)
+      t_pid : PID;
+      (* Continuation *)
       t_prog : Program;
+      (* Number of children spawned by the thread that is used to
+      generate PID of its children: *)
       t_last_child : positive
     }.
 
@@ -523,13 +617,6 @@ Section VM.
     { threads : list Thread;
       world : @h_state _ _ H;
     }.
-
-  Inductive Pick {A : Type} : (list A) -> (A * list A) -> Prop :=
-  | pick_this : forall a l,
-      Pick (a :: l) (a, l)
-  | pick_next : forall a b l l',
-      Pick l (a, l') ->
-      Pick (b :: l) (a, b :: l').
 
   Definition do_spawn pid lc cont child rest :=
     let new_pid := pid ++ [lc] in
@@ -585,7 +672,7 @@ Section VM.
              |}
   | vm_proc_io : forall pid lc req ret cont threads threads' world world',
       Pick threads ({| t_pid := pid; t_prog := p_cont req cont; t_last_child := lc |}, threads') ->
-      world ~[h_trans (mkIOp pid req ret)]~> world' ->
+      world ~[h_handler pid req]~> (ret, world') ->
       VMStep {| threads := threads;
                 world := world
              |}
@@ -595,7 +682,7 @@ Section VM.
 
   Program Instance vmEquiv : Setoid VM :=
     {| equiv a b :=
-        PermutationA eq (threads a) (threads b) /\ @equiv _ h_setoid (world a) (world b)
+        Permutation (threads a) (threads b) /\ @equiv _ h_setoid (world a) (world b)
     |}.
   Next Obligation.
   Admitted.
@@ -616,8 +703,13 @@ Section VM.
         pid_order resta restb
     end.
 
-  Global Instance vmStepCanonRel : CanonicalOrder VMStep.
-  Abort.
+  Check mfun_morph_rel.
+
+  (* Definition vm_step_order :  := *)
+  (*   let pid1 := match a with *)
+  (*               | vm_proc_down pid _ _ _ _ _ => pid *)
+  (*               end in *)
+  (*   True. *)
 
   Definition initVM (world : h_state) (threads : list Program) : VM :=
     {|
@@ -652,52 +744,8 @@ Notation "'spawn' V '<-' I ; C" := (p_spawn (I) (fun V => C))
     (at level 100, C at next level, V ident,
       right associativity) : slot_scope.
 
-From LibTx Require Import
-  Storage
-  Instances.List.
-
-Module stor := LibTx.Storage.Classes.
-
-Section storage_handler.
-  Context {Key Val Container : Type} `(Hstor : Storage Key Val Container).
-
-  Inductive StorageReq : Type :=
-  | get : Key -> StorageReq.
-  (* | put : K -> V -> StorageReq *)
-  (* | delete : K -> StorageReq. *)
-
-  Definition StorageRet (req : StorageReq) : Type :=
-    match req with
-    | get k => option Val
-    (* | put k v => True *)
-    (* | delete k => True *)
-    end.
-
-  Program Definition mfunStorageGet (k : Key) (ret : option Val) : @MFun Container Container s_eq_setoid s_eq_setoid :=
-    {|
-      morphism s s' := s = s' /\ ret = stor.get k s;
-    |}.
-  Next Obligation.
-    exists x'. sauto.
-  Qed.
-
-  Instance storageHandler : @IOHandler StorageReq StorageRet :=
-    {|
-      h_state := Container;
-      h_setoid := s_eq_setoid;
-      h_trans :=
-        fun iop =>
-          match iop with
-            {| req := get k; ret := ret |} =>
-              mfunStorageGet k ret
-          end
-    |}.
-End storage_handler.
-
-Global Arguments storageHandler (_ _) {_} (_).
-
 Section test.
-  Let handler := storageHandler nat nat listStorage.
+  Let handler := storageHandler nat nat listStorage _ _.
 
   Let getter (key : nat) : ProgramType handler :=
         do val <- get key;
@@ -710,13 +758,12 @@ Section test.
 
   Let initialState := initVM handler [] [prog].
 
-
   Goal forall t,
       initialState ~[compose_list t]~> initVM handler [] [] ->
       t = [].
   Proof.
     intros t Ht.
-    apply canonicalize_trace in Ht.
+    Fail apply canonicalize_trace in Ht.
     unfold initialState, initVM in Ht.
   Abort.
 End test.
