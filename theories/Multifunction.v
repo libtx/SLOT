@@ -285,7 +285,7 @@ Section canonical_order.
 End canonical_order.
 
 Section mfun_canon_order.
-  Context {Dom Cod} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod}.
+  Context {Dom Cod : Type} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod}.
 
   Let morph := Dom -> Cod -> Prop.
   Let mfun := @MFun Dom Cod Hsd Hsc.
@@ -310,16 +310,15 @@ Section canonical_trace.
   Context (commut_dec : forall f g, decidable (commute f g)).
 
   Definition can_follow (a b : M) :=
-    (~commute a b) \/ (canon_rel a b).
+    commute a b -> canon_rel a b.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
     unfold can_follow.
     specialize (commut_dec a b) as Hdcomm.
-    apply dec_not in Hdcomm.
-    apply dec_or.
-    + assumption.
-    + apply canon_rel_dec.
+    apply dec_imp.
+    - assumption.
+    - apply canon_rel_dec.
   Qed.
 
   Definition can_follow_hd (label : M) (trace : list M) : Prop :=
@@ -415,7 +414,7 @@ Section canonical_trace.
         exists w'. repeat split.
         - constructor 2 with (s' := u).
           + assumption.
-          + simpl. unfold can_follow. now right.
+          + simpl. now unfold can_follow.
           + constructor 2 with (s' := v'); assumption.
         - now constructor.
         - assumption.
