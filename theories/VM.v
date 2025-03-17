@@ -106,6 +106,16 @@ From Coq Require Import
 From SLOT Require Import
   ListSelector.
 
+Section indexed_mfun.
+  Context {Dom Cod : Type} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod} {TE : Type}.
+  Let Mfun := @MFun Dom Cod Hsd Hsc.
+  Context (te_mfun : TE -> Mfun) `{CanonicalOrder}.
+End indexed_mfun.
+
+From RecordUpdate Require Import
+  RecordSet.
+Import RecordSetNotations.
+
 Section VM.
   Context `{H : IOHandler}.
 
@@ -136,6 +146,7 @@ Section VM.
       Program.
 
   Record Thread :=
+    mkThread
     { (* PID of the thread: *)
       t_pid : PID;
       (* Continuation *)
@@ -144,6 +155,8 @@ Section VM.
       generate PID of its children: *)
       t_last_child : positive
     }.
+
+  #[export] Instance etaX : Settable _ := settable! mkThread <t_pid; t_prog; t_last_child>.
 
   Record VM :=
     { threads : list Thread;
@@ -177,40 +190,68 @@ Section VM.
                      |} in
     new_thread :: rest.
 
+  Definition ProcessStep (t : Thread) (threads : list Thread) (w w' : @h_state _ _ H) : Prop :=
+    match t_prog t with
+    | p_dead =>
+        w = w' /\ threads = []
+    | p_yield ctx cont =>
+        w = w' /\ threads = [t <|t_prog := cont ctx|> ]
+    | p_spawn child cont =>
+        let lc := t_last_child t in
+        let new_pid := t_pid t ++ [lc] in
+        let new := {| t_pid := new_pid; t_last_child := 1; t_prog := child |} in
+        let t' := {| t_pid := t_pid t; t_last_child := Pos.succ lc; t_prog := cont new_pid |} in
+        w = w' /\ threads = [t'; new]
+    | _ =>
+        False
+    end.
+
   Inductive VMStep : relation VM :=
-  | vm_proc_down : forall pid lc threads threads' world,
-      Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_dead |}, threads') ->
+  | vm_step : forall threads thread threads' threads'' world world',
+      Pick threads (thread, threads') ->
+      ProcessStep thread threads'' world world' ->
       VMStep {| threads := threads;
-                world := world
+               world := world;
              |}
-             {| threads := threads';
-                world := world
-             |}
-  | vm_proc_yield : forall pid lc CTX ctx cont threads threads' world,
-      Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := @p_yield CTX ctx cont |}, threads') ->
-      VMStep {| threads := threads;
-                world := world
-             |}
-             {| threads := do_yield pid lc ctx cont threads';
-                 world := world
-             |}
-  | vm_proc_spawn : forall pid lc cont child threads threads' world,
-      Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_spawn child cont |}, threads') ->
-      VMStep {| threads := threads;
-                world := world
-             |}
-             {| threads := do_spawn pid lc cont child threads';
-                world := world
-             |}
-  | vm_proc_io : forall pid lc req ret cont threads threads' world world',
-      Pick threads ({| t_pid := pid; t_prog := p_cont req cont; t_last_child := lc |}, threads') ->
-      world ~[h_handler pid req]~> (ret, world') ->
-      VMStep {| threads := threads;
-                world := world
-             |}
-             {| threads := do_io pid lc req ret cont threads';
-                world := world'
+             {| threads := threads'';
+               world := world'
              |}.
+
+
+  (* Inductive VMStep : relation VM := *)
+  (* | vm_proc_down : forall pid lc threads threads' world, *)
+  (*     Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_dead |}, threads') -> *)
+  (*     VMStep {| threads := threads; *)
+  (*               world := world *)
+  (*            |} *)
+  (*            {| threads := threads'; *)
+  (*               world := world *)
+  (*            |} *)
+  (* | vm_proc_yield : forall pid lc CTX ctx cont threads threads' world, *)
+  (*     Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := @p_yield CTX ctx cont |}, threads') -> *)
+  (*     VMStep {| threads := threads; *)
+  (*               world := world *)
+  (*            |} *)
+  (*            {| threads := do_yield pid lc ctx cont threads'; *)
+  (*                world := world *)
+  (*            |} *)
+  (* | vm_proc_spawn : forall pid lc cont child threads threads' world, *)
+  (*     Pick threads ({| t_pid := pid; t_last_child := lc; t_prog := p_spawn child cont |}, threads') -> *)
+  (*     VMStep {| threads := threads; *)
+  (*               world := world *)
+  (*            |} *)
+  (*            {| threads := do_spawn pid lc cont child threads'; *)
+  (*               world := world *)
+  (*            |} *)
+  (* | vm_proc_io : forall pid lc req ret cont threads threads' world world', *)
+  (*     Pick threads ({| t_pid := pid; t_prog := p_cont req cont; t_last_child := lc |}, threads') -> *)
+  (*     world ~[h_handler pid req]~> (ret, world') -> *)
+  (*     VMStep {| threads := threads; *)
+  (*               world := world *)
+  (*            |} *)
+  (*            {| threads := do_io pid lc req ret cont threads'; *)
+  (*               world := world' *)
+  (*            |}. *)
 
   Program Instance vmEquiv : Setoid VM :=
     {| equiv a b :=
@@ -235,13 +276,7 @@ Section VM.
         pid_order resta restb
     end.
 
-  Check mfun_morph_rel.
-
-  (* Definition vm_step_order :  := *)
-  (*   let pid1 := match a with *)
-  (*               | vm_proc_down pid _ _ _ _ _ => pid *)
-  (*               end in *)
-  (*   True. *)
+  Fail Definition vm_step_order (a b : VMStep) : Prop  := False.
 
   Definition initVM (world : h_state) (threads : list Program) : VM :=
     {|
@@ -255,6 +290,16 @@ Section VM.
         let (_, threads) := fold_left go threads (1%positive, []) in
         threads;
     |}.
+
+  Let mfun := @MFun VM VM vmEquiv vmEquiv.
+
+  Inductive VMEnsemble : VM -> TraceEnsemble VM :=
+  | vm_nil : forall w,
+      VMEnsemble {| world := w; threads := [] |} []
+  | vm_cons : forall (s s' : VM) (t : list mfun),
+      s ~[mfunVM]~> s' ->
+      VMEnsemble s' t ->
+      VMEnsemble s (mfunVM :: t).
 End VM.
 
 Global Arguments initVM {_ _} (_ _ _).
@@ -298,4 +343,60 @@ Section test.
     Fail apply canonicalize_trace in Ht.
     unfold initialState, initVM in Ht.
   Abort.
+
+  (*
+Cannot infer the implicit parameter canon_rel of mfunCanonTrace whose type is "relation (MFun VM VM)" in
+environment:
+handler := storageHandler nat nat listStorage eq_equivalence EqDec.nat_eq_eqdec : IOHandler
+getter := fun key : nat => do _ <- get key; (done) : nat -> ProgramType handler
+prog := spawn _ <- getter 1; (spawn _ <- getter 2; (done)) : ProgramType handler
+initialState := initVM handler [] [prog] : VM
+t : list (MFun VM VM)
+   *)
+
+  Ltac inv A := inversion A; subst.
+
+  Goal forall w',
+      VMStep initialState w' ->
+      False.
+  Proof.
+    intros w' H.
+    inv H.
+    inv H2.
+    - destruct H4 as [Hw' Ht'].
+      subst. simpl in H.
+      inv
+
+
+    - inversion H1.
+  Qed.
+
+
+    unfold initialState, prog, getter.
+    intros w' H.
+    inversion H; subst.
+    inversion H2; subst.
+    - inversion H4.
+
+    - inversion H3. subst. inversion H1.
+    - inversion H3. subst. inversion H1.
+    - inversion H3. subst.
+      +
+
+
+
+
+  Goal forall t,
+      VMEnsemble initialState t ->
+      (* initialState ~[@mfunCanonTrace _ _ (fun a b => True) t]~> initVM handler [] [] -> *)
+      t = [].
+  Proof.
+    intros t Ht.
+    inversion Ht.
+    intros t Ht Ht'.
+    unfold initialState, initVM.
+    intros t Ht.
+    inversion_clear Ht.
+    - simpl in H.
+
 End test.

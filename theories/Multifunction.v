@@ -264,15 +264,20 @@ Section mfun_sum.
 End mfun_sum.
 
 Section ensembles.
-  Context (A : Type) `{Hsetoid : Setoid A}.
+  Context (A Token : Type) `{Hsetoid : Setoid A}.
   Let M := @MFun A A Hsetoid Hsetoid.
+  Context (mfun : Token -> M).
 
-  Definition TraceEnsemble := Ensemble (list M).
+  Definition TraceEnsemble := Ensemble (list Token).
 
-  Definition sufficient_replacement_p e e' :=
+  Definition tok_commute (a b : Token) := commute (mfun a) (mfun b).
+
+  Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
-              exists t', e' t' /\ RestrictedPermutation commute t t'.
+              exists t', e' t' /\ RestrictedPermutation tok_commute t t'.
 End ensembles.
+
+Arguments tok_commute {_ _ _ _}.
 
 Section canonical_order.
   Context {A : Type}.
@@ -306,11 +311,11 @@ End mfun_canon_order.
 Section canonical_trace.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let M := @MFun A A Hsetoid Hsetoid.
-  Context `{Hcanon : CanonicalOrder M}.
-  Context (commut_dec : forall f g, decidable (commute f g)).
+  Context {Token : Type} (mfun : Token -> M) `{Hcanon : CanonicalOrder Token}.
+  Context (commut_dec : forall f g, decidable (tok_commute mfun f g)).
 
-  Definition can_follow (a b : M) :=
-    commute a b -> canon_rel a b.
+  Definition can_follow (a b : Token) :=
+    tok_commute a b -> canon_rel a b.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
@@ -321,11 +326,11 @@ Section canonical_trace.
     - apply canon_rel_dec.
   Qed.
 
-  Definition can_follow_hd (label : M) (trace : list M) : Prop :=
+  Definition can_follow_hd (token : Token) (trace : list Token) : Prop :=
     match trace with
     | [] => True
     | head :: _ =>
-        can_follow label head
+        can_follow token head
     end.
 
   Lemma can_follow_hd_dec a t : decidable (can_follow_hd a t).
@@ -335,14 +340,14 @@ Section canonical_trace.
     - simpl. apply can_follow_dec.
   Qed.
 
-  Inductive CanonicalTrace : list M -> relation A :=
+  Inductive CanonicalTrace : list Token -> relation A :=
   | canontr_nil : forall s,
       CanonicalTrace [] s s
-  | canontr_cons : forall s s' s'' label trace,
-      s ~[label]~> s' ->
-      can_follow_hd label trace ->
+  | canontr_cons : forall s s' s'' token trace,
+      s ~[mfun token]~> s' ->
+      can_follow_hd token trace ->
       CanonicalTrace trace s' s'' ->
-      CanonicalTrace (label :: trace) s s''.
+      CanonicalTrace (token :: trace) s s''.
 
   Program Definition mfunCanonTrace t := {| morphism := CanonicalTrace t |}.
   Next Obligation.
@@ -350,7 +355,7 @@ Section canonical_trace.
     induction H0 as [|x y z f t Hfxy Hfollow Ht IH].
     - sauto.
     - intros a2 Hx.
-      morph_shift f a2.
+      morph_shift (mfun f) a2.
       destruct (IH y' Hequiv_y_y') as [z' [Hy'z' Hzz']].
       exists z'. split.
       + constructor 2 with (s' := y'); sauto.
@@ -367,13 +372,13 @@ Section canonical_trace.
     - simpl in Hhd. injection Hhd as H. now subst.
   Qed.
 
-  Lemma  canon_trace_add x y y' z f t (Hf : x ~[f]~> y)
+  Lemma  canon_trace_add x y y' z f t (Hf : x ~[mfun f]~> y)
                          (Hy' : y == y')
                          (Ht : CanonicalTrace t y' z)
                          (Hfoll : ~can_follow_hd f t) :
     exists t', exists{z' == z},
       CanonicalTrace t' x z' /\
-      RestrictedPermutation commute (f :: t) t' /\
+      RestrictedPermutation tok_commute (f :: t) t' /\
         (hd_error t = hd_error t').
   Proof.
     generalize dependent x. generalize dependent y.
@@ -386,7 +391,7 @@ Section canonical_trace.
         clear IHHt'.
         firstorder.
       }
-      assert (Hfg_comm : commute f g). {
+      assert (Hfg_comm : tok_commute f g). {
         unfold can_follow_hd, can_follow in Hfoll.
         destruct (commut_dec f g).
         - assumption.
@@ -394,8 +399,8 @@ Section canonical_trace.
       }
       (* Use commutativity to derive an intermediate state on
          the [g ∘ f] path: *)
-      assert (exists{v' == v}, x ~[g ∘ f]~> v') as Hv'. {
-        morph_shift g y.
+      assert (exists{v' == v}, x ~[mfun g ∘ mfun f]~> v') as Hv'. {
+        morph_shift (mfun g) y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].
         { exists y. firstorder. }
@@ -433,9 +438,9 @@ Section canonical_trace.
       }
   Qed.
 
-  Theorem canonicalize_trace x z :
-    sufficient_replacement_p _
-      (fun t => x ~[compose_list t]~> z)
+  Theorem canonicalize_trace x z t :
+    sufficient_replacement_p
+      (fun t => x ~[compose_list (map mfun t)]~> z)
       (fun t => exists{z' == z}, CanonicalTrace t x z').
   Proof.
     intros t Ht. generalize dependent z. generalize dependent x.
