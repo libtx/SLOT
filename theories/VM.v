@@ -106,16 +106,6 @@ From Coq Require Import
 From SLOT Require Import
   ListSelector.
 
-Section indexed_mfun.
-  Context {Dom Cod : Type} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod} {TE : Type}.
-  Let Mfun := @MFun Dom Cod Hsd Hsc.
-  Context (te_mfun : TE -> Mfun) `{CanonicalOrder}.
-End indexed_mfun.
-
-From RecordUpdate Require Import
-  RecordSet.
-Import RecordSetNotations.
-
 Section VM.
   Context `{H : IOHandler}.
 
@@ -156,8 +146,6 @@ Section VM.
       t_last_child : positive
     }.
 
-  #[export] Instance etaX : Settable _ := settable! mkThread <t_pid; t_prog; t_last_child>.
-
   Record VM :=
     { threads : list Thread;
       world : @h_state _ _ H;
@@ -195,7 +183,7 @@ Section VM.
     | p_dead =>
         w = w' /\ threads = []
     | p_yield ctx cont =>
-        w = w' /\ threads = [t <|t_prog := cont ctx|> ]
+        w = w' /\ threads = [{| t_pid := t_pid t; t_last_child := t_last_child t; t_prog := cont ctx|} ]
     | p_spawn child cont =>
         let lc := t_last_child t in
         let new_pid := t_pid t ++ [lc] in
@@ -208,7 +196,7 @@ Section VM.
 
   Inductive VMStep : relation VM :=
   | vm_step : forall threads thread threads' threads'' world world',
-      Pick threads (thread, threads') ->
+      Pick threads thread threads' ->
       ProcessStep thread threads'' world world' ->
       VMStep {| threads := threads;
                world := world;
@@ -293,7 +281,7 @@ Section VM.
 
   Let mfun := @MFun VM VM vmEquiv vmEquiv.
 
-  Inductive VMEnsemble : VM -> TraceEnsemble VM :=
+  Inductive VMEnsemble : VM -> TraceEnsemble :=
   | vm_nil : forall w,
       VMEnsemble {| world := w; threads := [] |} []
   | vm_cons : forall (s s' : VM) (t : list mfun),
@@ -336,13 +324,19 @@ Section test.
   Let initialState := initVM handler [] [prog].
 
   Goal forall t,
-      initialState ~[compose_list t]~> initVM handler [] [] ->
+      VMEnsemble (initVM handler [] []) t ->
       t = [].
   Proof.
     intros t Ht.
-    Fail apply canonicalize_trace in Ht.
-    unfold initialState, initVM in Ht.
-  Abort.
+    inversion Ht.
+    - reflexivity.
+    - subst. simpl in H. inversion H. subst. inversion H3.
+  Qed.
+
+  Goal forall t s s',
+      VMEnsemble (initVM handler [] []) t ->
+      s ~[map (ts_mfun t)]~> s' ->
+      CanonicalTrace t s s'.
 
   (*
 Cannot infer the implicit parameter canon_rel of mfunCanonTrace whose type is "relation (MFun VM VM)" in

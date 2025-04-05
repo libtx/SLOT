@@ -31,10 +31,10 @@ Notation "'exists{' A == B } , C" :=
 Hint Unfold exists_equiv : slot.
 
 Section mfun.
-  Context (A B : Type) `{Setoid A} `{Setoid B}.
+  Context (Dom Cod : Type) `{Setoid Dom} `{Setoid Cod}.
 
   Structure MFun : Type := {
-      morphism : A -> B -> Prop;
+      morphism : Dom -> Cod -> Prop;
       morphism_covariance : forall x x' y,
         x == x' ->
         morphism x y ->
@@ -263,22 +263,6 @@ Section mfun_sum.
   Qed.
 End mfun_sum.
 
-Section ensembles.
-  Context (A Token : Type) `{Hsetoid : Setoid A}.
-  Let M := @MFun A A Hsetoid Hsetoid.
-  Context (mfun : Token -> M).
-
-  Definition TraceEnsemble := Ensemble (list Token).
-
-  Definition tok_commute (a b : Token) := commute (mfun a) (mfun b).
-
-  Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
-    forall t, e t ->
-              exists t', e' t' /\ RestrictedPermutation tok_commute t t'.
-End ensembles.
-
-Arguments tok_commute {_ _ _ _}.
-
 Section canonical_order.
   Context {A : Type}.
 
@@ -289,33 +273,39 @@ Section canonical_order.
     }.
 End canonical_order.
 
-Section mfun_canon_order.
-  Context {Dom Cod : Type} `{Hsd : Setoid Dom} `{Hsc : Setoid Cod}.
+Section transition_system.
+  Context {State : Type}.
 
-  Let morph := Dom -> Cod -> Prop.
-  Let mfun := @MFun Dom Cod Hsd Hsc.
+  Class TransitionSystem {Event : Type} :=
+    {
+      ts_setoid :: Setoid State;
+      ts_canon_rel : relation Event;
+      ts_canon_order :: CanonicalOrder ts_canon_rel;
+      ts_mfun : Event -> @MFun State State ts_setoid ts_setoid;
+    }.
+End transition_system.
 
-  Context {r : relation morph} `{CanonicalOrder _ r}.
+Section trace_ensemble.
+  Context `{Hts : TransitionSystem}.
 
-  Definition mfun_morph_rel (x y : mfun) := r (morphism x) (morphism y).
+  Definition Trace := list Event.
 
-  Global Program Instance canonOrderMfun : CanonicalOrder mfun_morph_rel.
-  Next Obligation.
-    sauto.
-  Qed.
-  Next Obligation.
-    sauto.
-  Qed.
-End mfun_canon_order.
+  Definition TraceEnsemble := Ensemble Trace.
+
+  Definition event_commute (a b : Event) := commute (ts_mfun a) (ts_mfun b).
+
+  Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
+    forall t, e t ->
+         exists t', e' t' /\ RestrictedPermutation event_commute t t'.
+End trace_ensemble.
 
 Section canonical_trace.
-  Context {A : Type} `{Hsetoid : Setoid A}.
-  Let M := @MFun A A Hsetoid Hsetoid.
-  Context {Token : Type} (mfun : Token -> M) `{Hcanon : CanonicalOrder Token}.
-  Context (commut_dec : forall f g, decidable (tok_commute mfun f g)).
+  Context `{Hts: TransitionSystem}.
 
-  Definition can_follow (a b : Token) :=
-    tok_commute a b -> canon_rel a b.
+  Context (commut_dec : forall f g, decidable (event_commute f g)).
+
+  Definition can_follow (a b : Event) :=
+    event_commute a b -> ts_canon_rel a b.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
@@ -326,7 +316,7 @@ Section canonical_trace.
     - apply canon_rel_dec.
   Qed.
 
-  Definition can_follow_hd (token : Token) (trace : list Token) : Prop :=
+  Definition can_follow_hd (token : Event) (trace : Trace) : Prop :=
     match trace with
     | [] => True
     | head :: _ =>
@@ -340,11 +330,11 @@ Section canonical_trace.
     - simpl. apply can_follow_dec.
   Qed.
 
-  Inductive CanonicalTrace : list Token -> relation A :=
+  Inductive CanonicalTrace : Trace -> relation State :=
   | canontr_nil : forall s,
       CanonicalTrace [] s s
   | canontr_cons : forall s s' s'' token trace,
-      s ~[mfun token]~> s' ->
+      s ~[ts_mfun token]~> s' ->
       can_follow_hd token trace ->
       CanonicalTrace trace s' s'' ->
       CanonicalTrace (token :: trace) s s''.
@@ -355,7 +345,7 @@ Section canonical_trace.
     induction H0 as [|x y z f t Hfxy Hfollow Ht IH].
     - sauto.
     - intros a2 Hx.
-      morph_shift (mfun f) a2.
+      morph_shift (ts_mfun f) a2.
       destruct (IH y' Hequiv_y_y') as [z' [Hy'z' Hzz']].
       exists z'. split.
       + constructor 2 with (s' := y'); sauto.
@@ -372,13 +362,13 @@ Section canonical_trace.
     - simpl in Hhd. injection Hhd as H. now subst.
   Qed.
 
-  Lemma  canon_trace_add x y y' z f t (Hf : x ~[mfun f]~> y)
+  Lemma  canon_trace_add x y y' z f t (Hf : x ~[ts_mfun f]~> y)
                          (Hy' : y == y')
                          (Ht : CanonicalTrace t y' z)
                          (Hfoll : ~can_follow_hd f t) :
     exists t', exists{z' == z},
       CanonicalTrace t' x z' /\
-      RestrictedPermutation tok_commute (f :: t) t' /\
+      RestrictedPermutation event_commute (f :: t) t' /\
         (hd_error t = hd_error t').
   Proof.
     generalize dependent x. generalize dependent y.
@@ -387,11 +377,12 @@ Section canonical_trace.
       unfold not, can_follow_hd in Hfoll.
       contradiction.
     - intros y Hyy' x Hxy. simpl in Hfoll.
-      assert (Hfg_canon : canon_rel g f). {
-        clear IHHt'.
+      assert (Hfg_canon : ts_canon_rel g f). {
+        assert (Hcanon_total : ts_canon_rel f g \/ ts_canon_rel g f) by
+          apply canon_rel_total.
         firstorder.
       }
-      assert (Hfg_comm : tok_commute f g). {
+      assert (Hfg_comm : event_commute f g). {
         unfold can_follow_hd, can_follow in Hfoll.
         destruct (commut_dec f g).
         - assumption.
@@ -399,8 +390,8 @@ Section canonical_trace.
       }
       (* Use commutativity to derive an intermediate state on
          the [g ∘ f] path: *)
-      assert (exists{v' == v}, x ~[mfun g ∘ mfun f]~> v') as Hv'. {
-        morph_shift (mfun g) y.
+      assert (exists{v' == v}, x ~[ts_mfun g ∘ ts_mfun f]~> v') as Hv'. {
+        morph_shift (ts_mfun g) y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].
         { exists y. firstorder. }
@@ -431,16 +422,24 @@ Section canonical_trace.
         destruct IHHt' as [t'' [z' Ht'']].
         destruct Ht'' as [[Ht'' [Hpermt'' Hhd]] Hzz'].
         exists (g :: t''). exists z'. repeat split.
-        - constructor 2 with (s' := u'); auto.
+        - (* Prove that [g :: t''] is a canonical trace from [x] to
+          [z'] *)
+          constructor 2 with (s' := u'); auto.
           eapply can_follow_hd_eq; eauto.
-        - sauto.
+        - (* Prove that it's possible to go from [f :: g :: t'] to
+          [g :: t''] by swapping commiting events: *)
+          assert (RestrictedPermutation event_commute (g :: f :: t') (g :: t'')) by
+            now constructor 2.
+          assert (RestrictedPermutation event_commute (f :: g :: t') (g :: f :: t')) by
+            now constructor 3.
+          econstructor 4; eauto.
         - assumption.
       }
   Qed.
 
-  Theorem canonicalize_trace x z t :
+  Theorem canonicalize_trace x z :
     sufficient_replacement_p
-      (fun t => x ~[compose_list (map mfun t)]~> z)
+      (fun t => x ~[compose_list (map ts_mfun t)]~> z)
       (fun t => exists{z' == z}, CanonicalTrace t x z').
   Proof.
     intros t Ht. generalize dependent z. generalize dependent x.
@@ -475,8 +474,25 @@ Section canonical_trace.
           * exists y''. split.
             -- assumption.
             -- rewrite Hyy', Hy''. reflexivity.
-          * sauto.
+          * assert (RestrictedPermutation event_commute (f :: g :: t) (f :: t')) by
+              now constructor 2.
+            econstructor 4; eauto.
           * reflexivity.
     }
   Qed.
 End canonical_trace.
+
+Section canon_mfun_combine.
+Section canonical_trace.
+  Context `{Hts: TransitionSystem}.
+
+  Context (commut_dec : forall f g, decidable (event_commute f g)).
+
+  Inductive CanonicalMfunCombine : relation State :=
+  | canontr_nil : forall s,
+      CanonicalMfunCombine s s
+  | canontr_cons : forall s s' s'' event ,
+      s ~[ts_mfun event]~> s' ->
+      can_follow_hd event  ->
+      CanonicalMfunCombine s' s'' ->
+      CanonicalMfunCombine s s''.
