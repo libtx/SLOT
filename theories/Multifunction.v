@@ -87,9 +87,11 @@ Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.
 
+  (* Strong definition of commutativity based on equality *)
   Definition eq_commute (f g : T) :=
     forall (x y : A), x ~[f ∘ g]~> y <-> x ~[g ∘ f]~> y.
 
+  (* Relaxed version of the above based on equivalence *)
   Definition commute (f g : T) :=
     forall x y,
       (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y') /\
@@ -281,7 +283,7 @@ Section transition_system.
       ts_setoid :: Setoid State;
       ts_canon_rel : relation Event;
       ts_canon_order :: CanonicalOrder ts_canon_rel;
-      ts_mfun : Event -> @MFun State State ts_setoid ts_setoid;
+      ts_state_trans : Event -> @MFun State State ts_setoid ts_setoid;
     }.
 End transition_system.
 
@@ -292,11 +294,30 @@ Section trace_ensemble.
 
   Definition TraceEnsemble := Ensemble Trace.
 
-  Definition event_commute (a b : Event) := commute (ts_mfun a) (ts_mfun b).
+  Definition event_commute (a b : Event) := commute (ts_state_trans a) (ts_state_trans b).
 
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
          exists t', e' t' /\ RestrictedPermutation event_commute t t'.
+
+  Inductive TSGenRet {Result : Type} :=
+  | TSNonTerminal : Event -> TSGenRet
+  | TSTerminal : Result -> TSGenRet.
+
+  Class TransitionSystemEventGen {Result : Type} :=
+    {
+      ts_gen : @MFun State (@TSGenRet Result) ts_setoid (eq_setoid _);
+    }.
+
+  CoInductive TSEnsemble `{TransitionSystemEventGen} : State -> TraceEnsemble :=
+  | tse_nil : forall s res,
+      s ~[ts_gen]~> TSTerminal res ->
+      TSEnsemble s []
+  | tse_cont : forall s s' t event,
+      TSEnsemble s' t ->
+      s ~[ts_gen]~> TSNonTerminal event ->
+      s ~[ts_state_trans event]~> s' ->
+      TSEnsemble s (event :: t).
 End trace_ensemble.
 
 Section canonical_trace.
@@ -334,7 +355,7 @@ Section canonical_trace.
   | canontr_nil : forall s,
       CanonicalTrace [] s s
   | canontr_cons : forall s s' s'' token trace,
-      s ~[ts_mfun token]~> s' ->
+      s ~[ts_state_trans token]~> s' ->
       can_follow_hd token trace ->
       CanonicalTrace trace s' s'' ->
       CanonicalTrace (token :: trace) s s''.
@@ -345,7 +366,7 @@ Section canonical_trace.
     induction H0 as [|x y z f t Hfxy Hfollow Ht IH].
     - sauto.
     - intros a2 Hx.
-      morph_shift (ts_mfun f) a2.
+      morph_shift (ts_state_trans f) a2.
       destruct (IH y' Hequiv_y_y') as [z' [Hy'z' Hzz']].
       exists z'. split.
       + constructor 2 with (s' := y'); sauto.
@@ -362,7 +383,7 @@ Section canonical_trace.
     - simpl in Hhd. injection Hhd as H. now subst.
   Qed.
 
-  Lemma  canon_trace_add x y y' z f t (Hf : x ~[ts_mfun f]~> y)
+  Lemma  canon_trace_add x y y' z f t (Hf : x ~[ts_state_trans f]~> y)
                          (Hy' : y == y')
                          (Ht : CanonicalTrace t y' z)
                          (Hfoll : ~can_follow_hd f t) :
@@ -390,8 +411,8 @@ Section canonical_trace.
       }
       (* Use commutativity to derive an intermediate state on
          the [g ∘ f] path: *)
-      assert (exists{v' == v}, x ~[ts_mfun g ∘ ts_mfun f]~> v') as Hv'. {
-        morph_shift (ts_mfun g) y.
+      assert (exists{v' == v}, x ~[ts_state_trans g ∘ ts_state_trans f]~> v') as Hv'. {
+        morph_shift (ts_state_trans g) y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].
         { exists y. firstorder. }
@@ -439,7 +460,7 @@ Section canonical_trace.
 
   Theorem canonicalize_trace x z :
     sufficient_replacement_p
-      (fun t => x ~[compose_list (map ts_mfun t)]~> z)
+      (fun t => x ~[compose_list (map ts_state_trans t)]~> z)
       (fun t => exists{z' == z}, CanonicalTrace t x z').
   Proof.
     intros t Ht. generalize dependent z. generalize dependent x.
@@ -453,8 +474,7 @@ Section canonical_trace.
       destruct t as [|g t].
       - simpl in Hxy. exists [f]. split.
         + exists y. split.
-          * constructor 2 with (s' := y); [easy | easy | ].
-            constructor.
+          * constructor 2 with (s' := y); [easy | easy | now constructor].
           * reflexivity.
         + repeat constructor.
       - destruct Hxy as [w [Hxw Hwy]].
@@ -481,18 +501,3 @@ Section canonical_trace.
     }
   Qed.
 End canonical_trace.
-
-Section canon_mfun_combine.
-Section canonical_trace.
-  Context `{Hts: TransitionSystem}.
-
-  Context (commut_dec : forall f g, decidable (event_commute f g)).
-
-  Inductive CanonicalMfunCombine : relation State :=
-  | canontr_nil : forall s,
-      CanonicalMfunCombine s s
-  | canontr_cons : forall s s' s'' event ,
-      s ~[ts_mfun event]~> s' ->
-      can_follow_hd event  ->
-      CanonicalMfunCombine s' s'' ->
-      CanonicalMfunCombine s s''.
