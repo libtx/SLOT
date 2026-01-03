@@ -103,8 +103,6 @@ Global Arguments storageHandler (_ _) {_} (_).
 
 From Coq Require Import
   Sorting.Permutation.
-From SLOT Require Import
-  ListSelector.
 
 Section VM.
   Context `{H : IOHandler}.
@@ -335,7 +333,7 @@ Section test.
 
   Goal forall t s s',
       VMEnsemble (initVM handler [] []) t ->
-      s ~[map (ts_mfun t)]~> s' ->
+      (* s ~[map (ts_mfun t)]~> s' -> *)
       CanonicalTrace t s s'.
 
   (*

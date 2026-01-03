@@ -300,22 +300,18 @@ Section trace_ensemble.
     forall t, e t ->
          exists t', e' t' /\ RestrictedPermutation event_commute t t'.
 
-  Inductive TSGenRet {Result : Type} :=
-  | TSNonTerminal : Event -> TSGenRet
-  | TSTerminal : Result -> TSGenRet.
-
-  Class TransitionSystemEventGen {Result : Type} :=
+  Class TransitionSystemEventGen (EventGenModel : Type) :=
     {
-      ts_gen : @MFun State (@TSGenRet Result) ts_setoid (eq_setoid _);
+      ts_gen : @MFun State (option Event) ts_setoid (eq_setoid _);
     }.
 
   CoInductive TSEnsemble `{TransitionSystemEventGen} : State -> TraceEnsemble :=
-  | tse_nil : forall s res,
-      s ~[ts_gen]~> TSTerminal res ->
+  | tse_nil : forall s,
+      s ~[ts_gen]~> None ->
       TSEnsemble s []
   | tse_cont : forall s s' t event,
       TSEnsemble s' t ->
-      s ~[ts_gen]~> TSNonTerminal event ->
+      s ~[ts_gen]~> Some event ->
       s ~[ts_state_trans event]~> s' ->
       TSEnsemble s (event :: t).
 End trace_ensemble.
