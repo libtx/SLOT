@@ -311,6 +311,17 @@ Section token_trace_ensemble.
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
          exists t', e' t' /\ RestrictedPermutation event_commute t t'.
+
+  Lemma sufficient_replacement_p_trans : Transitive sufficient_replacement_p.
+  Proof.
+    unfold Transitive,sufficient_replacement_p.
+    intros x y z Hxy Hyz t Ht_in_x.
+    destruct (Hxy t Ht_in_x) as [t' [Ht'_in_y Htt']].
+    destruct (Hyz t' Ht'_in_y) as [t'' [Ht''_in_z Ht't'']].
+    exists t''. split.
+    - assumption.
+    - now constructor 4 with (l' := t').
+  Qed.
 End token_trace_ensemble.
 
 Section canonical_trace.
@@ -495,7 +506,7 @@ Section canonical_trace.
   Qed.
 End canonical_trace.
 
-Section TransitionSystem'.
+Section TransitionSystem.
   Context {State : Type}.
 
   Definition ts_ret (Event : Type) := option (Event * State).
@@ -518,36 +529,73 @@ Section TransitionSystem'.
     |}.
   Solve All Obligations with sauto.
 
-  Instance tsTokenSystem `{TransitionSystem} : @TokenMachine State Event :=
+  Global Instance tsTokenSystem `{TransitionSystem} : @TokenMachine State Event :=
     { tm_setoid := ts_setoid;
       tm_canon_rel := ts_canon_rel;
       tm_canon_order := ts_canon_order;
       tm_state_trans := tsg_mfun;
     }.
+End TransitionSystem.
+
+Section TSProps.
+  Context `{HTS : TransitionSystem}
+           (Hcanon_dec : forall f g : Event, decidable (event_commute f g)).
 
   (* TODO: this is an mfun *)
-  Inductive TSEnsemble `{TransitionSystem} : State -> (list Event * State) -> Prop :=
+  Inductive TSMFunGen : State -> list Event -> State -> Prop :=
   | ts_nil : forall s,
       s ~[ts_state_trans]~> None ->
-      TSEnsemble s ([], s)
+      TSMFunGen s [] s
   | ts_cont : forall s s' s'' t event,
-      TSEnsemble s' (t, s'') ->
+      TSMFunGen s' t s'' ->
       s ~[ts_state_trans]~> Some (event, s') ->
-      TSEnsemble s (event :: t, s'').
+      TSMFunGen s (event :: t) s''.
 
-  Inductive CanonicalTSEnsemble `{TransitionSystem} : State -> (list Event * State) -> Prop :=
+  Lemma transition_system_as_token_machine_trace (s s' : State) (t : list Event) :
+    TSMFunGen s t s' ->
+      s ~[compose_list (map tm_state_trans t)]~> s'.
+  Proof.
+    intros.
+    induction H.
+    - reflexivity.
+    - destruct t; simpl in *.
+      + inversion H. now subst.
+      + exists s'. now split.
+  Qed.
+
+  Inductive CanonicalTSMFunGen : State -> list Event -> State -> Prop :=
   | cts_nil : forall s,
       s ~[ts_state_trans]~> None ->
-      CanonicalTSEnsemble s ([], s)
+      CanonicalTSMFunGen s [] s
   | cts_cons : forall s s' s'' event trace,
       s ~[ts_state_trans]~> Some (event, s') ->
       can_follow_hd event trace ->
-      CanonicalTSEnsemble s' (trace, s'') ->
-      CanonicalTSEnsemble s (event :: trace, s'').
+      CanonicalTSMFunGen s' trace s'' ->
+      CanonicalTSMFunGen s (event :: trace) s''.
 
-  Theorem ts_optimize `{TransitionSystem} : forall s s' t,
-      TSEnsemble s (t, s') ->
+  Theorem canonicalize_transition_system : forall s s' t,
+      TSMFunGen s t s' ->
       exists t', exists{s'' == s'},
-        CanonicalTSEnsemble s (t', s'') (* /\ RestrictedPermutation event_commute t t' *).
-  Abort.
-End TransitionSystem'.
+        CanonicalTSMFunGen s t' s''.
+  Proof.
+    intros.
+    specialize (transition_system_as_token_machine_trace s s' t H) as Hss'.
+    specialize (canonicalize_trace Hcanon_dec s s' t) as Hcan.
+    simpl in Hcan. apply Hcan in Hss'. clear Hcan.
+    destruct Hss' as [t' Ht'].
+    exists t'.
+    destruct Ht' as [[s'' [Hss'' Heq]] Ht'].
+    exists s''.
+    split; [|assumption].
+    generalize dependent t.
+    induction Hss''.
+    - constructor.
+      apply perm_empty in Ht'.
+      inversion H; subst; sauto.
+    - specialize (IHHss'' Heq).
+      intros.
+
+
+
+
+End TSProps.

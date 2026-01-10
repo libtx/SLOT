@@ -43,6 +43,11 @@ Section defn.
       RestrictedPermutation l' l'' ->
       RestrictedPermutation l l''.
 
+  Lemma perm_refl t : RestrictedPermutation t t.
+  Proof.
+    induction t; now constructor.
+  Qed.
+
   Lemma perm_empty a : RestrictedPermutation a [] -> a = [].
   Proof.
     intros H.
@@ -51,9 +56,12 @@ Section defn.
     - rewrite IHRestrictedPermutation1, IHRestrictedPermutation2; auto.
   Qed.
 
-  Lemma perm_refl t : RestrictedPermutation t t.
+  Lemma perm_empty_l a : RestrictedPermutation [] a -> a = [].
   Proof.
-    induction t; now constructor.
+    intros H.
+    remember [] as b eqn:Hb.
+    induction H; subst; try now inversion Hb.
+    - rewrite IHRestrictedPermutation2, IHRestrictedPermutation1; auto.
   Qed.
 End defn.
 
