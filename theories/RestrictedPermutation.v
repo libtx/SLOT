@@ -18,7 +18,8 @@ standard library, but with an additional predicate that specifies
 whether the elements can be swapped *)
 From Coq Require Import
      List
-     Relations.
+     Relations
+     SetoidClass.
 
 From Hammer Require Import
      Tactics.
@@ -48,7 +49,7 @@ Section defn.
     induction t; now constructor.
   Qed.
 
-  Lemma perm_empty a : RestrictedPermutation a [] -> a = [].
+  Lemma perm_empty_r a : RestrictedPermutation a [] -> a = [].
   Proof.
     intros H.
     remember [] as b eqn:Hb.
@@ -63,8 +64,17 @@ Section defn.
     induction H; subst; try now inversion Hb.
     - rewrite IHRestrictedPermutation2, IHRestrictedPermutation1; auto.
   Qed.
+
+  Lemma perm_symm (Hsymm : Symmetric can_swap): Symmetric RestrictedPermutation.
+  Proof.
+    intros a b H.
+    induction H.
+    - constructor.
+    - now constructor.
+    - constructor. now apply Hsymm.
+    - constructor 4 with (l' := l'); assumption.
+  Qed.
 End defn.
 
 #[export] Hint Constructors RestrictedPermutation : slot.
-#[export] Hint Resolve perm_refl : slot.
-#[export] Hint Resolve perm_empty : slot.
+#[export] Hint Resolve perm_refl perm_empty_r perm_empty_l : slot.
