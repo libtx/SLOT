@@ -102,9 +102,11 @@ End storage_handler.
 Global Arguments storageHandler (_ _) {_} (_).
 
 From Coq Require Import
-  Sorting.Permutation.
+  Sorting.Permutation
+  FMapInterface
+  OrderedTypeEx.
 
-Section VM.
+Section Thread.
   Context `{H : IOHandler}.
 
   CoInductive Program : Type :=
@@ -135,14 +137,178 @@ Section VM.
 
   Record Thread :=
     mkThread
-    { (* PID of the thread: *)
-      t_pid : PID;
-      (* Continuation *)
+    { (* Continuation *)
       t_prog : Program;
       (* Number of children spawned by the thread that is used to
       generate PID of its children: *)
       t_last_child : positive
     }.
+End Thread.
+
+Module PIDOrd <: OrderedType.
+  Module PosOT := Positive_as_OT.
+
+  Definition t := PID.
+
+  Definition eq := @eq t.
+
+  Definition eq_refl := @eq_refl t.
+
+  Definition eq_sym := @eq_sym t.
+
+  Definition eq_trans := @eq_trans t.
+
+  Fixpoint compare (a b : t) : comparison :=
+    match a, b with
+    | [], [] => Eq
+    | [], _ => Lt
+    | _, [] => Gt
+    | a :: l1, b :: l2 =>
+        match (a ?= b)%positive with
+        | Eq => compare l1 l2
+        | o => o
+        end
+    end.
+
+  Definition lt a b := compare a b = Lt.
+
+  Lemma pid_lt_nil : forall x, ~lt x [].
+  Proof.
+    intros x H.
+    destruct x; now cbv in H.
+  Qed.
+
+  Lemma pid_lt_append_l : forall x y z, lt (x ++ [y]) z -> lt x z.
+  Proof.
+    induction x.
+    - sauto.
+    - induction z; sauto unfold: lt, compare.
+  Qed.
+
+  Lemma pid_lt_append_l' : forall x y z, lt x z -> lt x (z ++ [y]).
+  Proof.
+    intros x y z. generalize dependent x.
+    induction z.
+    - sauto use:pid_lt_nil.
+    - induction x; sauto unfold: lt, compare.
+  Qed.
+
+  Theorem lt_trans : forall z y x : t, lt x y -> lt y z -> lt x z.
+  Proof.
+    intros z'. replace z' with (rev (rev z')) by apply rev_involutive.
+    induction (rev z') as [|b z IHz].
+    - intros ? ? ? H. now apply pid_lt_nil in H.
+    - intros y'. replace y' with (rev (rev y')) by apply rev_involutive.
+      induction (rev y') as [|a y IHy]; simpl in *.
+      + intros ? H. now apply pid_lt_nil in H.
+      + intros x Hy Hz.
+        apply pid_lt_append
+        apply IHy.
+        2:{ now apply pid_lt_append_l in Hz. }
+
+
+    intros x y'. generalize dependent x.
+    replace y' with (rev (rev y')) by apply rev_involutive.
+    induction (rev y') as [|a y IH]; simpl; intros x z Hy Hz.
+    - now apply pid_lt_nil in Hy.
+    - apply IH.
+      2:{ now apply pid_lt_append_l in Hz. }
+
+
+
+    intros x y z'. generalize dependent y. generalize dependent x.
+    replace z' with (rev (rev z')) by apply rev_involutive.
+    induction (rev z') as [|a z IH]; intros x y Hy Hz.
+    - now apply pid_lt_nil in Hz.
+    - simpl in *.
+      apply pid_lt_append_l in Hz.
+      apply pid_lt_append_l'.
+
+      apply pid_lt_append_l', IH; try assumption.
+
+      apply IH.
+      2:{ now  }
+
+
+      sauto unfold: lt, compare use: pid_lt_append_l, pid_lt_append_l'.
+      apply pid_lt_append_r in Hz.
+      destruct Hz as [Hz|Hz].
+      + apply pid_lt_append_l'; auto.
+      + subst. now apply pid_lt_append_l'.
+  Qed.
+
+  Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
+  Proof.
+    intros H Habsurd.
+    induction H; sauto use: Pos.lt_irrefl.
+  Qed.
+
+  Definition compare : forall (x y : t), Compare lt eq x y.
+    refine (fix ind x y :=
+              match x, y with
+              | [], [] => EQ _
+              | [], (_ :: _) => LT _
+              | (_ :: _), [] => GT _
+              | (a :: l1), (b :: l2) =>
+                  let H := Pos.compare a b in
+                  (match H return
+                        H = Pos.compare a b ->
+                        Compare lt eq (a :: l1) (b :: l2)
+                  with
+                  | Eq =>  _
+                  | Lt =>  _
+                  | Gt =>  _
+                  end) _
+                  (* match Pos.comp *)
+                  (* (match Pos.compare a b return *)
+                  (*        Pos.compare a b -> Compare lt eq (a :: l1) (b :: l2) *)
+                  (*  with *)
+                  (*  | Eq => _ *)
+                  (*  | Lt => _ *)
+                  (*  | Gt => _ *)
+                  (*  end) a b *)
+              end).
+    - reflexivity.
+    - constructor.
+    - constructor.
+    - give_up.
+    - intros. apply LT. constructor.
+      cbv in H0.
+
+    (* - *)
+
+    induction x as [|a l1], y as [|b l2].
+    - apply EQ. reflexivity.
+    - apply LT. constructor.
+    - apply GT. constructor.
+    -
+
+remember (Pos.compare a b) as H.
+      destruct H.
+      + remember (IHl1 l2) as Hl.
+        destruct Hl.
+        *
+
+
+End PIDOrd.
+  Inductive lt :=
+
+
+  Fixpoint compare (p1 p2 : t) : Compare :=
+    EQ.
+
+    match p1, p2 with
+    | [], [] =>
+        true
+    | a :: p1, b :: p2 =>
+        match Pos.eqb a b with
+        |
+    | _, _ =>
+        false
+    end.
+End PIDOrd.
+
+  Module Threads := FMap
 
   Record VM :=
     { threads : list Thread;

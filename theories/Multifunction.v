@@ -213,10 +213,22 @@ Section setoid_pair.
         let (b_l, b_r) := b in
         equiv a_l b_l /\ equiv a_r b_r;
     |}.
-  Next Obligation.
-    sauto unfold:Reflexive,Symmetric,Transitive.
-  Qed.
+  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
 End setoid_pair.
+
+Section setoid_option.
+  Context (T : Type) `{Setoid T}.
+
+  Program Instance setoid_option : Setoid (option T) :=
+    {| equiv (a b : option T) :=
+        match a, b with
+        | Some a, Some b => equiv a b
+        | None, None => True
+        | _, _ => False
+        end;
+    |}.
+  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
+End setoid_option.
 
 Section mfun_prod.
   Context {A B C D : Type} `{setoidA : Setoid A} `{setoidB : Setoid B} `{setoidC : Setoid C} `{setoidD : Setoid D}.
@@ -275,54 +287,39 @@ Section canonical_order.
     }.
 End canonical_order.
 
-Section transition_system.
+Section token_machine.
   Context {State : Type}.
 
-  Class TransitionSystem {Event : Type} :=
+  Class TokenMachine {Event : Type} :=
     {
-      ts_setoid :: Setoid State;
-      ts_canon_rel : relation Event;
-      ts_canon_order :: CanonicalOrder ts_canon_rel;
-      ts_state_trans : Event -> @MFun State State ts_setoid ts_setoid;
+      tm_setoid :: Setoid State;
+      tm_canon_rel : relation Event;
+      tm_canon_order :: CanonicalOrder tm_canon_rel;
+      tm_state_trans : Event -> @MFun State State tm_setoid tm_setoid;
     }.
-End transition_system.
+End token_machine.
 
-Section trace_ensemble.
-  Context `{Hts : TransitionSystem}.
+Section token_trace_ensemble.
+  Context `{Hts : TokenMachine}.
 
   Definition Trace := list Event.
 
   Definition TraceEnsemble := Ensemble Trace.
 
-  Definition event_commute (a b : Event) := commute (ts_state_trans a) (ts_state_trans b).
+  Definition event_commute (a b : Event) := commute (tm_state_trans a) (tm_state_trans b).
 
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
          exists t', e' t' /\ RestrictedPermutation event_commute t t'.
-
-  Class TransitionSystemEventGen (EventGenModel : Type) :=
-    {
-      ts_gen : @MFun State (option Event) ts_setoid (eq_setoid _);
-    }.
-
-  CoInductive TSEnsemble `{TransitionSystemEventGen} : State -> TraceEnsemble :=
-  | tse_nil : forall s,
-      s ~[ts_gen]~> None ->
-      TSEnsemble s []
-  | tse_cont : forall s s' t event,
-      TSEnsemble s' t ->
-      s ~[ts_gen]~> Some event ->
-      s ~[ts_state_trans event]~> s' ->
-      TSEnsemble s (event :: t).
-End trace_ensemble.
+End token_trace_ensemble.
 
 Section canonical_trace.
-  Context `{Hts: TransitionSystem}.
+  Context `{Hts: TokenMachine}.
 
   Context (commut_dec : forall f g, decidable (event_commute f g)).
 
   Definition can_follow (a b : Event) :=
-    event_commute a b -> ts_canon_rel a b.
+    event_commute a b -> tm_canon_rel a b.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
@@ -351,7 +348,7 @@ Section canonical_trace.
   | canontr_nil : forall s,
       CanonicalTrace [] s s
   | canontr_cons : forall s s' s'' token trace,
-      s ~[ts_state_trans token]~> s' ->
+      s ~[tm_state_trans token]~> s' ->
       can_follow_hd token trace ->
       CanonicalTrace trace s' s'' ->
       CanonicalTrace (token :: trace) s s''.
@@ -362,7 +359,7 @@ Section canonical_trace.
     induction H0 as [|x y z f t Hfxy Hfollow Ht IH].
     - sauto.
     - intros a2 Hx.
-      morph_shift (ts_state_trans f) a2.
+      morph_shift (tm_state_trans f) a2.
       destruct (IH y' Hequiv_y_y') as [z' [Hy'z' Hzz']].
       exists z'. split.
       + constructor 2 with (s' := y'); sauto.
@@ -379,7 +376,7 @@ Section canonical_trace.
     - simpl in Hhd. injection Hhd as H. now subst.
   Qed.
 
-  Lemma  canon_trace_add x y y' z f t (Hf : x ~[ts_state_trans f]~> y)
+  Lemma  canon_trace_add x y y' z f t (Hf : x ~[tm_state_trans f]~> y)
                          (Hy' : y == y')
                          (Ht : CanonicalTrace t y' z)
                          (Hfoll : ~can_follow_hd f t) :
@@ -394,8 +391,8 @@ Section canonical_trace.
       unfold not, can_follow_hd in Hfoll.
       contradiction.
     - intros y Hyy' x Hxy. simpl in Hfoll.
-      assert (Hfg_canon : ts_canon_rel g f). {
-        assert (Hcanon_total : ts_canon_rel f g \/ ts_canon_rel g f) by
+      assert (Hfg_canon : tm_canon_rel g f). {
+        assert (Hcanon_total : tm_canon_rel f g \/ tm_canon_rel g f) by
           apply canon_rel_total.
         firstorder.
       }
@@ -407,8 +404,8 @@ Section canonical_trace.
       }
       (* Use commutativity to derive an intermediate state on
          the [g ∘ f] path: *)
-      assert (exists{v' == v}, x ~[ts_state_trans g ∘ ts_state_trans f]~> v') as Hv'. {
-        morph_shift (ts_state_trans g) y.
+      assert (exists{v' == v}, x ~[tm_state_trans g ∘ tm_state_trans f]~> v') as Hv'. {
+        morph_shift (tm_state_trans g) y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].
         { exists y. firstorder. }
@@ -456,7 +453,7 @@ Section canonical_trace.
 
   Theorem canonicalize_trace x z :
     sufficient_replacement_p
-      (fun t => x ~[compose_list (map ts_state_trans t)]~> z)
+      (fun t => x ~[compose_list (map tm_state_trans t)]~> z)
       (fun t => exists{z' == z}, CanonicalTrace t x z').
   Proof.
     intros t Ht. generalize dependent z. generalize dependent x.
@@ -497,3 +494,60 @@ Section canonical_trace.
     }
   Qed.
 End canonical_trace.
+
+Section TransitionSystem'.
+  Context {State : Type}.
+
+  Definition ts_ret (Event : Type) := option (Event * State).
+
+  Definition ts_ret_setoid (Event : Type) (Hss : Setoid State) :=
+    let sp := @setoidPair Event State (eq_setoid _) Hss in
+    @setoid_option (Event * State) sp.
+
+  Class TransitionSystem {Event : Type} :=
+    {
+      ts_setoid :: Setoid State;
+      ts_canon_rel : relation Event;
+      ts_canon_order :: CanonicalOrder ts_canon_rel;
+      ts_state_trans :: @MFun State (ts_ret Event) ts_setoid (ts_ret_setoid Event ts_setoid);
+    }.
+
+  Program Definition tsg_mfun `{TransitionSystem} (e : Event) : MFun State State :=
+    {| morphism s s' :=
+        s ~[ts_state_trans]~> Some (e, s');
+    |}.
+  Solve All Obligations with sauto.
+
+  Instance tsTokenSystem `{TransitionSystem} : @TokenMachine State Event :=
+    { tm_setoid := ts_setoid;
+      tm_canon_rel := ts_canon_rel;
+      tm_canon_order := ts_canon_order;
+      tm_state_trans := tsg_mfun;
+    }.
+
+  (* TODO: this is an mfun *)
+  Inductive TSEnsemble `{TransitionSystem} : State -> (list Event * State) -> Prop :=
+  | ts_nil : forall s,
+      s ~[ts_state_trans]~> None ->
+      TSEnsemble s ([], s)
+  | ts_cont : forall s s' s'' t event,
+      TSEnsemble s' (t, s'') ->
+      s ~[ts_state_trans]~> Some (event, s') ->
+      TSEnsemble s (event :: t, s'').
+
+  Inductive CanonicalTSEnsemble `{TransitionSystem} : State -> (list Event * State) -> Prop :=
+  | cts_nil : forall s,
+      s ~[ts_state_trans]~> None ->
+      CanonicalTSEnsemble s ([], s)
+  | cts_cons : forall s s' s'' event trace,
+      s ~[ts_state_trans]~> Some (event, s') ->
+      can_follow_hd event trace ->
+      CanonicalTSEnsemble s' (trace, s'') ->
+      CanonicalTSEnsemble s (event :: trace, s'').
+
+  Theorem ts_optimize `{TransitionSystem} : forall s s' t,
+      TSEnsemble s (t, s') ->
+      exists t', exists{s'' == s'},
+        CanonicalTSEnsemble s (t', s'') (* /\ RestrictedPermutation event_commute t t' *).
+  Abort.
+End TransitionSystem'.
