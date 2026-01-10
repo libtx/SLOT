@@ -563,39 +563,92 @@ Section TSProps.
       + exists s'. now split.
   Qed.
 
+  Lemma tsfun_gen_as_te s s' : sufficient_replacement_p
+                                 (fun t => TSMFunGen s t s')
+                                 (fun t => exists{s'' == s'}, CanonicalTrace t s s'').
+  Proof.
+    intros t Ht.
+    apply transition_system_as_token_machine_trace in Ht.
+    now apply canonicalize_trace in Ht.
+  Qed.
+
+  Definition can_follow_ts (a b : Event) :=
+    event_commute a b -> ts_canon_rel a b.
+
+  Definition can_follow_hd_ts (token : Event) (trace : Trace) : Prop :=
+    match trace with
+    | [] => True
+    | head :: _ =>
+        can_follow_ts token head
+    end.
+
+  Lemma can_follow_equiv a b : can_follow a b <-> can_follow_ts a b.
+  Proof.
+    sauto.
+  Qed.
+
+  Lemma can_follow_hd_equiv a t : can_follow_hd a t <-> can_follow_hd_ts a t.
+  Proof.
+    sauto.
+  Qed.
+
   Inductive CanonicalTSMFunGen : State -> list Event -> State -> Prop :=
   | cts_nil : forall s,
       s ~[ts_state_trans]~> None ->
       CanonicalTSMFunGen s [] s
   | cts_cons : forall s s' s'' event trace,
       s ~[ts_state_trans]~> Some (event, s') ->
+      (* TODO: replace below with can_follow_hd_ts event trace -> *)
       can_follow_hd event trace ->
       CanonicalTSMFunGen s' trace s'' ->
       CanonicalTSMFunGen s (event :: trace) s''.
 
-  Theorem canonicalize_transition_system : forall s s' t,
-      TSMFunGen s t s' ->
-      exists t', exists{s'' == s'},
-        CanonicalTSMFunGen s t' s''.
+  Lemma canon_ts_mfun_trace_is_always_canonical s s' t :
+    CanonicalTSMFunGen s t s' -> CanonicalTrace t s s'.
   Proof.
-    intros.
-    specialize (transition_system_as_token_machine_trace s s' t H) as Hss'.
-    specialize (canonicalize_trace Hcanon_dec s s' t) as Hcan.
-    simpl in Hcan. apply Hcan in Hss'. clear Hcan.
-    destruct Hss' as [t' Ht'].
-    exists t'.
-    destruct Ht' as [[s'' [Hss'' Heq]] Ht'].
-    exists s''.
-    split; [|assumption].
-    generalize dependent t.
-    induction Hss''.
+    intros H.
+    induction H.
     - constructor.
-      apply perm_empty in Ht'.
-      inversion H; subst; sauto.
-    - specialize (IHHss'' Heq).
-      intros.
+    - now constructor 2 with (s' := s').
+  Qed.
 
+(*   Lemma canonicalize_tsmfun s s' t : *)
+(*     TSMFunGen s t s' -> *)
+(*     CanonicalTrace t s s' -> *)
+(*     CanonicalTSMFunGen s t s'. *)
+(*   Proof. *)
+(*     intros Ht Hcomm. *)
+(*     induction Hcomm. *)
+(*     - sauto. *)
+(*     - constructor 2 with (s' := s'). *)
+(*       + assumption. *)
+(*       + assumption. *)
+(*       + apply IHHcomm. eapply fooo; eauto. *)
+(*   Qed. *)
 
+(*   Lemma tsmfun_permut s s' s'' t t' : *)
+(*     TSMFunGen s t s' -> *)
+(*     CanonicalTrace t' s s'' -> *)
+(*     RestrictedPermutation event_commute t t' -> *)
+(*     TSMFunGen s t' s''. *)
+(*   Admitted. *)
 
-
-End TSProps.
+(*   Theorem canonicalize_transition_system : forall s s' t, *)
+(*       TSMFunGen s t s' -> *)
+(*       exists t', exists{s'' == s'}, *)
+(*         CanonicalTSMFunGen s t' s''. *)
+(*   Proof. *)
+(*     intros. *)
+(*     specialize (transition_system_as_token_machine_trace s s' t H) as Hss'. *)
+(*     specialize (canonicalize_trace Hcanon_dec s s' t) as Hcan. *)
+(*     simpl in Hcan. apply Hcan in Hss'. clear Hcan. *)
+(*     destruct Hss' as [t' Ht']. *)
+(*     exists t'. *)
+(*     destruct Ht' as [[s'' [Hss'' Heq]] Ht']. *)
+(*     exists s''. *)
+(*     split; [|assumption]. *)
+(*     apply canonicalize_tsmfun. *)
+(*     - eapply tsmfun_permut; eauto. *)
+(*     - assumption. *)
+(*   Qed. *)
+(* End TSProps. *)
