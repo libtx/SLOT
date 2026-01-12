@@ -523,7 +523,7 @@ Section TransitionSystem.
       ts_state_trans :: @MFun State (ts_ret Event) ts_setoid (ts_ret_setoid Event ts_setoid);
     }.
 
-  Program Definition tsg_mfun `{TransitionSystem} (e : Event) : MFun State State :=
+  Program Definition ts_mfun `{TransitionSystem} (e : Event) : MFun State State :=
     {| morphism s s' :=
         s ~[ts_state_trans]~> Some (e, s');
     |}.
@@ -533,13 +533,15 @@ Section TransitionSystem.
     { tm_setoid := ts_setoid;
       tm_canon_rel := ts_canon_rel;
       tm_canon_order := ts_canon_order;
-      tm_state_trans := tsg_mfun;
+      tm_state_trans := ts_mfun;
     }.
+
+  Definition ts_event_commute `{TransitionSystem} (a b : Event) := commute (ts_mfun a) (ts_mfun b).
 End TransitionSystem.
 
 Section TSProps.
   Context `{HTS : TransitionSystem}
-           (Hcanon_dec : forall f g : Event, decidable (event_commute f g)).
+           (Hcanon_dec : forall f g : Event, decidable (ts_event_commute f g)).
 
   (* TODO: this is an mfun *)
   Inductive TSMFunGen : State -> list Event -> State -> Prop :=
@@ -598,8 +600,7 @@ Section TSProps.
       CanonicalTSMFunGen s [] s
   | cts_cons : forall s s' s'' event trace,
       s ~[ts_state_trans]~> Some (event, s') ->
-      (* TODO: replace below with can_follow_hd_ts event trace -> *)
-      can_follow_hd event trace ->
+      can_follow_hd_ts event trace ->
       CanonicalTSMFunGen s' trace s'' ->
       CanonicalTSMFunGen s (event :: trace) s''.
 
@@ -612,43 +613,19 @@ Section TSProps.
     - now constructor 2 with (s' := s').
   Qed.
 
-(*   Lemma canonicalize_tsmfun s s' t : *)
-(*     TSMFunGen s t s' -> *)
-(*     CanonicalTrace t s s' -> *)
-(*     CanonicalTSMFunGen s t s'. *)
-(*   Proof. *)
-(*     intros Ht Hcomm. *)
-(*     induction Hcomm. *)
-(*     - sauto. *)
-(*     - constructor 2 with (s' := s'). *)
-(*       + assumption. *)
-(*       + assumption. *)
-(*       + apply IHHcomm. eapply fooo; eauto. *)
-(*   Qed. *)
-
-(*   Lemma tsmfun_permut s s' s'' t t' : *)
-(*     TSMFunGen s t s' -> *)
-(*     CanonicalTrace t' s s'' -> *)
-(*     RestrictedPermutation event_commute t t' -> *)
-(*     TSMFunGen s t' s''. *)
-(*   Admitted. *)
-
-(*   Theorem canonicalize_transition_system : forall s s' t, *)
-(*       TSMFunGen s t s' -> *)
-(*       exists t', exists{s'' == s'}, *)
-(*         CanonicalTSMFunGen s t' s''. *)
-(*   Proof. *)
-(*     intros. *)
-(*     specialize (transition_system_as_token_machine_trace s s' t H) as Hss'. *)
-(*     specialize (canonicalize_trace Hcanon_dec s s' t) as Hcan. *)
-(*     simpl in Hcan. apply Hcan in Hss'. clear Hcan. *)
-(*     destruct Hss' as [t' Ht']. *)
-(*     exists t'. *)
-(*     destruct Ht' as [[s'' [Hss'' Heq]] Ht']. *)
-(*     exists s''. *)
-(*     split; [|assumption]. *)
-(*     apply canonicalize_tsmfun. *)
-(*     - eapply tsmfun_permut; eauto. *)
-(*     - assumption. *)
-(*   Qed. *)
-(* End TSProps. *)
+  Theorem canonicalize_transition_system : forall s s' t,
+      TSMFunGen s t s' ->
+      exists t', exists{s'' == s'},
+        CanonicalTSMFunGen s t' s''.
+  Proof.
+    intros.
+    specialize (transition_system_as_token_machine_trace s s' t H) as Hss'.
+    specialize (canonicalize_trace Hcanon_dec s s' t) as Hcan.
+    simpl in Hcan. apply Hcan in Hss'. clear Hcan.
+    destruct Hss' as [t' Ht'].
+    exists t'.
+    destruct Ht' as [[s'' [Hss'' Heq]] Ht'].
+    exists s''.
+    split; [|assumption].
+  Abort.
+End TSProps.
