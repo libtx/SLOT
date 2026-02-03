@@ -1,17 +1,15 @@
 From Coq Require Import
-  Relation_Definitions
   List
   ZArith
   SetoidClass.
 Import ListNotations.
 
 From SLOT Require Import
-  Multifunction.
+  Multifunction
+  Pid.
 
 From Hammer Require Import
   Tactics.
-
-Definition PID : Set := list positive.
 
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
@@ -26,85 +24,6 @@ Section IOHandler.
     }.
 End IOHandler.
 
-From LibTx Require Storage.
-Module stor := LibTx.Storage.Classes.
-
-From LibTx Require Import
-  Instances.List.
-
-From Coq Require
-  Classes.EquivDec.
-
-Module EqDec := EquivDec.
-
-Section storage_handler.
-  Context {Key Val Container : Type} `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
-
-  Inductive StorageReq : Type :=
-  | get : Key -> StorageReq
-  | put : Key -> Val -> StorageReq
-  | delete : Key -> StorageReq.
-
-  Definition StorageRet (req : StorageReq) : Type :=
-    match req with
-    | get k => option Val
-    | put k v => True
-    | delete k => True
-    end.
-
-  Program Definition storage_get (k : Key) : MFunRet (option Val) Container :=
-    {| morphism s x :=
-         x = (stor.get k s, s)
-    |}.
-  Next Obligation.
-    sauto.
-  Qed.
-
-  Program Definition storage_put (k : Key) (v : Val) : MFunRet True Container :=
-    {| morphism s x :=
-         x = (I, stor.put k v s)
-    |}.
-  Next Obligation.
-    exists (I, stor.put k v x'). split.
-    - reflexivity.
-    - destruct t. split.
-      + reflexivity.
-      + now rewrite H.
-  Qed.
-
-  Program Definition storage_delete (k : Key) : MFunRet True Container :=
-    {| morphism s x :=
-        x = (I, stor.delete k s)
-    |}.
-  Next Obligation.
-    exists (I, stor.delete k x'). split.
-    - reflexivity.
-    - destruct t. split.
-      + reflexivity.
-      + now rewrite H.
-  Qed.
-
-  Definition StorageStep (req : StorageReq) : MFunRet (StorageRet req) Container :=
-    match req with
-    | get k => storage_get k
-    | put k v => storage_put k v
-    | delete k => storage_delete k
-    end.
-
-  Instance storageHandler : @IOHandler StorageReq StorageRet :=
-    {|
-      h_state := Container;
-      h_setoid := stor.s_eq_setoid;
-      h_handler _ req := StorageStep req
-    |}.
-End storage_handler.
-
-Global Arguments storageHandler (_ _) {_} (_).
-
-From Coq Require Import
-  Sorting.Permutation
-  FMapInterface
-  OrderedTypeEx.
 
 Section Thread.
   Context `{H : IOHandler}.
@@ -145,175 +64,32 @@ Section Thread.
     }.
 End Thread.
 
-Module PIDOrd <: OrderedType.
-  Module PosOT := Positive_as_OT.
-
-  Definition t := PID.
-
-  Definition eq := @eq t.
-
-  Definition eq_refl := @eq_refl t.
-
-  Definition eq_sym := @eq_sym t.
-
-  Definition eq_trans := @eq_trans t.
-
-  Fixpoint compare (a b : t) : comparison :=
-    match a, b with
-    | [], [] => Eq
-    | [], _ => Lt
-    | _, [] => Gt
-    | a :: l1, b :: l2 =>
-        match (a ?= b)%positive with
-        | Eq => compare l1 l2
-        | o => o
-        end
-    end.
-
-  Definition lt a b := compare a b = Lt.
-
-  Lemma pid_lt_nil : forall x, ~lt x [].
-  Proof.
-    intros x H.
-    destruct x; now cbv in H.
-  Qed.
-
-  Lemma pid_lt_append_l : forall x y z, lt (x ++ [y]) z -> lt x z.
-  Proof.
-    induction x.
-    - sauto.
-    - induction z; sauto unfold: lt, compare.
-  Qed.
-
-  Lemma pid_lt_append_l' : forall x y z, lt x z -> lt x (z ++ [y]).
-  Proof.
-    intros x y z. generalize dependent x.
-    induction z.
-    - sauto use:pid_lt_nil.
-    - induction x; sauto unfold: lt, compare.
-  Qed.
-
-  Theorem lt_trans : forall z y x : t, lt x y -> lt y z -> lt x z.
-  Proof.
-    intros z'. replace z' with (rev (rev z')) by apply rev_involutive.
-    induction (rev z') as [|b z IHz].
-    - intros ? ? ? H. now apply pid_lt_nil in H.
-    - intros y'. replace y' with (rev (rev y')) by apply rev_involutive.
-      induction (rev y') as [|a y IHy]; simpl in *.
-      + intros ? H. now apply pid_lt_nil in H.
-      + intros x Hy Hz.
-        apply pid_lt_append
-        apply IHy.
-        2:{ now apply pid_lt_append_l in Hz. }
-
-
-    intros x y'. generalize dependent x.
-    replace y' with (rev (rev y')) by apply rev_involutive.
-    induction (rev y') as [|a y IH]; simpl; intros x z Hy Hz.
-    - now apply pid_lt_nil in Hy.
-    - apply IH.
-      2:{ now apply pid_lt_append_l in Hz. }
-
-
-
-    intros x y z'. generalize dependent y. generalize dependent x.
-    replace z' with (rev (rev z')) by apply rev_involutive.
-    induction (rev z') as [|a z IH]; intros x y Hy Hz.
-    - now apply pid_lt_nil in Hz.
-    - simpl in *.
-      apply pid_lt_append_l in Hz.
-      apply pid_lt_append_l'.
-
-      apply pid_lt_append_l', IH; try assumption.
-
-      apply IH.
-      2:{ now  }
-
-
-      sauto unfold: lt, compare use: pid_lt_append_l, pid_lt_append_l'.
-      apply pid_lt_append_r in Hz.
-      destruct Hz as [Hz|Hz].
-      + apply pid_lt_append_l'; auto.
-      + subst. now apply pid_lt_append_l'.
-  Qed.
-
-  Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
-  Proof.
-    intros H Habsurd.
-    induction H; sauto use: Pos.lt_irrefl.
-  Qed.
-
-  Definition compare : forall (x y : t), Compare lt eq x y.
-    refine (fix ind x y :=
-              match x, y with
-              | [], [] => EQ _
-              | [], (_ :: _) => LT _
-              | (_ :: _), [] => GT _
-              | (a :: l1), (b :: l2) =>
-                  let H := Pos.compare a b in
-                  (match H return
-                        H = Pos.compare a b ->
-                        Compare lt eq (a :: l1) (b :: l2)
-                  with
-                  | Eq =>  _
-                  | Lt =>  _
-                  | Gt =>  _
-                  end) _
-                  (* match Pos.comp *)
-                  (* (match Pos.compare a b return *)
-                  (*        Pos.compare a b -> Compare lt eq (a :: l1) (b :: l2) *)
-                  (*  with *)
-                  (*  | Eq => _ *)
-                  (*  | Lt => _ *)
-                  (*  | Gt => _ *)
-                  (*  end) a b *)
-              end).
-    - reflexivity.
-    - constructor.
-    - constructor.
-    - give_up.
-    - intros. apply LT. constructor.
-      cbv in H0.
-
-    (* - *)
-
-    induction x as [|a l1], y as [|b l2].
-    - apply EQ. reflexivity.
-    - apply LT. constructor.
-    - apply GT. constructor.
-    -
-
-remember (Pos.compare a b) as H.
-      destruct H.
-      + remember (IHl1 l2) as Hl.
-        destruct Hl.
-        *
-
-
-End PIDOrd.
-  Inductive lt :=
-
-
-  Fixpoint compare (p1 p2 : t) : Compare :=
-    EQ.
-
-    match p1, p2 with
-    | [], [] =>
-        true
-    | a :: p1, b :: p2 =>
-        match Pos.eqb a b with
-        |
-    | _, _ =>
-        false
-    end.
-End PIDOrd.
-
-  Module Threads := FMap
+Section VM.
+  Context `{H : IOHandler}.
+  Let T := @Thread Request Reply.
+  Definition Threads := Pid.FMap.t T.
 
   Record VM :=
-    { threads : list Thread;
+    { threads : Threads;
       world : @h_state _ _ H;
     }.
+End VM.
+(*
+  Print Setoid.
+
+  Program Instance vmSetoid : Setoid VM :=
+    {| equiv (a b : VM) := equiv _ _ (world a) (world b);
+    |}.
+
+
+
+
+  Program Definition vm_step : MFun VM VM :=
+    {|
+    |}
+
+  Definition step (pid : PID) : Threads -> Threads :=
+    match ThreadsMap.
 
   Definition do_spawn pid lc cont child rest :=
     let new_pid := pid ++ [lc] in
@@ -558,3 +334,4 @@ t : list (MFun VM VM)
     - simpl in H.
 
 End test.
+*)
