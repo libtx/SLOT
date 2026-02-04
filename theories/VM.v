@@ -25,15 +25,17 @@ Section IOHandler.
     }.
 End IOHandler.
 
+Section VM.
+  Context `{IOH : IOHandler}.
 
-Section Thread.
-  Context `{H : IOHandler}.
+  Let World := @h_state _ _ IOH.
 
   CoInductive Program : Type :=
   | p_dead : (* Program terminted *)
       Program
   | p_yield :
-      (* Interrupt the computation without producing any side effects.
+      (* Wait for signal.
+
       This primitive is used to softly introduce the concept of
       Erlang's "reductions", and to side-step termination checker,
       making programs non-Turing in a practically useful, as opposed
@@ -48,33 +50,39 @@ Section Thread.
     Program
   | p_cont : (* Program is doing I/O *)
     forall (pending_req : Request)
-           (continuation : Reply pending_req -> Program),
+      (continuation : Reply pending_req -> Program),
       Program
   | p_spawn : (* Spawn a new process: *)
     forall (child : Program)
-           (continuation : PID -> Program),
+      (continuation : PID -> Program),
       Program.
 
-  Record Thread :=
-    mkThread
-    { (* Continuation *)
-      t_prog : Program;
-      (* Number of children spawned by the thread that is used to
-      generate PID of its children: *)
-      t_last_child : positive
-    }.
-End Thread.
-
-Section VM.
-  Context `{H : IOHandler}.
-  Let T := @Thread Request Reply.
-  Definition Threads := Pid.FMap.t T.
+  Inductive Signal := .
 
   Record VM :=
-    { threads : Threads;
-      world : @h_state _ _ H;
+    { (* State of the I/O handler *)
+      world : World;
+      (* Set of runnable processes *)
+      runq : list (PID * Program);
+      (* Set of sleeping processes *)
+      sleepq : list (PID * Program);
+      (* Counter that gets incremented when process spawns a child.
+      This counter is used as a suffix of the child's pid *)
+      child_ctr : Pid.FMap.t positive;
+      (* Processes' signal queues *)
+      sig : Pid.FMap.t (list Signal);
     }.
+
+  Definition initVm (w : World) (p : Program) :=
+    {|
+      world := w;
+      runq := [([], p)];
+      sleepq := [];
+      child_ctr := Pid.FMap.empty _;
+      sig := Pid.FMap.empty _;
+    |}.
 End VM.
+
 (*
   Print Setoid.
 
