@@ -13,6 +13,7 @@ From Hammer Require Import
   Tactics.
 
 From SLOT Require Import
+  Setoids
   RestrictedPermutation.
 
 Import ListNotations.
@@ -204,32 +205,6 @@ Proof.
     sauto.
 Qed.
 
-Section setoid_pair.
-  Context (A B : Type) `{Setoid A} `{Setoid B}.
-
-  Program Instance setoidPair : Setoid (A * B) :=
-    {| equiv (a b : (A * B)) :=
-        let (a_l, a_r) := a in
-        let (b_l, b_r) := b in
-        equiv a_l b_l /\ equiv a_r b_r;
-    |}.
-  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
-End setoid_pair.
-
-Section setoid_option.
-  Context (T : Type) `{Setoid T}.
-
-  Program Instance setoid_option : Setoid (option T) :=
-    {| equiv (a b : option T) :=
-        match a, b with
-        | Some a, Some b => equiv a b
-        | None, None => True
-        | _, _ => False
-        end;
-    |}.
-  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
-End setoid_option.
-
 Section mfun_prod.
   Context {A B C D : Type} `{setoidA : Setoid A} `{setoidB : Setoid B} `{setoidC : Setoid C} `{setoidD : Setoid D}.
 
@@ -387,7 +362,7 @@ Section canonical_trace.
     - simpl in Hhd. injection Hhd as H. now subst.
   Qed.
 
-  Lemma  canon_trace_add x y y' z f t (Hf : x ~[tm_state_trans f]~> y)
+  Lemma canon_trace_add x y y' z f t (Hf : x ~[tm_state_trans f]~> y)
                          (Hy' : y == y')
                          (Ht : CanonicalTrace t y' z)
                          (Hfoll : ~can_follow_hd f t) :

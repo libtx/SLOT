@@ -5,6 +5,7 @@ From Coq Require Import
 Import ListNotations.
 
 From SLOT Require Import
+  Setoids
   Multifunction
   Pid.
 

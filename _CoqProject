@@ -1,4 +1,5 @@
 -R theories SLOT
+theories/Setoids.v
 theories/RestrictedPermutation.v
 theories/Multifunction.v
 theories/Pid.v
