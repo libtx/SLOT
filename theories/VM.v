@@ -7,10 +7,16 @@ Import ListNotations.
 From SLOT Require Import
   Setoids
   Multifunction
-  Pid.
+  Pid
+  Queue.
 
 From Hammer Require Import
   Tactics.
+
+From RecordUpdate Require Import
+  RecordUpdate.
+
+Open Scope positive_scope.
 
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
@@ -26,7 +32,7 @@ Section IOHandler.
 End IOHandler.
 
 Section VM.
-  Context `{IOH : IOHandler}.
+  Context `{IOH : IOHandler} {AppMessage : Type}.
 
   Let World := @h_state _ _ IOH.
 
@@ -57,30 +63,68 @@ Section VM.
       (continuation : PID -> Program),
       Program.
 
-  Inductive Signal := .
+  Inductive Message :=
+  | appmsg : AppMessage -> Message.
+
+  Let Mailbox := @Queue Message.
 
   Record VM :=
-    { (* State of the I/O handler *)
-      world : World;
-      (* Set of runnable processes *)
-      runq : list (PID * Program);
-      (* Set of sleeping processes *)
-      sleepq : list (PID * Program);
-      (* Counter that gets incremented when process spawns a child.
-      This counter is used as a suffix of the child's pid *)
-      child_ctr : Pid.FMap.t positive;
-      (* Processes' signal queues *)
-      sig : Pid.FMap.t (list Signal);
-    }.
+    mkVM
+      { (* State of the I/O handler *)
+        world : World;
+        (* Set of runnable processes *)
+        runq : list (PID * Program);
+        (* Set of sleeping processes *)
+        sleepq : list (PID * Program);
+        (* Counter that gets incremented when process spawns a child.
+        This counter is used as a suffix of the child's pid *)
+        child_ctr : Pid.FMap.t positive;
+        (* Processes' signal queues *)
+        mailboxes : Pid.FMap.t Mailbox;
+      }.
+
+  #[export] Instance etaX : Settable _ := settable! mkVM <world; runq; sleepq; child_ctr; mailboxes>.
+
+  Definition new_child_id (parent : PID) (v : VM) : VM * positive :=
+    let cc := child_ctr v in
+    let (cc, ctr) :=
+      match Pid.FMap.find parent cc with
+      | Some ctr =>
+          (Pid.FMap.add parent (ctr + 1) cc, ctr)
+      | None =>
+          (Pid.FMap.add parent 2 cc, 1)
+      end in
+    (v<| child_ctr := cc |>, ctr).
+
+  Definition do_spawn (parent : PID) (prog : Program) (v : VM) : VM :=
+    let (v, child_pid_suffix) := new_child_id parent v in
+    let rq := runq v in
+    v<| runq := (parent ++ [child_pid_suffix], prog) :: rq |>.
 
   Definition initVm (w : World) (p : Program) :=
-    {|
-      world := w;
-      runq := [([], p)];
-      sleepq := [];
-      child_ctr := Pid.FMap.empty _;
-      sig := Pid.FMap.empty _;
-    |}.
+    let vm :=
+      {|
+        world := w;
+        runq := [];
+        sleepq := [];
+        child_ctr := Pid.FMap.empty _;
+        mailboxes := Pid.FMap.empty _;
+      |} in
+    do_spawn [] p vm.
+
+  Definition do_send_msg {T : Type} (msg : Message) (to : PID) (v : VM) : VM :=
+    let mboxes := mailboxes v in
+    let mboxes :=
+      match Pid.FMap.find to mboxes with
+      | Some mbox =>
+          Pid.FMap.add to (push msg mbox) mboxes
+      | None =>
+          mboxes
+      end in
+    v<| mailboxes := mboxes |>.
+
+  Definition deadlocked (v : VM) : Prop :=
+    runq v = [] /\ sleepq v <> [].
 End VM.
 
 (*
