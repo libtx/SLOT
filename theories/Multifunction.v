@@ -207,7 +207,7 @@ Section mfun_prod.
   Context {A B C D : Type} `{setoidA : Setoid A} `{setoidB : Setoid B} `{setoidC : Setoid C} `{setoidD : Setoid D}.
 
   Program Definition mfun_prod (f : @MFun A B setoidA setoidB) (g : @MFun C D setoidC setoidD) :
-    @MFun (A * C) (B * D) (setoidPair A C) (setoidPair B D) :=
+    @MFun (A * C) (B * D) (pair_setoid A C) (pair_setoid B D) :=
     {| morphism x y :=
         let (x_l, x_r) := x in
         let (y_l, y_r) := y in
@@ -224,7 +224,7 @@ Section mfun_sum.
   Context {A A' B : Type} `{setoidA : Setoid A} `{setoidA' : Setoid A'} `{setoidB : Setoid B}.
 
   Program Definition mfun_sum_l (f : @MFun A A' setoidA setoidA') :
-    @MFun (A * B) (A' * B) (setoidPair A B) (setoidPair A' B) :=
+    @MFun (A * B) (A' * B) (pair_setoid A B) (pair_setoid A' B) :=
     {| morphism x y :=
         let (x_l, x_r) := x in
         let (y_l, y_r) := y in
@@ -237,7 +237,7 @@ Section mfun_sum.
   Qed.
 
   Program Definition mfun_sum_r (f : @MFun A A' setoidA setoidA') :
-    @MFun (B * A) (B * A') (setoidPair B A) (setoidPair B A') :=
+    @MFun (B * A) (B * A') (pair_setoid B A) (pair_setoid B A') :=
     {| morphism x y :=
         let (x_l, x_r) := x in
         let (y_l, y_r) := y in

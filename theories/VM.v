@@ -1,13 +1,15 @@
 From Coq Require Import
   List
   ZArith
-  SetoidClass.
+  SetoidClass
+  SetoidDec.
 Import ListNotations.
 
 From SLOT Require Import
   Setoids
   TransitionSystem
-  Pid.
+  Pid
+  ListSelector.
 
 From Hammer Require Import
   Tactics.
@@ -21,7 +23,7 @@ Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
   Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
-    @MFun State (Ret * State) HState (@setoidPair _ _ HRet HState).
+    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
 
   Class IOHandler := {
       h_state : Type;
@@ -39,8 +41,7 @@ Section VM.
   | p_dead : (* Program terminted *)
       Program
   | p_yield :
-      (* Wait for signal.
-
+      (* Interrupt the computation without producing any side effects.
       This primitive is used to softly introduce the concept of
       Erlang's "reductions", and to side-step termination checker,
       making programs non-Turing in a practically useful, as opposed
@@ -76,6 +77,22 @@ Section VM.
       }.
 
   #[export] Instance etaX : Settable _ := settable! mkVM <world; runq; sleepq; child_ctr>.
+
+  Program Definition vm_setoid : Setoid VM :=
+    {| equiv a b :=
+        let (w1, rq1, sq1, cc1) := a in
+        let (w2, rq2, sq2, cc2) := b in
+        let w_eq := @equiv _ h_setoid in
+        let p_eq := @equiv _ (setoid_permutation (PID * Program)) in
+        w_eq w1 w2 /\
+          p_eq rq1 rq2 /\
+          p_eq sq1 sq2 /\
+          @equiv _ (eq_setoid _) cc1 cc2;
+    |}.
+  Next Obligation.
+    sauto unfold:Reflexive,Symmetric,Transitive
+          use:Permutation_sym,Permutation_trans.
+  Qed.
 
   Definition new_child_id (parent : PID) (v : VM) : VM * positive :=
     let cc := child_ctr v in

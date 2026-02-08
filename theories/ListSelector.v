@@ -1,6 +1,10 @@
 From Coq Require Import
   List.
+
 Import ListNotations.
+
+From Hammer Require Import
+  Tactics.
 
 Section defn.
   Context {A : Type}.
@@ -15,14 +19,11 @@ End defn.
 
 Section tests.
   Goal forall a l',
-      Pick [1; 2] a l' ->
-      (a = 1 /\ l' = [2]) \/ (a = 2 /\ l' = [1]).
+      Pick [1; 2; 3] a l' ->
+        (a = 1 /\ l' = [2; 3]) \/
+        (a = 2 /\ l' = [1; 3]) \/
+        (a = 3 /\ l' = [1; 2]).
   Proof.
-    intros a l' H.
-    inversion_clear H.
-    - now left.
-    - inversion_clear H0.
-      + now right.
-      + inversion H.
+    sauto.
   Qed.
 End tests.

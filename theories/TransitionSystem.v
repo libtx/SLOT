@@ -28,7 +28,7 @@ Section TransitionSystem.
   Definition ts_ret (Event : Type) := option (Event * State).
 
   Definition ts_ret_setoid (Event : Type) (Hss : Setoid State) :=
-    let sp := @setoidPair Event State (eq_setoid _) Hss in
+    let sp := @pair_setoid Event State (eq_setoid _) Hss in
     @setoid_option (Event * State) sp.
 
   Class TransitionSystem {Event : Type} :=
