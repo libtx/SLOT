@@ -7,8 +7,7 @@ Import ListNotations.
 From SLOT Require Import
   Setoids
   Multifunction
-  Pid
-  Queue.
+  Pid.
 
 From Hammer Require Import
   Tactics.
@@ -63,11 +62,6 @@ Section VM.
       (continuation : PID -> Program),
       Program.
 
-  Inductive Message :=
-  | appmsg : AppMessage -> Message.
-
-  Let Mailbox := @Queue Message.
-
   Record VM :=
     mkVM
       { (* State of the I/O handler *)
@@ -79,11 +73,9 @@ Section VM.
         (* Counter that gets incremented when process spawns a child.
         This counter is used as a suffix of the child's pid *)
         child_ctr : Pid.FMap.t positive;
-        (* Processes' signal queues *)
-        mailboxes : Pid.FMap.t Mailbox;
       }.
 
-  #[export] Instance etaX : Settable _ := settable! mkVM <world; runq; sleepq; child_ctr; mailboxes>.
+  #[export] Instance etaX : Settable _ := settable! mkVM <world; runq; sleepq; child_ctr>.
 
   Definition new_child_id (parent : PID) (v : VM) : VM * positive :=
     let cc := child_ctr v in
@@ -108,23 +100,8 @@ Section VM.
         runq := [];
         sleepq := [];
         child_ctr := Pid.FMap.empty _;
-        mailboxes := Pid.FMap.empty _;
       |} in
     do_spawn [] p vm.
-
-  Definition do_send_msg {T : Type} (msg : Message) (to : PID) (v : VM) : VM :=
-    let mboxes := mailboxes v in
-    let mboxes :=
-      match Pid.FMap.find to mboxes with
-      | Some mbox =>
-          Pid.FMap.add to (push msg mbox) mboxes
-      | None =>
-          mboxes
-      end in
-    v<| mailboxes := mboxes |>.
-
-  Definition deadlocked (v : VM) : Prop :=
-    runq v = [] /\ sleepq v <> [].
 End VM.
 
 (*

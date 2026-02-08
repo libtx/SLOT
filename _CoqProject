@@ -2,5 +2,8 @@
 theories/Setoids.v
 theories/RestrictedPermutation.v
 theories/Multifunction.v
+theories/Queue.v
 theories/Pid.v
 theories/VM.v
+theories/Handlers/Storage.v
+theories/Handlers/Mailbox.v

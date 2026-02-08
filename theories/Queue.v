@@ -38,15 +38,21 @@ Section defn.
         end
     end.
 
+  Inductive pop_pred_result pred :=
+  | QNone
+  | QSome : forall (e : T) (q : Queue),
+      pred e = true ->
+      pop_pred_result pred.
+
+  Definition queue_equiv a b := to_list a = to_list b.
+
   Global Program Instance queueSetoid : Setoid Queue :=
-    { equiv a b :=
-        to_list a = to_list b
+    { equiv := queue_equiv;
     }.
-  Next Obligation.
+  Next Obligation with try sauto unfold:queue_equiv,to_list.
     split.
-    - sauto.
-    - sauto.
-    - intros a b c Hab Hbc.
-      sauto unfold: to_list.
+    - idtac...
+    - idtac...
+    - intros a b c Hab Hbc...
   Qed.
 End defn.
