@@ -7,6 +7,7 @@ theories/TransitionSystem.v
 theories/Queue.v
 theories/Pid.v
 theories/ListSelector.v
+theories/IOHandler.v
+theories/Handlers/Mailbox.v
 theories/VM.v
 theories/Handlers/Storage.v
-theories/Handlers/Mailbox.v

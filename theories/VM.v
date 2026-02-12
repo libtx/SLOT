@@ -5,11 +5,16 @@ From Coq Require Import
   SetoidDec.
 Import ListNotations.
 
-From SLOT Require Import
+From SLOT Require
   Setoids
   TransitionSystem
   Pid
-  ListSelector.
+  ListSelector
+  IOHandler
+  Mailbox.
+
+Import Setoids TransitionSystem ListSelector Mailbox.
+Export Pid IOHandler.
 
 From Hammer Require Import
   Tactics.
@@ -19,25 +24,12 @@ From RecordUpdate Require Import
 
 Open Scope positive_scope.
 
-Section IOHandler.
-  Context {Request : Type} {Reply : Request -> Type}.
-
-  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
-    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
-
-  Class IOHandler := {
-      h_state : Type;
-      h_setoid : Setoid h_state;
-      h_handler (pid : PID) (req : Request) : MFunRet (Reply req) h_state;
-    }.
-End IOHandler.
-
 Section VM.
   Context `{IOH : IOHandler} {AppMessage : Type}.
 
   Let World := @h_state _ _ IOH.
 
-  CoInductive Program : Type :=
+  CoInductive Program {Mailbox : Set} : Type :=
   | p_dead : (* Program terminted *)
       Program
   | p_yield :
@@ -59,18 +51,24 @@ Section VM.
       (continuation : Reply pending_req -> Program),
       Program
   | p_spawn : (* Spawn a new process: *)
-    forall (child : Program)
-      (continuation : PID -> Program),
+    forall {Mailbox : Set}
+      (child : @Program Mailbox)
+      (continuation : @Address Mailbox -> Program),
       Program.
+
+  Record Process :=
+    { proc_mb_t : Set;
+      proc_prog : @Program proc_mb_t;
+    }.
 
   Record VM :=
     mkVM
       { (* State of the I/O handler *)
         world : World;
         (* Set of runnable processes *)
-        runq : list (PID * Program);
+        runq : list (PID * Process);
         (* Set of sleeping processes *)
-        sleepq : list (PID * Program);
+        sleepq : list (PID * Process);
         (* Counter that gets incremented when process spawns a child.
         This counter is used as a suffix of the child's pid *)
         child_ctr : Pid.FMap.t positive;
@@ -83,7 +81,7 @@ Section VM.
         let (w1, rq1, sq1, cc1) := a in
         let (w2, rq2, sq2, cc2) := b in
         let w_eq := @equiv _ h_setoid in
-        let p_eq := @equiv _ (setoid_permutation (PID * Program)) in
+        let p_eq := @equiv _ (setoid_permutation _) in
         w_eq w1 w2 /\
           p_eq rq1 rq2 /\
           p_eq sq1 sq2 /\
@@ -105,12 +103,14 @@ Section VM.
       end in
     (v<| child_ctr := cc |>, ctr).
 
-  Definition do_spawn (parent : PID) (prog : Program) (v : VM) : VM :=
+  Definition do_spawn {Mailbox : Set} (parent : PID) (prog : @Program Mailbox) (v : VM) : VM :=
     let (v, child_pid_suffix) := new_child_id parent v in
     let rq := runq v in
-    v<| runq := (parent ++ [child_pid_suffix], prog) :: rq |>.
+    let new_pid := parent ++ [child_pid_suffix] in
+    let new_process := {| proc_mb_t := Mailbox; proc_prog := prog |} in
+    v<| runq := (new_pid, new_process) :: rq |>.
 
-  Definition initVm (w : World) (p : Program) :=
+  Definition initVm {Mailbox : Set} (w : World) (p : @Program Mailbox) :=
     let vm :=
       {|
         world := w;

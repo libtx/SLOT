@@ -7,7 +7,7 @@ Require Import
   Queue
   Multifunction
   Pid
-  VM.
+  IOHandler.
 
 From Hammer Require Import
   Tactics.
