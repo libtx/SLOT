@@ -21,5 +21,7 @@ Section IOHandler.
       h_state : Type;
       h_setoid : Setoid h_state;
       h_handler (pid : PID) (req : Request) : MFunRet (Reply req) h_state;
+      h_spawn (pid : PID) (mailbox_t : Set) : MFun h_state h_state;
+      h_terminate (pid : PID) : MFun h_state h_state;
     }.
 End IOHandler.

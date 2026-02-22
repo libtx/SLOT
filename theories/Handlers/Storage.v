@@ -1,9 +1,6 @@
 From LibTx Require Storage.
 Module stor := LibTx.Storage.Classes.
 
-From LibTx Require Import
-  Instances.List.
-
 From Coq Require Import
   Classes.EquivDec
   SetoidClass
@@ -12,7 +9,7 @@ From Coq Require Import
 Require Import
   Setoids
   Multifunction
-  VM.
+  IOHandler.
 
 From Hammer Require Import
   Tactics.
@@ -77,7 +74,9 @@ Section storage_handler.
     {|
       h_state := Container;
       h_setoid := stor.s_eq_setoid;
-      h_handler _ req := storage_mfun req
+      h_handler _ req := storage_mfun req;
+      h_spawn _ _ := id_mfun;
+      h_terminate _ := id_mfun;
     |}.
 End storage_handler.
 

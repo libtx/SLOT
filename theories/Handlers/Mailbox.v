@@ -9,6 +9,9 @@ Require Import
   Pid
   IOHandler.
 
+From LibTx Require Import
+  Storage.
+
 From Hammer Require Import
   Tactics.
 
@@ -18,25 +21,45 @@ Section defn.
 
   (** Contents of the mailbox *)
   Record Mailbox := {
-      mb_t : Type;
+      mb_t : Set;
       mb_q : @Queue (@Message mb_t);
     }.
 
   (** Handler state *)
-  Let t := Pid.FMap.t Mailbox.
+  Let t := Pid.FMap.M.t Mailbox.
 
   (** "Address" of the mailbox *)
   Record Address {mba_t : Set} := {
-      mba_pid : PID;
-      (* Address record carries the proof that the mailbox of
-      [mba_pid] process is what we expect. This information is used at
-      the compile time for type checking. *)
-      mba_t_proof (mboxes : t) :
-      match Pid.FMap.find mba_pid mboxes with
-      | None => True
-      | Some {| mb_t := t |} => t = mba_t
-      end
+      mba_pid : PID
     }.
+
+  Program Definition new_mailbox (pid : PID) (mb_t : Set) : MFun t t :=
+    {|
+      morphism s s' :=
+        s' = put pid {| mb_t := mb_t; mb_q := empty |} s
+    |}.
+  Next Obligation.
+    unfold exists_equiv.
+    eapply put_mor in H; try easy; try exact PIDOrd.eq_dec.
+    exists (put pid {| mb_t := mb_t0; mb_q := empty |} x').
+    split; try reflexivity.
+    simpl in H.
+    now erewrite H.
+  Qed.
+
+  Program Definition drop_mailbox (pid : PID) : MFun t t :=
+    {|
+      morphism s s' :=
+        s' = delete pid s
+    |}.
+  Next Obligation.
+    unfold exists_equiv.
+    eapply delete_mor in H; try easy; try exact PIDOrd.eq_dec.
+    exists (delete pid x').
+    split; try reflexivity.
+    simpl in H.
+    now erewrite H.
+  Qed.
 
   Inductive MBReq : Type :=
   | send {T : Set} : @Message T -> @Address T -> MBReq.
@@ -46,38 +69,41 @@ Section defn.
     | send _ _ => True
     end.
 
-  Definition do_send_msg {T : Set} (msg : @Message T) (to : @Address T) (mboxes : t) : t.
-    destruct to as [pid HpidT].
-    remember (Pid.FMap.find pid mboxes) as mb.
-    destruct mb as [mbox|].
-    - specialize (HpidT mboxes). rewrite <-Heqmb in HpidT.
-      destruct mbox as [mb_t mb_q].
-      subst.
-      set (mbox' := {| mb_t := T; mb_q := push msg mb_q |}).
-      exact (Pid.FMap.add pid mbox' mboxes).
-    - exact mboxes.
-  Defined.
+  Inductive do_send_msg : forall (Tmbox Tmsg : Set),
+      PID -> @Queue (@Message Tmbox) -> @Message Tmsg ->
+      t -> t -> Prop :=
+  | do_send_msg_ : forall T pid msg mbox mailboxes,
+      do_send_msg
+        T T
+        pid mbox msg
+        mailboxes (put pid {| mb_t := T; mb_q := push msg mbox |} mailboxes).
 
-  Program Definition send_ {T : Set} (msg : @Message T) (to : @Address T) : MFunRet True t :=
-    {| morphism s x :=
-         x = (I, do_send_msg msg to s)
+  Program Definition send_ {T : Set} (msg : @Message T) (to : @Address T) : @MFunRet True t (eq_setoid _) s_eq_setoid :=
+    {| morphism mboxes x :=
+        let (_, mboxes') := x in
+        let pid := mba_pid to in
+        match @get PID Mailbox _ _ pid mboxes with
+        | None =>
+            mboxes' = mboxes
+        | Some {| mb_t := Tmbox; mb_q := mbox |} =>
+            do_send_msg Tmbox T pid mbox msg mboxes mboxes'
+        end
     |}.
   Next Obligation.
-    sauto.
-  Qed.
+    unfold exists_equiv.
+  Admitted.
 
   Definition mailbox_step (req : MBReq) : MFunRet (MBRet req) t :=
     match req with
     | send msg to => send_ msg to
     end.
 
-  (* Let mailboxes_equiv := @Pid.FMap.Equiv Mailbox queue_equiv. *)
-
   Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
-      (* TODO: Use a setoid via mailboxes_equiv *)
-      h_setoid := eq_setoid _;
-      h_handler _ req := mailbox_step req
+      h_setoid := s_eq_setoid;
+      h_handler _ req := mailbox_step req;
+      h_spawn pid mb_t := new_mailbox pid mb_t;
+      h_terminate pid := drop_mailbox pid;
     |}.
 End defn.

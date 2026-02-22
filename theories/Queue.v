@@ -15,6 +15,9 @@ Section defn.
       back :: list T;
     }.
 
+  Definition empty : Queue :=
+    {| front := []; back := [] |}.
+
   Definition to_list (q : Queue) : list T :=
     let (f, b) := q in
     f ++ rev b.

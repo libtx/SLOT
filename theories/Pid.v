@@ -9,6 +9,9 @@ Import ListNotations.
 From Hammer Require Import
   Tactics.
 
+From LibTx Require
+  Storage.Instances.AVL.
+
 Definition PID : Set := list positive.
 
 Module PIDOrd <: OrderedType.
@@ -150,4 +153,7 @@ Module PIDOrd <: OrderedType.
   Qed.
 End PIDOrd.
 
-Module FMap := FMapAVL.Make PIDOrd.
+Module FMap.
+  Include FMapAVL.Make PIDOrd.
+  Include Storage.Instances.AVL.Make PIDOrd.
+End FMap.
