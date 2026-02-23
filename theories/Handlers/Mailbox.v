@@ -33,36 +33,36 @@ Section defn.
       mba_pid : PID
     }.
 
-  Program Definition new_mailbox (pid : PID) (mb_t : Set) : MFun t t :=
-    {|
-      morphism s s' :=
-        s' = put pid {| mb_t := mb_t; mb_q := empty |} s
-    |}.
-  Next Obligation.
-    unfold exists_equiv.
-    eapply put_mor in H; try easy; try exact PIDOrd.eq_dec.
-    exists (put pid {| mb_t := mb_t0; mb_q := empty |} x').
-    split; try reflexivity.
-    simpl in H.
-    now erewrite H.
-  Qed.
+  (* Program Definition new_mailbox (pid : PID) (mb_t : Set) : MFun t t := *)
+  (*   {| *)
+  (*     morphism s s' := *)
+  (*       s' = put pid {| mb_t := mb_t; mb_q := empty |} s *)
+  (*   |}. *)
+  (* Next Obligation. *)
+  (*   unfold exists_equiv. *)
+  (*   eapply put_mor in H; try easy; try exact PIDOrd.eq_dec. *)
+  (*   exists (put pid {| mb_t := mb_t0; mb_q := empty |} x'). *)
+  (*   split; try reflexivity. *)
+  (*   simpl in H. *)
+  (*   now erewrite H. *)
+  (* Qed. *)
 
-  Program Definition drop_mailbox (pid : PID) : MFun t t :=
-    {|
-      morphism s s' :=
-        s' = delete pid s
-    |}.
-  Next Obligation.
-    unfold exists_equiv.
-    eapply delete_mor in H; try easy; try exact PIDOrd.eq_dec.
-    exists (delete pid x').
-    split; try reflexivity.
-    simpl in H.
-    now erewrite H.
-  Qed.
+  (* Program Definition drop_mailbox (pid : PID) : MFun t t := *)
+  (*   {| *)
+  (*     morphism s s' := *)
+  (*       s' = delete pid s *)
+  (*   |}. *)
+  (* Next Obligation. *)
+  (*   unfold exists_equiv. *)
+  (*   eapply delete_mor in H; try easy; try exact PIDOrd.eq_dec. *)
+  (*   exists (delete pid x'). *)
+  (*   split; try reflexivity. *)
+  (*   simpl in H. *)
+  (*   now erewrite H. *)
+  (* Qed. *)
 
   Inductive MBReq : Type :=
-  | send {T : Set} : @Message T -> @Address T -> MBReq.
+  | send {T : Set} : @Address T -> @Message T -> MBReq.
 
   Definition MBRet (req : MBReq) : Type :=
     match req with
@@ -95,7 +95,7 @@ Section defn.
 
   Definition mailbox_step (req : MBReq) : MFunRet (MBRet req) t :=
     match req with
-    | send msg to => send_ msg to
+    | send msg to => send_ to msg
     end.
 
   Instance mailboxHandler : @IOHandler MBReq MBRet :=
@@ -103,7 +103,7 @@ Section defn.
       h_state := t;
       h_setoid := s_eq_setoid;
       h_handler _ req := mailbox_step req;
-      h_spawn pid mb_t := new_mailbox pid mb_t;
-      h_terminate pid := drop_mailbox pid;
+      h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
+      h_terminate pid := delete pid;
     |}.
 End defn.
