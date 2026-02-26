@@ -80,24 +80,39 @@ Section defn.
         pid mbox msg
         mailboxes (put pid {| mb_t := T; mb_q := push msg mbox |} mailboxes).
 
-  Program Definition send_ {T : Set} (msg : @Message T) (to : @Address T) : @MFunRet True t (eq_setoid _) s_eq_setoid :=
-    {| morphism mboxes x :=
-        let (_, mboxes') := x in
-        let pid := mba_pid to in
-        match @get PID Mailbox _ _ pid mboxes with
-        | None =>
-            mboxes' = mboxes
-        | Some {| mb_t := Tmbox; mb_q := mbox |} =>
-            do_send_msg Tmbox T pid mbox msg mboxes mboxes'
-        end
-    |}.
-  Next Obligation.
-    unfold exists_equiv.
-  Admitted.
+  Section send.
+    Context {T : Set} (msg : @Message T) (to : @Address T).
+
+    Definition send_morph mboxes (x : True * t) : Prop :=
+       let (_, mboxes') := x in
+       let pid := mba_pid to in
+       match @get PID Mailbox _ _ pid mboxes with
+       | None =>
+           mboxes' == mboxes
+       | Some {| mb_t := Tmbox; mb_q := mbox |} =>
+           do_send_msg Tmbox T pid mbox msg mboxes mboxes'
+       end.
+
+    Lemma send_morph_covariance : forall x x' y,
+        x == x' ->
+        send_morph x y ->
+        exists{y' == y}, send_morph x' y'.
+    Proof.
+      unfold send_morph.
+      intros x x' y Hxx' Hxy.
+      replace (get (mba_pid to) x) with (get (mba_pid to) x') in Hxy by now rewrite <-Hxx'.
+    Admitted.
+
+    Definition send_  : @MFunRet True t (eq_setoid _) s_eq_setoid :=
+      {|
+        morphism := send_morph;
+        morphism_covariance := send_morph_covariance;
+      |}.
+  End send.
 
   Definition mailbox_step (req : MBReq) : MFunRet (MBRet req) t :=
     match req with
-    | send msg to => send_ to msg
+    | send to msg => send_ msg to
     end.
 
   Instance mailboxHandler : @IOHandler MBReq MBRet :=

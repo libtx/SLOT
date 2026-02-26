@@ -17,7 +17,7 @@ Import Setoids TransitionSystem ListSelector Mailbox.
 Export Pid IOHandler.
 
 From Hammer Require Import
-  Tactics.
+  Hammer.
 
 From RecordUpdate Require Import
   RecordUpdate.
@@ -197,7 +197,7 @@ Section VM.
       + destruct H0 as [proc [rq' [Hrq' Hexec]]].
         destruct proc as [pid mb_t prog].
         destruct prog.
-        * simpl in Hexec.
+        2:{ unfold exec_proc in *.
   Admitted.
 
   Global Instance vmTS : @TransitionSystem VM Process :=
