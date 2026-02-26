@@ -29,7 +29,9 @@ Section defn.
   Let t := Pid.FMap.M.t Mailbox.
 
   (** "Address" of the mailbox *)
-  Record Address {mba_t : Set} := {
+  Record Address {mba_t : Set} :=
+    mkAddress
+    {
       mba_pid : PID
     }.
 

@@ -30,23 +30,22 @@ Section VM.
   Let World := @h_state _ _ IOH.
 
   CoInductive Program (Mailbox : Set) : Type :=
-  | p_dead : (* Program terminted *)
+  | die : (* Program termintes *)
       Program Mailbox
   | p_yield :
-      (* Interrupt the computation without producing any side effects.
-      This primitive is used to softly introduce the concept of
-      Erlang's "reductions", and to side-step termination checker,
-      making programs non-Turing in a practically useful, as opposed
-      to forced, way.
+    (** Interrupt the computation without producing any side effects.
 
-      In Erlang, reduction counting improves responsiveness of the
-      system, in SLOT it *additionally* gives a structural argument
-      "for free". *)
-    forall {CTX : Type}
-      (ctx : CTX)
-      (continuation : CTX -> Program Mailbox),
-    Program Mailbox
-  | p_cont : (* Program is doing I/O *)
+        This primitive is used to softly introduce the concept of
+        Erlang's "reductions", and to side-step termination checker,
+        making programs non-Turing in a practically useful, as opposed
+        to forced, way.
+
+        In Erlang, reduction counting improves responsiveness of the
+        system, in SLOT it *additionally* gives a structural argument
+        "for free". *)
+    forall (continuation : Program Mailbox),
+      Program Mailbox
+  | p_io : (* Program is doing I/O *)
     forall (pending_req : Request)
       (continuation : Reply pending_req -> Program Mailbox),
       Program Mailbox
@@ -57,34 +56,35 @@ Section VM.
       Program Mailbox.
 
   Record Process :=
-    { proc_mb_t : Set;
-      proc_prog : @Program proc_mb_t;
-    }.
+    mkProcess
+      { pid : PID;
+        proc_mb_t : Set;
+        cont : @Program proc_mb_t;
+      }.
+
+  #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
 
   Record VM :=
     mkVM
       { (* State of the I/O handler *)
         world : World;
         (* Set of runnable processes *)
-        runq : list (PID * Process);
-        (* Set of sleeping processes *)
-        sleepq : list (PID * Process);
+        runq : list Process;
         (* Counter that gets incremented when process spawns a child.
         This counter is used as a suffix of the child's pid *)
         child_ctr : Pid.FMap.t positive;
       }.
 
-  #[export] Instance etaX : Settable _ := settable! mkVM <world; runq; sleepq; child_ctr>.
+  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; child_ctr>.
 
-  Program Definition vm_setoid : Setoid VM :=
+  Global Program Definition vm_setoid : Setoid VM :=
     {| equiv a b :=
-        let (w1, rq1, sq1, cc1) := a in
-        let (w2, rq2, sq2, cc2) := b in
+        let (w1, rq1, cc1) := a in
+        let (w2, rq2, cc2) := b in
         let w_eq := @equiv _ h_setoid in
         let p_eq := @equiv _ (setoid_permutation _) in
         w_eq w1 w2 /\
           p_eq rq1 rq2 /\
-          p_eq sq1 sq2 /\
           @equiv _ (eq_setoid _) cc1 cc2;
     |}.
   Next Obligation.
@@ -103,37 +103,117 @@ Section VM.
       end in
     (v<| child_ctr := cc |>, ctr).
 
-  Definition do_spawn {Mailbox : Set} (parent : PID) (prog : @Program Mailbox) (v : VM) : VM :=
+  Definition do_spawn {Mailbox : Set} (parent : PID) (prog : @Program Mailbox) (v : VM) : (PID * VM) :=
     let (v, child_pid_suffix) := new_child_id parent v in
     let rq := runq v in
     let new_pid := parent ++ [child_pid_suffix] in
-    let new_process := {| proc_mb_t := Mailbox; proc_prog := prog |} in
+    let new_process := {|
+                        pid := new_pid;
+                        proc_mb_t := Mailbox;
+                        cont := prog
+                       |} in
     let w' := h_spawn new_pid Mailbox (world v) in
-    v<| runq := (new_pid, new_process) :: rq|> <|world := w'|>.
+    (new_pid, v<| runq := new_process :: rq|> <|world := w'|>).
 
   Definition initVm {Mailbox : Set} (w : World) (p : @Program Mailbox) :=
     let vm :=
       {|
         world := w;
         runq := [];
-        sleepq := [];
         child_ctr := Pid.FMap.empty _;
       |} in
-    do_spawn [] p vm.
+    let (_, vm) := do_spawn [] p vm in
+    vm.
+
+  Definition vmte_canon_rel (a b : Process) :=
+    (* Order of events is canonical when pid a =< pid b: *)
+    match PIDOrd.compare_ (pid a) (pid b) with
+    | Gt => False
+    | _ => True
+    end.
+
+  Lemma vmte_canon_rel_dec a b : Decidable.decidable (vmte_canon_rel a b).
+  Proof.
+    unfold Decidable.decidable, vmte_canon_rel.
+    sauto.
+  Qed.
+
+  Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
+  Proof.
+    unfold Decidable.decidable, vmte_canon_rel.
+    sauto use:PIDOrd.compare_asymm.
+  Qed.
+
+  Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=
+    { canon_rel_dec := vmte_canon_rel_dec;
+      canon_rel_total := vmte_canon_rel_total;
+    }.
+
+  Definition exec_proc (proc : Process) (vm vm' : VM) : Prop :=
+    match proc with
+      {| pid := pid; proc_mb_t := mb_t; cont := prog |} =>
+        match prog with
+        | die _ =>
+            vm' = vm <| world := h_terminate pid (world vm) |>
+        | p_yield _ next =>
+            let proc := {| pid := pid; proc_mb_t := mb_t; cont := next |} in
+            vm' = vm <| runq := proc :: (runq vm) |>
+        | p_io _ req next =>
+            exists w' io_reply,
+              let proc := {| pid := pid; proc_mb_t := mb_t; cont := next io_reply |} in
+              morphism (h_handler pid req) (world vm) (io_reply, w') /\
+              vm' = vm <| runq := proc :: (runq vm) |> <| world := w' |>
+        | @p_spawn _ child_mb_t child_prog next =>
+            let (child_pid, vm) := do_spawn pid child_prog vm in
+            let addr := mkAddress child_mb_t child_pid in
+            let proc := {| pid := pid; proc_mb_t := mb_t; cont := next addr |} in
+            vm' = vm <| runq := proc :: (runq vm) |>
+        end
+    end.
+
+  Program Definition vm_state_trans : MFun VM (@ts_ret VM Process) :=
+    {|
+      morphism vm ret :=
+        match runq vm, ret with
+        | [], None =>
+            (* No runnable processes: *)
+            True
+        | rq, Some (te, vm') =>
+            exists proc rq',
+            Pick rq proc rq' /\ exec_proc proc (vm <|runq := rq'|>) vm'
+        | _, _ =>
+            False
+        end
+    |}.
+  Next Obligation.
+    sauto.
+  Qed.
+  Next Obligation.
+    destruct x' as [w rq sq cctr].
+    destruct rq as [|firstproc rq_].
+    - exists None. sauto.
+    - simpl in *.
+      destruct y as [[te vm']|].
+      + destruct H0 as [proc [rq' [Hrq' Hexec]]].
+        destruct proc as [pid mb_t prog].
+        destruct prog.
+        * simpl in Hexec.
+  Admitted.
+
+  Global Instance vmTS : @TransitionSystem VM Process :=
+    { ts_state_trans := vm_state_trans;
+    }.
 End VM.
 
 Global Arguments VM {_ _} _.
-Global Arguments p_dead {_ _ _}.
+Global Arguments die {_ _ _}.
 Global Arguments p_yield {_ _ _}.
-Global Arguments p_cont {_ _ _}.
+Global Arguments p_io {_ _ _}.
 Global Arguments p_spawn {_ _ _ _}.
 
 (* begin details *)
-Notation "'do' V '<-' I ; C" := (p_cont (I) (fun V => C))
+Notation "'do' V '<-' I ; C" := (p_io (I) (fun V => C))
     (at level 100, C at next level, V name, right associativity) : slot_scope.
-
-Notation "'done'" := (p_cont (fun _ => p_dead))
-    (at level 100, right associativity) : slot_scope.
 
 Notation "'call' V '<-' I ; C" := (I (fun V => C))
     (at level 100, C at next level, V ident,
@@ -143,9 +223,8 @@ Notation "'spawn' V '<-' I ; C" := (p_spawn (I) (fun V => C))
     (at level 100, C at next level, V ident,
     right associativity) : slot_scope.
 
-Notation "P '!' M ; C" := (p_cont (send P (appmsg M)) (fun _ => C))
+Notation "P '!' M ; C" := (p_io (send P (appmsg M)) (fun _ => C))
     (at level 99, C at next level, right associativity) : slot_scope.
-
 (* end details *)
 
 Definition prog_t `(IOHandler) mb_t :=
@@ -155,14 +234,21 @@ Section test.
   Let h := mailboxHandler.
   Let VM := VM h.
 
-  Let child1 : prog_t h positive := p_dead.
+  Let child1 : prog_t h positive := die.
 
-  Let child2 : prog_t h bool := p_dead.
+  Let child2 : prog_t h bool := die.
 
   Let prog : prog_t h True :=
         spawn c1 <- child1;
         c1 ! 1;
         spawn c2 <- child2;
         c2 ! false;
-        p_dead.
+        die.
+
+  Fail Let prog' : prog_t h True :=
+        spawn c1 <- child1;
+        c1 ! 1;
+        spawn c2 <- child2;
+        c2 ! 1;
+        die.
 End test.
