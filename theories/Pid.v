@@ -53,9 +53,15 @@ Module PIDOrd <: OrderedType.
       + sauto.
       + simpl in *.
         remember (x ?= y)%positive as Hxy.
+        symmetry in HeqHxy.
         destruct Hxy.
-        * symmetry in HeqHxy. apply Pos.compare_eq_iff in HeqHxy. subst.
-  Admitted.
+        * apply Pos.compare_eq_iff in HeqHxy. subst.
+          rewrite Pos.compare_refl.
+          now apply IH in H.
+        * discriminate.
+        * apply Pos.compare_gt_iff, POrderedType.Positive_as_OT.compare_lt_iff in HeqHxy.
+          now rewrite HeqHxy.
+  Qed.
 
   Lemma pid_compare_eq_iff a b : compare_ a b = Eq -> a = b.
   Proof.
