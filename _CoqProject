@@ -5,7 +5,7 @@ theories/Multifunction.v
 theories/TokenMachine.v
 theories/TransitionSystem.v
 theories/Queue.v
-theories/Pid.v
+theories/Ref.v
 theories/ListSelector.v
 theories/IOHandler.v
 theories/Handlers/Storage.v

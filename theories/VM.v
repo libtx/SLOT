@@ -8,13 +8,13 @@ Import ListNotations.
 From SLOT Require
   Setoids
   TransitionSystem
-  Pid
+  Ref
   ListSelector
   IOHandler
   Mailbox.
 
 Import Setoids TransitionSystem ListSelector Mailbox.
-Export Pid IOHandler.
+Export Ref IOHandler.
 
 From Hammer Require Import
   Hammer.
@@ -57,7 +57,7 @@ Section VM.
 
   Record Process :=
     mkProcess
-      { pid : PID;
+      { pid : Ref;
         proc_mb_t : Set;
         cont : @Program proc_mb_t;
       }.
@@ -72,10 +72,10 @@ Section VM.
         runq : list Process;
         (* Counter that gets incremented when process spawns a child.
         This counter is used as a suffix of the child's pid *)
-        child_ctr : Pid.FMap.t positive;
+        ref_ctr : Ref.FMap.t positive;
       }.
 
-  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; child_ctr>.
+  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr>.
 
   Global Program Definition vm_setoid : Setoid VM :=
     {| equiv a b :=
@@ -92,19 +92,19 @@ Section VM.
           use:Permutation_sym,Permutation_trans.
   Qed.
 
-  Definition new_child_id (parent : PID) (v : VM) : VM * positive :=
-    let cc := child_ctr v in
+  Definition make_ref (parent : Ref) (v : VM) : VM * positive :=
+    let cc := ref_ctr v in
     let (cc, ctr) :=
-      match Pid.FMap.find parent cc with
+      match Ref.FMap.find parent cc with
       | Some ctr =>
-          (Pid.FMap.add parent (ctr + 1) cc, ctr)
+          (Ref.FMap.add parent (ctr + 1) cc, ctr)
       | None =>
-          (Pid.FMap.add parent 2 cc, 1)
+          (Ref.FMap.add parent 2 cc, 1)
       end in
-    (v<| child_ctr := cc |>, ctr).
+    (v<| ref_ctr := cc |>, ctr).
 
-  Definition do_spawn {Mailbox : Set} (parent : PID) (prog : @Program Mailbox) (v : VM) : (PID * VM) :=
-    let (v, child_pid_suffix) := new_child_id parent v in
+  Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
+    let (v, child_pid_suffix) := make_ref parent v in
     let rq := runq v in
     let new_pid := parent ++ [child_pid_suffix] in
     let new_process := {|
@@ -120,14 +120,14 @@ Section VM.
       {|
         world := w;
         runq := [];
-        child_ctr := Pid.FMap.empty _;
+        ref_ctr := Ref.FMap.empty _;
       |} in
     let (_, vm) := do_spawn [] p vm in
     vm.
 
   Definition vmte_canon_rel (a b : Process) :=
     (* Order of events is canonical when pid a =< pid b: *)
-    match PIDOrd.compare_ (pid a) (pid b) with
+    match RefOrd.compare_ (pid a) (pid b) with
     | Gt => False
     | _ => True
     end.
@@ -141,7 +141,7 @@ Section VM.
   Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
   Proof.
     unfold Decidable.decidable, vmte_canon_rel.
-    sauto use:PIDOrd.compare_asymm.
+    sauto use:RefOrd.compare_asymm.
   Qed.
 
   Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=

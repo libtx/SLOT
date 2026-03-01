@@ -6,7 +6,7 @@ From Coq Require Import
 Require Import
   Queue
   Multifunction
-  Pid
+  Ref
   IOHandler.
 
 From LibTx Require Import
@@ -26,37 +26,37 @@ Section defn.
     }.
 
   (** Handler state *)
-  Let t := Pid.FMap.M.t Mailbox.
+  Let t := Ref.FMap.M.t Mailbox.
 
   (** "Address" of the mailbox *)
   Record Address {mba_t : Set} :=
     mkAddress
     {
-      mba_pid : PID
+      mba_pid : Ref
     }.
 
-  (* Program Definition new_mailbox (pid : PID) (mb_t : Set) : MFun t t := *)
+  (* Program Definition new_mailbox (pid : Ref) (mb_t : Set) : MFun t t := *)
   (*   {| *)
   (*     morphism s s' := *)
   (*       s' = put pid {| mb_t := mb_t; mb_q := empty |} s *)
   (*   |}. *)
   (* Next Obligation. *)
   (*   unfold exists_equiv. *)
-  (*   eapply put_mor in H; try easy; try exact PIDOrd.eq_dec. *)
+  (*   eapply put_mor in H; try easy; try exact RefOrd.eq_dec. *)
   (*   exists (put pid {| mb_t := mb_t0; mb_q := empty |} x'). *)
   (*   split; try reflexivity. *)
   (*   simpl in H. *)
   (*   now erewrite H. *)
   (* Qed. *)
 
-  (* Program Definition drop_mailbox (pid : PID) : MFun t t := *)
+  (* Program Definition drop_mailbox (pid : Ref) : MFun t t := *)
   (*   {| *)
   (*     morphism s s' := *)
   (*       s' = delete pid s *)
   (*   |}. *)
   (* Next Obligation. *)
   (*   unfold exists_equiv. *)
-  (*   eapply delete_mor in H; try easy; try exact PIDOrd.eq_dec. *)
+  (*   eapply delete_mor in H; try easy; try exact RefOrd.eq_dec. *)
   (*   exists (delete pid x'). *)
   (*   split; try reflexivity. *)
   (*   simpl in H. *)
@@ -72,7 +72,7 @@ Section defn.
     end.
 
   Inductive do_send_msg : forall (Tmbox Tmsg : Set),
-      PID -> @Queue (@Message Tmbox) -> @Message Tmsg ->
+      Ref -> @Queue (@Message Tmbox) -> @Message Tmsg ->
       t -> t -> Prop :=
   | do_send_msg_ : forall T pid msg mbox mailboxes,
       do_send_msg
@@ -86,7 +86,7 @@ Section defn.
     Definition send_morph mboxes (x : True * t) : Prop :=
        let (_, mboxes') := x in
        let pid := mba_pid to in
-       match @get PID Mailbox _ _ pid mboxes with
+       match @get Ref Mailbox _ _ pid mboxes with
        | None =>
            mboxes' == mboxes
        | Some {| mb_t := Tmbox; mb_q := mbox |} =>

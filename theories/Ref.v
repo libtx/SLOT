@@ -12,12 +12,12 @@ From Hammer Require Import
 From LibTx Require
   Storage.Instances.AVL.
 
-Definition PID : Set := list positive.
+Definition Ref : Set := list positive.
 
-Module PIDOrd <: OrderedType.
+Module RefOrd <: OrderedType.
   Module PosOT := Positive_as_OT.
 
-  Definition t := PID.
+  Definition t := Ref.
 
   Definition eq := @eq t.
 
@@ -63,7 +63,7 @@ Module PIDOrd <: OrderedType.
           now rewrite HeqHxy.
   Qed.
 
-  Lemma pid_compare_eq_iff a b : compare_ a b = Eq -> a = b.
+  Lemma ref_compare_eq_iff a b : compare_ a b = Eq -> a = b.
   Proof.
     unfold compare_.
     generalize dependent b.
@@ -83,24 +83,24 @@ Module PIDOrd <: OrderedType.
 
   Definition lt a b := compare_ a b = Lt.
 
-  Lemma pid_lt_nil : forall x, ~lt x [].
+  Lemma ref_lt_nil : forall x, ~lt x [].
   Proof.
     intros x H.
     destruct x; now cbv in H.
   Qed.
 
-  Lemma pid_lt_append_l : forall x y z, lt (x ++ [y]) z -> lt x z.
+  Lemma ref_lt_append_l : forall x y z, lt (x ++ [y]) z -> lt x z.
   Proof.
     induction x.
     - sauto.
     - induction z; sauto unfold: lt, compare_.
   Qed.
 
-  Lemma pid_lt_append_l' : forall x y z, lt x z -> lt x (z ++ [y]).
+  Lemma ref_lt_append_l' : forall x y z, lt x z -> lt x (z ++ [y]).
   Proof.
     intros x y z. generalize dependent x.
     induction z.
-    - sauto use:pid_lt_nil.
+    - sauto use:ref_lt_nil.
     - induction x; sauto unfold: lt, compare_.
   Qed.
 
@@ -129,9 +129,9 @@ Module PIDOrd <: OrderedType.
     induction x as [|a x IHx].
     - sauto.
     - destruct y as [|b y].
-      + intros z Hxy. now apply pid_lt_nil in Hxy.
+      + intros z Hxy. now apply ref_lt_nil in Hxy.
       + induction z as [|c z IHz].
-        * intros Hxy Hyz. now apply pid_lt_nil in Hyz.
+        * intros Hxy Hyz. now apply ref_lt_nil in Hyz.
         * intros Hxy Hyz.
           specialize (IHz Hxy).
           apply lt_app_case in Hxy. apply lt_app_case in Hyz.
@@ -153,13 +153,13 @@ Module PIDOrd <: OrderedType.
   Definition compare (a b : t) : Compare lt eq a b.
     remember (compare_ a b) as H.
     destruct H.
-    - constructor 2. now apply pid_compare_eq_iff.
+    - constructor 2. now apply ref_compare_eq_iff.
     - constructor 1. now symmetry in HeqH.
     - constructor 3. symmetry in HeqH. now apply compare_asymm in HeqH.
   Qed.
-End PIDOrd.
+End RefOrd.
 
 Module FMap.
-  Include FMapAVL.Make PIDOrd.
-  Include Storage.Instances.AVL.Make PIDOrd.
+  Include FMapAVL.Make RefOrd.
+  Include Storage.Instances.AVL.Make RefOrd.
 End FMap.

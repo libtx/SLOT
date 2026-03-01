@@ -6,7 +6,7 @@ From Coq Require Import
 From SLOT Require Import
   Setoids
   TransitionSystem
-  Pid.
+  Ref.
 
 From Hammer Require Import
   Tactics.
@@ -20,10 +20,10 @@ Section IOHandler.
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
-      h_handler (pid : PID) (req : Request) : MFunRet (Reply req) h_state;
+      h_handler (pid : Ref) (req : Request) : MFunRet (Reply req) h_state;
 
-      h_spawn (pid : PID) (mailbox_t : Set) : h_state -> h_state;
-      h_terminate (pid : PID) : h_state -> h_state;
+      h_spawn (pid : Ref) (mailbox_t : Set) : h_state -> h_state;
+      h_terminate (pid : Ref) : h_state -> h_state;
     }.
 End IOHandler.
 
