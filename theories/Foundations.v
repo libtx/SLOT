@@ -1,5 +1,5 @@
 (* SLOT, proofs about distributed systems design
-   Copyright (C) 2019-2025  k32
+   Copyright (C) 2019-2026  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by

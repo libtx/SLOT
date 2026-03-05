@@ -35,34 +35,6 @@ Section defn.
       mba_pid : Ref
     }.
 
-  (* Program Definition new_mailbox (pid : Ref) (mb_t : Set) : MFun t t := *)
-  (*   {| *)
-  (*     morphism s s' := *)
-  (*       s' = put pid {| mb_t := mb_t; mb_q := empty |} s *)
-  (*   |}. *)
-  (* Next Obligation. *)
-  (*   unfold exists_equiv. *)
-  (*   eapply put_mor in H; try easy; try exact RefOrd.eq_dec. *)
-  (*   exists (put pid {| mb_t := mb_t0; mb_q := empty |} x'). *)
-  (*   split; try reflexivity. *)
-  (*   simpl in H. *)
-  (*   now erewrite H. *)
-  (* Qed. *)
-
-  (* Program Definition drop_mailbox (pid : Ref) : MFun t t := *)
-  (*   {| *)
-  (*     morphism s s' := *)
-  (*       s' = delete pid s *)
-  (*   |}. *)
-  (* Next Obligation. *)
-  (*   unfold exists_equiv. *)
-  (*   eapply delete_mor in H; try easy; try exact RefOrd.eq_dec. *)
-  (*   exists (delete pid x'). *)
-  (*   split; try reflexivity. *)
-  (*   simpl in H. *)
-  (*   now erewrite H. *)
-  (* Qed. *)
-
   Inductive MBReq : Type :=
   | send {T : Set} : @Address T -> @Message T -> MBReq.
 
@@ -70,6 +42,11 @@ Section defn.
     match req with
     | send _ _ => True
     end.
+
+  Inductive dep_prop : forall A B (f : A -> Prop) a, Prop :=
+  | dep_map_ : forall A f a,
+      f a ->
+      dep_prop A A f a.
 
   Inductive do_send_msg : forall (Tmbox Tmsg : Set),
       Ref -> @Queue (@Message Tmbox) -> @Message Tmsg ->
@@ -79,6 +56,13 @@ Section defn.
         T T
         pid mbox msg
         mailboxes (put pid {| mb_t := T; mb_q := push msg mbox |} mailboxes).
+
+  Lemma do_send_msg_equiv Tmbox Tmsg ref q msg a a' b :
+    a == b ->
+    do_send_msg Tmbox Tmsg ref q msg a a' ->
+    exists b',
+      do_send_msg Tmbox Tmsg ref q msg b b' /\ a' == b'.
+  Admitted.
 
   Section send.
     Context {T : Set} (msg : @Message T) (to : @Address T).
@@ -101,7 +85,16 @@ Section defn.
       unfold send_morph.
       intros x x' y Hxx' Hxy.
       replace (get (mba_pid to) x) with (get (mba_pid to) x') in Hxy by now rewrite <-Hxx'.
-    Admitted.
+      destruct y as [I mboxes'].
+      destruct (get (mba_pid to) x').
+      - destruct m as [mb_t q].
+        apply do_send_msg_equiv with (b := x') in Hxy; try assumption.
+        destruct Hxy as [mboxes'' [Hxy Hmb]].
+        exists (I, mboxes'').
+        sauto.
+      - exists (I, x).
+        sauto.
+    Qed.
 
     Definition send_  : @MFunRet True t (eq_setoid _) s_eq_setoid :=
       {|
@@ -122,8 +115,8 @@ Section defn.
       h_handler _ req := mailbox_step req;
       h_initial := new;
       h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
-      h_spawn_covariance pid mb_t s s' H := ltac:(now rewrite H);
+      h_spawn_covariance _ _ _ _ H := ltac:(now rewrite H);
       h_terminate pid := delete pid;
-      h_terminate_covariance pid s s' H := ltac:(now rewrite H);
+      h_terminate_covariance _ _ _ H := ltac:(now rewrite H);
     |}.
 End defn.
