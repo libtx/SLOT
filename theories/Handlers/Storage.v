@@ -75,6 +75,7 @@ Section storage_handler.
       h_state := Container;
       h_setoid := stor.s_eq_setoid;
       h_handler _ req := storage_mfun req;
+      h_initial := stor.new;
       h_spawn _ _ := id;
       h_terminate _ := id;
     |}.

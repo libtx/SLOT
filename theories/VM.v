@@ -25,7 +25,7 @@ From RecordUpdate Require Import
 Open Scope positive_scope.
 
 Section VM.
-  Context `{IOH : IOHandler} {AppMessage : Type}.
+  Context `{IOH : IOHandler}.
 
   Let World := @h_state _ _ IOH.
 
@@ -115,10 +115,10 @@ Section VM.
     let w' := h_spawn new_pid Mailbox (world v) in
     (new_pid, v<| runq := new_process :: rq|> <|world := w'|>).
 
-  Definition initVm {Mailbox : Set} (w : World) (p : @Program Mailbox) :=
+  Definition initVm {Mailbox : Set} (p : @Program Mailbox) :=
     let vm :=
       {|
-        world := w;
+        world := h_initial;
         runq := [];
         ref_ctr := Ref.FMap.empty _;
       |} in
@@ -200,7 +200,7 @@ Section VM.
         2:{ unfold exec_proc in *.
   Admitted.
 
-  Global Instance vmTS : @TransitionSystem VM Process :=
+  Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     { ts_state_trans := vm_state_trans;
     }.
 End VM.
@@ -210,6 +210,7 @@ Global Arguments die {_ _ _}.
 Global Arguments p_yield {_ _ _}.
 Global Arguments p_io {_ _ _}.
 Global Arguments p_spawn {_ _ _ _}.
+Global Arguments initVm {_ _} _ {_}.
 
 (* begin details *)
 Notation "'do' V '<-' I ; C" := (p_io (I) (fun V => C))
@@ -238,6 +239,13 @@ Section test.
 
   Let child2 : prog_t h bool := die.
 
+  Fail Let prog : prog_t h True :=
+        spawn c1 <- child1;
+        c1 ! 1;
+        spawn c2 <- child2;
+        c2 ! 1;
+        die.
+
   Let prog : prog_t h True :=
         spawn c1 <- child1;
         c1 ! 1;
@@ -245,10 +253,15 @@ Section test.
         c2 ! false;
         die.
 
-  Fail Let prog' : prog_t h True :=
-        spawn c1 <- child1;
-        c1 ! 1;
-        spawn c2 <- child2;
-        c2 ! 1;
-        die.
+  Let vm := initVm h prog.
+
+  Goal forall t vm', TSMFunGen vm t vm' ->
+                t = [].
+    intros t vm' H.
+    inversion H; subst.
+    - exfalso. inversion_clear H0.
+    - simpl in H1.
+      inversion_clear H1. inversion_clear H2. destruct H1 as [Hp Hex].
+      inversion Hp; subst. simpl in Hex.
+  Abort.
 End test.

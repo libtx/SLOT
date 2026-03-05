@@ -21,6 +21,7 @@ Section IOHandler.
       h_state : Type;
       h_setoid : Setoid h_state;
       h_handler (pid : Ref) (req : Request) : MFunRet (Reply req) h_state;
+      h_initial : h_state;
 
       h_spawn (pid : Ref) (mailbox_t : Set) : h_state -> h_state;
       h_terminate (pid : Ref) : h_state -> h_state;

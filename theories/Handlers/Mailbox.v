@@ -120,6 +120,7 @@ Section defn.
       h_state := t;
       h_setoid := s_eq_setoid;
       h_handler _ req := mailbox_step req;
+      h_initial := new;
       h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
       h_terminate pid := delete pid;
     |}.
