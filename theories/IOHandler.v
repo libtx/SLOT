@@ -17,6 +17,7 @@ Section IOHandler.
   Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
     @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
 
+
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
@@ -24,7 +25,13 @@ Section IOHandler.
       h_initial : h_state;
 
       h_spawn (pid : Ref) (mailbox_t : Set) : h_state -> h_state;
+      h_spawn_covariance : forall pid mailbox_t s s',
+        s == s' ->
+        h_spawn pid mailbox_t s == h_spawn pid mailbox_t s';
       h_terminate (pid : Ref) : h_state -> h_state;
+      h_terminate_covariance : forall pid s s',
+        s == s' ->
+        h_terminate pid s == h_terminate pid s';
     }.
 End IOHandler.
 

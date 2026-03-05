@@ -122,6 +122,8 @@ Section defn.
       h_handler _ req := mailbox_step req;
       h_initial := new;
       h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
+      h_spawn_covariance pid mb_t s s' H := ltac:(now rewrite H);
       h_terminate pid := delete pid;
+      h_terminate_covariance pid s s' H := ltac:(now rewrite H);
     |}.
 End defn.
