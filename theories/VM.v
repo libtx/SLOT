@@ -203,6 +203,17 @@ Section VM.
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     { ts_state_trans := vm_state_trans;
     }.
+
+  Set Hammer Debug.
+  Set Hammer ATPLimit 100.
+
+  Lemma spawn_spawn_commut pid1 pid2 mbt1 mbt2 mbt1' mbt2' child1 child2 cont1 cont2 :
+    pid1 <> pid2 ->
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_spawn mbt1 mbt1' child1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_spawn mbt2 mbt2' child2 cont2 |}.
+  Proof.
+    intros a a'.
+    hammer.
 End VM.
 
 Global Arguments VM {_ _} _.
@@ -256,11 +267,13 @@ Section test.
   Let vm := initVm h prog.
 
   Goal forall t vm', TSMFunGen vm t vm' ->
-                t = [].
-    intros t vm' H.
-    inversion H; subst.
-    - exfalso. inversion_clear H0.
-    - simpl in H1.
+                CanonicalTrace t vm vm' ->
+                True.
+    intros t vm' Ht Hcanon.
+    subst vm prog.
+    inversion Ht; subst.
+    - exfalso. inversion_clear H.
+    - simpl in H0.
       inversion_clear H1. inversion_clear H2. destruct H1 as [Hp Hex].
       inversion Hp; subst. simpl in Hex.
   Abort.
