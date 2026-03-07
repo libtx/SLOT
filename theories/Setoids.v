@@ -8,6 +8,9 @@ From Coq Require Import
 From Hammer Require Import
   Tactics.
 
+From LibTx Require Import
+  Storage.
+
 Section pair.
   Context (A B : Type) `{Setoid A} `{Setoid B}.
 
@@ -43,3 +46,6 @@ Section permutation.
   Global Program Instance setoid_permutation : Setoid (list T) | 10 :=
     {| equiv a b := Permutation a b |}.
 End permutation.
+
+Infix "=p=" := (@equiv _ (setoid_permutation _)) (at level 50) : slot_scope.
+Infix "=s=" := (@equiv _ s_eq_setoid) (at level 50) : slot_scope.
