@@ -271,19 +271,44 @@ Section VM.
     destruct vm2 as [w2 rq2 rc2].
     intros Hvm1 Hvm2.
     destruct Hvm1 as [Hw1 [Hrc1 Hrq1]].
-    specialize (h_spawn_covariance pid child_mb_t w1 w1' Hw1) as Hw2.
     remember (make_ref pid {| world := w1; runq := rq1; ref_ctr := rc1 |}) as Hchild_pid.
     destruct Hchild_pid as [vm3 child_pid].
     destruct vm3 as [w3 rq3 rc3].
-    inversion Hvm2. subst. clear Hvm2.
+    inversion_clear Hvm2.
+    remember (make_ref pid {| world := w1'; runq := rq1'; ref_ctr := rc1' |}) as Hchild_pid'.
+    destruct Hchild_pid' as [[w3' rq3' rc3'] child_pid'].
+    assert (w3' =h= w3 /\ rq3 =p= rq3' /\ rc3 == rc3' /\ child_pid = child_pid') as H. {
+      unfold make_ref in *.
+      simpl in HeqHchild_pid. simpl in HeqHchild_pid'. rewrite <-Hrc1 in HeqHchild_pid'.
+      destruct (get pid rc1);
+        inversion_clear HeqHchild_pid;
+        inversion_clear HeqHchild_pid'.
+      - split; [|split; [|split]].
+        + now rewrite Hw1.
+        + now rewrite Hrq1.
+        + rewrite Hrc1; sauto.
+        + reflexivity.
+      - split; [|split; [|split]].
+        + now rewrite Hw1.
+        + now rewrite Hrq1.
+        + rewrite Hrc1; sauto.
+        + reflexivity.
+    }.
+    destruct H as [Hw3 [Hrq3 [Hrc3 Hchild_pid]]]. subst.
     exists {|
-        world := h_spawn pid child_mb_t w1';
-        runq := {| pid := pid; proc_mb_t := mb_t; cont := next {| mba_pid := child_pid |} |}
-                  :: {| pid := child_pid; proc_mb_t := child_mb_t; cont := child_prog |}
-                  :: rq1';
-        ref_ctr := rc1';
+        world := h_spawn child_pid' child_mb_t w3';
+        runq := {| pid := pid; proc_mb_t := mb_t; cont := next {| mba_pid := child_pid' |} |}
+                  :: {| pid := child_pid'; proc_mb_t := child_mb_t; cont := child_prog |}
+                  :: rq3';
+        ref_ctr := rc3';
       |}.
-  Admitted.
+    simpl. split; [|split; [|split]].
+    - reflexivity.
+    - symmetry in Hw3.
+      now apply (h_spawn_covariance child_pid' child_mb_t w3 w3').
+    - assumption.
+    - constructor. constructor. apply Hrq3.
+  Qed.
 
   Definition exec_proc (proc : Process) (vm vm' : VM) : Prop :=
     match proc with
