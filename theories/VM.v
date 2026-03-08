@@ -329,28 +329,28 @@ Section VM.
     vm1 == vm1' ->
     exec_proc proc vm1 vm2 ->
     exists{vm2' == vm2}, exec_proc proc vm1' vm2'.
-  Proof.
+  Proof with eauto.
     unfold exec_proc.
     intros Hvm1 Hvm2.
     destruct proc as [pid mb_t cont].
     destruct cont.
-    - eapply process_die_morph_covariance; eauto.
-    - eapply process_yield_morph_covariance; eauto.
-    - eapply process_io_morph_covariance; eauto.
-    - eapply process_spawn_morph_covariance; eauto.
+    - eapply process_die_morph_covariance...
+    - eapply process_yield_morph_covariance...
+    - eapply process_io_morph_covariance...
+    - eapply process_spawn_morph_covariance...
   Qed.
 
-  Definition vm_state_trans_morph vm (ret : @ts_ret VM Process) :=
-    match runq vm, ret with
-    | [], None =>
-        (* No runnable processes: *)
-        True
-    | rq, Some (te, vm') =>
-        exists proc rq',
-        Pick rq proc rq' /\ exec_proc proc (vm <|runq := rq'|>) vm'
-    | _, _ =>
-        False
-    end.
+  Inductive vm_state_trans_morph : VM -> @ts_ret VM Process -> Prop :=
+  | vm_state_trans_morph_none : forall w rc,
+      vm_state_trans_morph
+        {| world := w; ref_ctr := rc; runq := [] |}
+        None
+  | vm_state_trans_morph_some : forall w rc rq1 rq2 proc vm3,
+      Pick rq1 proc rq2 ->
+      exec_proc proc {| world := w; runq := rq2; ref_ctr := rc |} vm3 ->
+      vm_state_trans_morph
+        {| world := w; ref_ctr := rc; runq := rq1 |}
+        (Some (proc, vm3)).
 
   Lemma vm_state_trans_morph_covariance vm1 vm1' (ret : @ts_ret VM Process) :
     vm1 == vm1' ->
@@ -360,45 +360,20 @@ Section VM.
     intros Hvm Hret.
     destruct vm1 as [w1 rq1 rc1].
     destruct vm1' as [w1' rq1' rc1'].
-    unfold vm_state_trans_morph in Hret. simpl in Hret.
-    remember rq1 as rq1_.
-    destruct rq1_ as [|_proc rq1__]; destruct ret as [ret vm2|].
-    - exfalso.
-      sauto.
+    destruct Hvm as [Hw1 [Hrc1 Hrq1]].
+    inversion Hret as [|? ? ? rq2 proc vm3 Hrq2 Hvm3]; subst.
     - exists None.
-      destruct Hvm as [Hw1 [Hrc1 Hrq1]].
-      split; [|easy].
-      assert (rq1' = []) by now apply Permutation_nil in Hrq1.
-      sauto.
-    - destruct ret as [ret vm2].
-      destruct Hret as [proc [rq1_ [Hproc Hvm2]]].
-      assert ((_proc :: rq1__) =p= rq1') as Hrq1__ by sauto.
-      destruct (pick_equiv (_proc :: rq1__) rq1' rq1_ proc Hrq1__ Hproc) as [rq1'_ [Hrq1'_ Hrq1_eq]].
-      apply exec_proc_covariance with (vm1' := {| world := w1; runq := rq1'_; ref_ctr := rc1' |}) in Hvm2.
-      2:{ unfold equiv, vm_setoid.
-          repeat split.
-          - easy.
-          - sauto.
-          - easy.
-      }
-      (* apply pick_equiv with (l1' := rq1') in Hproc. 2:{ sauto. } *)
-      (* destruct Hproc as [rq1'_ Hrq1'_]. *)
-
-
-
-      (* 2:{ rewrite <-Hvm. rewrite Heqrq1_ in Hproc. *)
-      (*     rewrite Heqrq1_. *)
-
-
-      (* apply exec_proc_covariance with (vm1' := vm1') in Hw2. *)
-      (* + destruct Hw2 as [vm2' Hvm2']. *)
-      (*   exists (Some (ret, vm2')). *)
-      (*   unfold equiv, vm_setoid in *. *)
-      (*   sauto. *)
-      (*   destruct Hw2' as [Hvm1' *)
-      (* 2:{ *)
-  Admitted.
-
+      unfold equiv, vm_setoid in *.
+      apply Permutation_nil in Hrq1. sauto.
+    - apply pick_equiv with (l1' := rq1') in Hrq2; [|assumption].
+      destruct Hrq2 as [rq2' [Hrq2' Hrq2]].
+      apply exec_proc_covariance with (vm1' := {| world := w1'; runq := rq2'; ref_ctr := rc1'|}) in Hvm3; [|sauto].
+      destruct Hvm3 as [vm3' [Hvm3' Hvm3]].
+      exists (Some (proc, vm3')).
+      split.
+      + apply vm_state_trans_morph_some with (rq2 := rq2'); assumption.
+      + sauto.
+  Qed.
 
   Definition vm_state_trans : MFun VM (@ts_ret VM Process) :=
     {|
