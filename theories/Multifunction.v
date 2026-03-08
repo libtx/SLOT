@@ -96,6 +96,16 @@ Section props.
       (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y') /\
       (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y').
 
+  Lemma commute_sym (f g : T) :
+    commute f g ->
+    commute g f.
+  Proof.
+    unfold commute.
+    intros H x y.
+    destruct (H x y) as [Hxy Hyx].
+    split; assumption.
+  Qed.
+
   Program Definition id_mfun : T :=
     {| morphism := eq; |}.
   Next Obligation.

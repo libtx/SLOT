@@ -50,6 +50,15 @@ Section token_trace_ensemble.
 
   Definition event_commute (a b : Event) := commute (tm_state_trans a) (tm_state_trans b).
 
+  Lemma event_commute_sym (a b : Event) :
+    event_commute a b ->
+    event_commute b a.
+  Proof.
+    intros H.
+    unfold event_commute in *.
+    now apply commute_sym.
+  Qed.
+
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
          exists t', e' t' /\ RestrictedPermutation event_commute t t'.

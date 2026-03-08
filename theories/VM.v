@@ -385,6 +385,20 @@ Section VM.
     { ts_state_trans := vm_state_trans;
     }.
 
+  Lemma yield_yield_commut pid1 pid2 mbt1 mbt2 cont1 cont2 :
+    pid1 <> pid2 ->
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield mbt1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield mbt2 cont2 |}.
+  Proof.
+    intros Hpids vm1 vm1'.
+    destruct vm1 as [w1 rq1 rc1]. destruct vm1' as [w1' rq1' rc1'].
+    simpl. split; intros H.
+    - destruct H as [vm2 [Hvm2 Hvm3]].
+      inversion_clear Hvm2.
+      destruct vm2 as [w2 rq2_ rc2].
+      inversion_clear Hvm3. simpl in *. unfold process_yield_morph in *. simpl in *.
+  Abort.
+
   Lemma spawn_spawn_commut pid1 pid2 mbt1 mbt2 mbt1' mbt2' child1 child2 cont1 cont2 :
     pid1 <> pid2 ->
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_spawn mbt1 mbt1' child1 cont1 |}
