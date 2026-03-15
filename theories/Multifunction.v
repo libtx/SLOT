@@ -82,6 +82,21 @@ End compose.
 
 Infix "∘" := compose : slot_scope.
 
+Section assoc.
+  Context {A B C D} `{HA : Setoid A} `{HB : Setoid B} `{HC : Setoid C} `{HD : Setoid D}.
+
+  Let F := @MFun A B HA HB.
+  Let G := @MFun B C HB HC.
+  Let H := @MFun C D HC HD.
+
+  Lemma mfun_assoc (f : F) (g : G) (h : H) :
+    forall a b,
+      a ~[f ∘ (g ∘ h)]~> b <-> a ~[(f ∘ g) ∘ h]~> b.
+  Proof.
+    sauto.
+  Qed.
+End assoc.
+
 Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.
