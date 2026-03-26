@@ -34,7 +34,59 @@ Section defn.
       + assumption.
       + now rewrite Hl2', Hl2''.
   Qed.
+
+  Lemma pick_two0 {a b l1 l2 l3 l2' l3'} :
+    Pick l1 a l2 ->
+    Pick l2 b l3 ->
+    Pick l1 b l2' ->
+    Pick l2' a l3' ->
+    l3 =p= l3'.
+  Proof.
+    unfold Pick.
+    intros Hl2 Hl3 Hl2' Hl3'.
+    apply Permutation_cons_inv with (a := a).
+    apply Permutation_cons_inv with (a := b).
+    rewrite perm_swap.
+    specialize (Permutation_Add Hl3) as H2p.
+    specialize (Permutation_Add Hl2) as H1p.
+    specialize (Permutation_Add Hl3') as H2p'.
+    specialize (Permutation_Add Hl2') as H1p'.
+    rewrite H2p, H1p, H2p', H1p'.
+    now apply Permutation_sym.
+  Qed.
+
+  Lemma pick_two {a b l1 l2 l3} :
+    Pick l1 a l2 ->
+    Pick l2 b l3 ->
+    exists l2' l3',
+      Pick l1 b l2' /\
+      Pick l2' a l3' /\
+      l3' =p= l3.
+  Admitted.
+
+  Lemma pick_cons {a b l1 l2} :
+    Pick (a :: l1) b l2 ->
+    a <> b ->
+    exists l2',
+      l2 = a :: l2' /\ Pick l1 b l2'.
+  Proof.
+    unfold Pick.
+    intros Hab H.
+    generalize dependent l2.
+    induction l1; intros l2 Hl2; sauto.
+  Qed.
+
 End defn.
+
+Ltac rev_pick_cons :=
+  lazymatch goal with
+  | [ H : Pick (?a :: ?l1) ?b ?l2 |- _ ] =>
+      let l2' := fresh l2 "'" in
+      let H1 := fresh H "_l" in
+      let H2 := fresh H "_r" in
+      destruct (@pick_cons _ a b l1 l2 H) as [l1' [H1 H2]];
+      subst
+  end.
 
 Section tests.
   Goal forall a l',

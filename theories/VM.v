@@ -293,7 +293,7 @@ Section VM.
         + now rewrite Hrq1.
         + rewrite Hrc1; sauto.
         + reflexivity.
-    }.
+    }
     destruct H as [Hw3 [Hrq3 [Hrc3 Hchild_pid]]]. subst.
     exists {|
         world := h_spawn child_pid' child_mb_t w3';
@@ -384,30 +384,136 @@ Section VM.
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     { ts_state_trans := vm_state_trans;
     }.
-
-  Lemma yield_yield_commut pid1 pid2 mbt1 mbt2 cont1 cont2 :
-    pid1 <> pid2 ->
-    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield mbt1 cont1 |}
-                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield mbt2 cont2 |}.
-  Proof.
-    intros Hpids vm1 vm1'.
-    destruct vm1 as [w1 rq1 rc1]. destruct vm1' as [w1' rq1' rc1'].
-    simpl. split; intros H.
-    - destruct H as [vm2 [Hvm2 Hvm3]].
-      inversion_clear Hvm2.
-      destruct vm2 as [w2 rq2_ rc2].
-      inversion_clear Hvm3. simpl in *. unfold process_yield_morph in *. simpl in *.
-  Abort.
-
-  Lemma spawn_spawn_commut pid1 pid2 mbt1 mbt2 mbt1' mbt2' child1 child2 cont1 cont2 :
-    pid1 <> pid2 ->
-    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_spawn mbt1 mbt1' child1 cont1 |}
-                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_spawn mbt2 mbt2' child2 cont2 |}.
-  Proof.
-    intros Hpids vm1 vm1'.
-    destruct vm1 as [w1 rq1 rc1]. destruct vm1' as [w1' rq1' rc1'].
-  Abort.
 End VM.
+
+From Ltac2 Require
+  Fresh
+  String
+  Ident.
+From Ltac2 Require Import
+  Notations
+  Printf.
+
+Ltac2 fresh_id str := Fresh.in_goal (Option.get (Ident.of_string str)).
+
+Ltac2 unfold_vm_hyp (hyp : Init.constr) :=
+  match Constr.Unsafe.kind hyp with
+  | Constr.Unsafe.Var hyp_id =>
+      let vm_id := Ident.to_string hyp_id in
+      let w := fresh_id (String.app vm_id "_w") in
+      let runq := fresh_id (String.app vm_id "_rq") in
+      let refctr := fresh_id (String.app vm_id "_rc") in
+      destruct $hyp as [$w $runq $refctr]
+  | _ => ()
+  end.
+
+Ltac2 unfold_proc_hyp (hyp : Init.constr) :=
+  match Constr.Unsafe.kind hyp with
+  | Constr.Unsafe.Var hyp_id =>
+      let proc_id := Ident.to_string hyp_id in
+      let pid := fresh_id (String.app proc_id "_pid") in
+      let mb_t := fresh_id (String.app proc_id "_mb_t") in
+      let cont := fresh_id (String.app proc_id "_cont") in
+      destruct $hyp as [$pid $mb_t $cont]
+  | _ => ()
+  end.
+
+Ltac2 step_vm_morph (hyp_id : Ident.t) :=
+  let hyp := Control.hyp hyp_id in
+  lazy_match! Constr.type hyp with
+  | vm_state_trans_morph ?vm (Some (?proc, ?vm')) =>
+      let (h_proc, h_pick, rq)
+        := match Constr.Unsafe.kind proc with
+           | Constr.Unsafe.Var h_proc_id =>
+               let h_proc_id := Ident.to_string h_proc_id in
+               ( fresh_id (String.app "H_exec_" h_proc_id),
+                 fresh_id (String.app "H_pick_" h_proc_id),
+                 fresh_id (String.app "rq_wo_" h_proc_id)
+               )
+           | _ =>
+               ( fresh_id "H_exec",
+                 fresh_id "H_pick",
+                 fresh_id "rq_"
+               )
+           end in
+      unfold_vm_hyp vm;
+      unfold_vm_hyp vm';
+      unfold_proc_hyp proc;
+      inversion_clear $hyp as [|? ? ? $rq ? ? $h_pick $h_proc]
+  end.
+
+Section tests.
+  Context `{HIOh : IOHandler}.
+  Goal forall vm1 vm2 proc,
+      vm_state_trans_morph vm1 (Some (proc, vm2)) ->
+      False.
+    intros.
+    ltac2:(step_vm_morph @H).
+    match goal with
+    | [ H1 : Pick _ ?proc _, H2 : exec_proc ?proc _ _  |- _ ] =>
+        idtac
+    end.
+  Abort.
+End tests.
+
+Section commut.
+  Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}.
+
+  Lemma yield_yield_commut cont1 cont2 :
+    pid1 <> pid2 ->
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
+  Proof.
+    intros Hpids vm1 vm3.
+    simpl; split; intros H; destruct H as [vm2 [Hvm2 Hvm3]].
+    - ltac2:(step_vm_morph @Hvm2).
+      inversion H_exec. subst. clear H_exec.
+      ltac2:(step_vm_morph @Hvm3).
+      inversion H_exec. subst. clear H_exec.
+      apply pick_cons in H_pick0.
+      2:{ intros Habsurd. inversion Habsurd. contradiction. }
+      destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
+      destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
+      subst.
+      exists {| world := vm1_w;
+          runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |}
+                :: {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |}
+                :: rq2';
+          ref_ctr := vm1_rc
+        |}.
+      split.
+      + exists {| world := vm1_w;
+            runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |} :: rq1';
+            ref_ctr := vm1_rc
+          |}.
+        sauto.
+      + simpl. repeat split; try easy.
+        now rewrite perm_swap, Hrqs.
+    - ltac2:(step_vm_morph @Hvm2).
+      inversion H_exec. subst. clear H_exec.
+      ltac2:(step_vm_morph @Hvm3).
+      inversion H_exec. subst. clear H_exec.
+      apply pick_cons in H_pick0.
+      2:{ intros Habsurd. inversion Habsurd. symmetry in H0. contradiction. }
+      destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
+      destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
+      subst.
+      exists {| world := vm1_w;
+          runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |}
+                :: {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |}
+                :: rq2';
+          ref_ctr := vm1_rc
+        |}.
+      split.
+      + exists {| world := vm1_w;
+            runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |} :: rq1';
+            ref_ctr := vm1_rc
+          |}.
+        sauto.
+      + simpl. repeat split; try easy.
+        now rewrite perm_swap, Hrqs.
+  Qed.
+End commut.
 
 Global Arguments VM {_ _} _.
 Global Arguments die {_ _ _}.
