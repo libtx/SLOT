@@ -1,5 +1,5 @@
 (* SLOT, a formally verified model checker
-   Copyright (C) 2019-2024  k32
+   Copyright (C) 2019-2026  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,13 +15,13 @@
 *)
 
 (** * Generic total deterministic IO handler *)
-From Coq Require Import
+From Stdlib Require Import
      List.
 
 From LibTx Require
      Storage.
 
-(* From Coq Require *)
+(* From Stdlib Require *)
 (*      ZArith.BinInt *)
 (*      FSets.FMapAVL. *)
 

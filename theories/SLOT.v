@@ -1,5 +1,5 @@
 (* SLOT, a formally verified model checker
-   Copyright (C) 2021-2023  k32
+   Copyright (C) 2021-2026  k32
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ From SLOT Require Export
      Handlers
      Bruteforce.
 
-From Coq Require Import List.
+From Stdlib Require Import List.
 Import ListNotations.
 
 (* begin: hide *)

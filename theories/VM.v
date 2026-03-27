@@ -1,4 +1,4 @@
-From Coq Require Import
+From Stdlib Require Import
   List
   ZArith
   SetoidClass
@@ -386,6 +386,13 @@ Section VM.
     }.
 End VM.
 
+Global Arguments VM {_ _} _.
+Global Arguments die {_ _ _}.
+Global Arguments p_yield {_ _ _}.
+Global Arguments p_io {_ _ _}.
+Global Arguments p_spawn {_ _ _ _}.
+Global Arguments initVm {_ _} _ {_}.
+
 From Ltac2 Require
   Fresh
   String
@@ -393,6 +400,8 @@ From Ltac2 Require
 From Ltac2 Require Import
   Notations
   Printf.
+
+Set Default Proof Mode "Ltac2".
 
 Ltac2 fresh_id str := Fresh.in_goal (Option.get (Ident.of_string str)).
 
@@ -448,10 +457,10 @@ Section tests.
       vm_state_trans_morph vm1 (Some (proc, vm2)) ->
       False.
     intros.
-    ltac2:(step_vm_morph @H).
-    match goal with
-    | [ H1 : Pick _ ?proc _, H2 : exec_proc ?proc _ _  |- _ ] =>
-        idtac
+    step_vm_morph @H.
+    match! goal with
+    | [ h1 : Pick _ ?proc _, h2 : exec_proc ?proc _ _  |- _ ] =>
+        ()
     end.
   Abort.
 End tests.
@@ -466,12 +475,11 @@ Section commut.
   Proof.
     intros Hpids vm1 vm3.
     simpl; split; intros H; destruct H as [vm2 [Hvm2 Hvm3]].
-    - ltac2:(step_vm_morph @Hvm2).
+    - step_vm_morph @Hvm2.
       inversion H_exec. subst. clear H_exec.
-      ltac2:(step_vm_morph @Hvm3).
+      step_vm_morph @Hvm3.
       inversion H_exec. subst. clear H_exec.
-      apply pick_cons in H_pick0.
-      2:{ intros Habsurd. inversion Habsurd. contradiction. }
+      apply pick_cons in H_pick0 > [|intros Habsurd; now inversion Habsurd].
       destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
       destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
       subst.
@@ -486,15 +494,14 @@ Section commut.
             runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |} :: rq1';
             ref_ctr := vm1_rc
           |}.
-        sauto.
-      + simpl. repeat split; try easy.
+        ltac1:(sauto).
+      + simpl. repeat split; try ltac1:(easy).
         now rewrite perm_swap, Hrqs.
-    - ltac2:(step_vm_morph @Hvm2).
+    - step_vm_morph @Hvm2.
       inversion H_exec. subst. clear H_exec.
-      ltac2:(step_vm_morph @Hvm3).
+      step_vm_morph @Hvm3.
       inversion H_exec. subst. clear H_exec.
-      apply pick_cons in H_pick0.
-      2:{ intros Habsurd. inversion Habsurd. symmetry in H0. contradiction. }
+      apply pick_cons in H_pick0 > [| intros Habsurd; inversion Habsurd; now symmetry in H0 ].
       destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
       destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
       subst.
@@ -509,18 +516,11 @@ Section commut.
             runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |} :: rq1';
             ref_ctr := vm1_rc
           |}.
-        sauto.
-      + simpl. repeat split; try easy.
+        ltac1:(sauto).
+      + simpl. repeat split; try ltac1:(easy).
         now rewrite perm_swap, Hrqs.
   Qed.
 End commut.
-
-Global Arguments VM {_ _} _.
-Global Arguments die {_ _ _}.
-Global Arguments p_yield {_ _ _}.
-Global Arguments p_io {_ _ _}.
-Global Arguments p_spawn {_ _ _ _}.
-Global Arguments initVm {_ _} _ {_}.
 
 (* begin details *)
 Notation "'do' V '<-' I ; C" := (p_io (I) (fun V => C))
@@ -571,7 +571,7 @@ Section test.
     intros t vm' Ht Hcanon.
     subst vm prog.
     inversion Ht; subst.
-    - exfalso. inversion_clear H.
-    - simpl in H0.
+    - inversion_clear H.
+    - unfold initVm, do_spawn in H0.
   Abort.
 End test.

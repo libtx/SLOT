@@ -16,7 +16,7 @@
 (** Almost an exact copy of [Permutation] definition from the Coq
 standard library, but with an additional predicate that specifies
 whether the elements can be swapped *)
-From Coq Require Import
+From Stdlib Require Import
      List
      Relations
      SetoidClass.

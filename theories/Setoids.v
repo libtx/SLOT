@@ -1,8 +1,8 @@
-From Coq Require Export
+From Stdlib Require Export
   SetoidClass
   Permutation.
 
-From Coq Require Import
+From Stdlib Require Import
   Program.
 
 From Hammer Require Import

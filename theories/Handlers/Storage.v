@@ -1,7 +1,7 @@
 From LibTx Require Storage.
 Module stor := LibTx.Storage.Classes.
 
-From Coq Require Import
+From Stdlib Require Import
   Classes.EquivDec
   SetoidClass
   SetoidDec.
