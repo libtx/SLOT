@@ -11,3 +11,4 @@ theories/IOHandler.v
 theories/Handlers/Storage.v
 theories/Handlers/Mailbox.v
 theories/VM.v
+theories/SLOT.v

@@ -15,16 +15,12 @@
 *)
 
 From SLOT Require Export
-     Foundations
-     Generator
-     Commutativity
-     Handlers
-     Bruteforce.
+  VM.
 
 From Stdlib Require Import List.
 Import ListNotations.
 
 (* begin: hide *)
-Require Handlers.Deterministic
-        Handlers.Mutex.
+Require Handlers.Storage
+        Handlers.Mailbox.
 (* end: hide *)
