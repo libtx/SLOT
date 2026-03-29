@@ -10,14 +10,13 @@ From SLOT Require
   TransitionSystem
   Ref
   ListSelector
-  IOHandler
-  Mailbox.
+  IOHandler.
 
 From LibTx Require Import
   Storage
   Storage.Properties.
 
-Import Setoids TransitionSystem ListSelector Mailbox Ref.FMap.
+Import Setoids TransitionSystem ListSelector Ref.FMap.
 Export Ref IOHandler.
 
 From Hammer Require Import
@@ -43,6 +42,8 @@ Section VM.
   Context `{IOH : IOHandler}.
 
   Let World := @h_state _ _ IOH.
+
+  Let Heqiv_w := @h_setoid _ _ IOH.
 
   CoInductive Program (Mailbox : Set) : Type :=
   | die : (* Program termintes *)
@@ -146,6 +147,63 @@ Section VM.
         now apply put_distict_comm.
   Qed.
 
+  Program Definition lift_w_ret {Ret : Type} `{Heqiv_r : Setoid Ret}
+    (w_morph : @MFunRet Ret World Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid :=
+    {| morphism vm1 ret :=
+        let (ret, vm2) := ret in
+        match vm1, vm2 with
+          {| world := w1; runq := rq1; ref_ctr := rc1 |},
+          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
+            w1 ~[w_morph]~> (ret, w2) /\
+            rq1 = rq2 /\
+            rc1 = rc2
+        end;
+    |}.
+  Next Obligation.
+    destruct x as [w1 rq1 rc1].
+    destruct x' as [w1' rq1' rc1'].
+    destruct v as [w2 rq2 rc2].
+    destruct H as [Hw [Hrc Hrq]].
+    destruct H0 as [Hw12 [Hrc12 Hrq12]].
+    subst.
+    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
+    destruct Hw12 as [[ret' w2'] [Hw12' H2]].
+    destruct H2 as [Hret Hw2].
+    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1'|}).
+    repeat split; try assumption.
+    - apply Hrc.
+  Qed.
+
+  Program Definition lift_w (w_morph : @MFun World World Heqiv_w Heqiv_w) : @MFun VM VM vm_setoid vm_setoid :=
+    {| morphism vm1 vm2 :=
+        match vm1, vm2 with
+          {| world := w1; runq := rq1; ref_ctr := rc1 |},
+          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
+            w1 ~[w_morph]~> w2 /\
+            rq1 = rq2 /\
+            rc1 = rc2
+        end;
+    |}.
+  Next Obligation.
+    destruct x as [w1 rq1 rc1].
+    destruct x' as [w1' rq1' rc1'].
+    destruct y as [w2 rq2 rc2].
+    destruct H as [Hw [Hrc Hrq]].
+    destruct H0 as [Hw12 [Hrc12 Hrq12]].
+    subst.
+    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
+    destruct Hw12 as [w2' [Hw12' H2]].
+    exists {| world := w2'; runq := rq1'; ref_ctr := rc1'|}.
+    repeat split; try assumption.
+    - apply Hrc.
+  Qed.
+
+  Global Instance vmIOHandlerBlocks : @IOHandlerBlocks VM World vm_setoid.
+  Proof.
+    split.
+    - intros Ret State Heqiv_r Hequiv_w w_morph.
+  Abort.
+
   Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
     let (v, new_pid) := make_ref parent v in
     let rq := runq v in
@@ -191,22 +249,8 @@ Section VM.
       canon_rel_total := vmte_canon_rel_total;
     }.
 
-  Definition process_die_morph pid vm vm' :=
-    vm' = vm <| world := h_terminate pid (world vm) |>.
-
-  Lemma process_die_morph_covariance pid vm1 vm1' vm2 :
-        vm1 == vm1' ->
-        process_die_morph pid vm1 vm2 ->
-        exists{vm2' == vm2}, process_die_morph pid vm1' vm2'.
-  Proof.
-    unfold process_die_morph, equiv, vm_setoid.
-    destruct vm1, vm1'.
-    intros Hvm1 Hvm2.
-    subst.
-    destruct Hvm1 as [Hw1 [Hc1 Hrq1]].
-    apply h_terminate_covariance with (pid := pid) in Hw1.
-    sauto.
-  Qed.
+  Definition process_die_morph pid :=
+    lift_w (h_terminate pid).
 
   Definition process_yield_morph pid mb_t next vm vm' :=
     let proc := {| pid := pid; proc_mb_t := mb_t; cont := next |} in
@@ -225,16 +269,28 @@ Section VM.
     sauto.
   Qed.
 
-  Definition process_io_morph pid mb_t req next vm vm' :=
-    exists io_reply,
-      match vm' with
-        {| world := w'; runq := rq'; ref_ctr := rc' |} =>
-          let proc := {| pid := pid; proc_mb_t := mb_t; cont := next io_reply |} in
-          morphism (h_handler pid req) (world vm) (io_reply, w') /\
-            rq' = proc :: (runq vm) /\
-            rc' = ref_ctr vm
-      end.
+  Section handle_reply.
+    Context {IORet} Mailbox (pid_ : Ref) (next : IORet -> Program Mailbox).
 
+    Definition handle_io_reply_morph (ret : IORet * VM) : (IORet * VM) :=
+      let (ret, vm) := ret in
+      let proc := {| pid := pid_; proc_mb_t := Mailbox; cont := next ret |} in
+      (ret, vm <| runq := proc :: runq vm |>).
+
+    Lemma handle_io_reply_covariance x x' :
+      x == x' ->
+      handle_io_reply_morph x == handle_io_reply_morph x'.
+    Proof.
+      sauto.
+    Qed.
+
+    Definition handle_io_reply : MFun (IORet * VM) (IORet * VM) := pure handle_io_reply_morph handle_io_reply_covariance.
+  End handle_reply.
+
+  Definition process_io_morph (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFunRet (Reply req) VM :=
+    lift_w_ret (h_handler pid req)  ∘ handle_io_reply mb_t pid next .
+
+  (*
   Lemma process_io_morph_covariance pid mb_t req next vm1 vm1' vm2 :
     vm1 == vm1' ->
     process_io_morph pid mb_t req next vm1 vm2 ->
@@ -250,7 +306,7 @@ Section VM.
     destruct Hw2 as [[reply' w2'] [Hio [Hrep' Hw2']]].
     exists {| world := w2'; runq := {| pid := pid; proc_mb_t := mb_t; cont := next reply' |} :: rq1'; ref_ctr := rc1' |}.
     sauto.
-  Qed.
+  Qed. *)
 
   Definition process_spawn_morph pid mb_t child_mb_t (child_prog : Program child_mb_t) (next : @Address child_mb_t -> Program mb_t) vm vm' :=
     let (child_pid, vm) := do_spawn pid child_prog vm in

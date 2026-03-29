@@ -6,17 +6,45 @@ From Stdlib Require Import
 From SLOT Require Import
   Setoids
   TransitionSystem
-  Ref.
+  Ref
+  Queue.
 
 From Hammer Require Import
   Tactics.
 
+Section mailbox.
+  Inductive Message {AppMessage} :=
+  | appmsg : AppMessage -> Message.
+
+  (** Contents of the mailbox *)
+  Record Mailbox := {
+      mb_t : Set;
+      mb_q : @Queue (@Message mb_t);
+    }.
+
+  (** Handler state *)
+  Let t := Ref.FMap.M.t Mailbox.
+
+  (** "Address" of the mailbox *)
+  Record Address {mba_t : Set} :=
+    mkAddress
+    {
+      mba_pid : Ref
+    }.
+End mailbox.
+
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
-  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
-    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
+  Class IOHandlerBlocks (VM World : Type) `{iohm_setoid : Setoid VM} := {
+      lift_w_ret {Ret World : Type} `{Heqiv_r : Setoid Ret} `{Hequiv_w : Setoid World}
+        (w_morph : @MFunRet Ret World Heqiv_r Hequiv_w) : @MFunRet Ret VM Heqiv_r iohm_setoid;
 
+      lift_w {World : Type} `{Hequiv_w : Setoid World}
+        (w_morph : @MFun World World Hequiv_w Hequiv_w) : @MFun VM VM iohm_setoid iohm_setoid;
+
+      make_ref : @MFunRet Ref VM _ iohm_setoid;
+    }.
 
   Class IOHandler := {
       h_state : Type;
@@ -28,10 +56,8 @@ Section IOHandler.
       h_spawn_covariance : forall pid mailbox_t s s',
         s == s' ->
         h_spawn pid mailbox_t s == h_spawn pid mailbox_t s';
-      h_terminate (pid : Ref) : h_state -> h_state;
-      h_terminate_covariance : forall pid s s',
-        s == s' ->
-        h_terminate pid s == h_terminate pid s';
+
+      h_terminate (pid : Ref) : MFun h_state h_state;
     }.
 End IOHandler.
 
