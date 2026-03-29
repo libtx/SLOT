@@ -108,6 +108,13 @@ Section defn.
     | send to msg => send_ msg to
     end.
 
+  Definition delete_mailbox (pid : Ref) : MFun t t.
+    set (f := @delete _ Mailbox _ _ pid).
+    refine (pure f _).
+    - intros s s' H.
+      rewrite H; easy.
+  Defined.
+
   Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
@@ -116,7 +123,6 @@ Section defn.
       h_initial := new;
       h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
       h_spawn_covariance _ _ _ _ H := ltac:(now rewrite H);
-      h_terminate pid := delete pid;
-      h_terminate_covariance _ _ _ H := ltac:(now rewrite H);
+      h_terminate := delete_mailbox;
     |}.
 End defn.

@@ -14,9 +14,12 @@ From Hammer Require Import
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
-  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
-    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
+  Class IOHandlerMonad (VM : Type) := {
+      iohm_setoid : Setoid VM;
 
+      lift_w_ret {Ret State : Type} `{Heqiv_r : Setoid Ret}
+        (w_morph : @MFunRet Ret State Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid;
+    }.
 
   Class IOHandler := {
       h_state : Type;
@@ -28,10 +31,8 @@ Section IOHandler.
       h_spawn_covariance : forall pid mailbox_t s s',
         s == s' ->
         h_spawn pid mailbox_t s == h_spawn pid mailbox_t s';
-      h_terminate (pid : Ref) : h_state -> h_state;
-      h_terminate_covariance : forall pid s s',
-        s == s' ->
-        h_terminate pid s == h_terminate pid s';
+
+      h_terminate (pid : Ref) : MFun h_state h_state;
     }.
 End IOHandler.
 

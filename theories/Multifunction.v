@@ -274,3 +274,31 @@ Section mfun_sum.
     sauto.
   Qed.
 End mfun_sum.
+
+Section pure.
+  Context {Dom Cod : Type}
+    `{setoidDom : Setoid Dom}
+    `{setoidCod : Setoid Cod}
+    (f : Dom -> Cod)
+    (f_covariance : forall a a',
+        a == a' ->
+        f a == f a').
+
+  Program Definition pure : MFun Dom Cod :=
+    {|
+      morphism a b := f a = b;
+    |}.
+  Next Obligation.
+    exists (f x').
+    split.
+    - reflexivity.
+    - now apply f_covariance.
+  Qed.
+End pure.
+
+Section MFunRet.
+  Context {Ret State : Type}.
+
+  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
+    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
+End MFunRet.
