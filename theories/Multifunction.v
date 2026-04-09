@@ -1,3 +1,5 @@
+(** * Multi-valued functions
+ *)
 From Stdlib Require Import
   Program
   List
@@ -16,6 +18,7 @@ From SLOT Require Import
 
 Import ListNotations.
 
+(** Existential covariance wrt. setoid *)
 Section exists_equiv.
   Context {S : Type} `{Setoid S}.
 
@@ -29,6 +32,7 @@ Notation "'exists{' A == B } , C" :=
 
 Hint Unfold exists_equiv : slot.
 
+(** Definition of a multi-valued function *)
 Section mfun.
   Context (Dom Cod : Type) `{Setoid Dom} `{Setoid Cod}.
 
@@ -41,14 +45,17 @@ Section mfun.
     }.
 End mfun.
 
+(* begin details *)
 Global Arguments morphism {_ _ _ _}.
 Global Arguments morphism_covariance {_ _ _ _}.
+(* end details *)
 
 Declare Scope slot_scope.
 Open Scope slot_scope.
 
 Notation "A '~[' B ']~>' C" := (morphism B A C) (at level 20) : slot_scope.
 
+(* begin details *)
 Ltac morph_shift morphism point :=
   lazymatch goal with
   | [Hequiv : point == ?A, Hmorph : ?A ~[morphism]~> ?B |- _] =>
@@ -60,7 +67,9 @@ Ltac morph_shift morphism point :=
       let Hmorph' := fresh "Hmorph_" point "_" B' in
       destruct (morphism_covariance _ _ _ _ Hequiv Hmorph) as [B' [Hmorph' Hequiv']]
   end.
+(* end details *)
 
+(** Composition of multi-valued functions *)
 Section compose.
   Context {A B C : Type} `{HA : Setoid A} `{HB : Setoid B} `{HC : Setoid C}.
 
@@ -101,11 +110,11 @@ Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.
 
-  (* Strong definition of commutativity based on equality *)
+  (** Strong definition of commutativity based on equality *)
   Definition eq_commute (f g : T) :=
     forall (x y : A), x ~[g ∘ f]~> y <-> x ~[f ∘ g]~> y.
 
-  (* Relaxed version of the above based on equivalence *)
+  (** Relaxed version of the above based on equivalence *)
   Definition commute (f g : T) :=
     forall x y,
       (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y') /\

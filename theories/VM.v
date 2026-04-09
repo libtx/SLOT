@@ -108,7 +108,7 @@ Section VM.
     - intros a b c. destruct a, b, c. repeat split...
   Qed.
 
-  Definition make_ref (parent : Ref) (v : VM) : VM * Ref :=
+  Definition make_ref (parent : Ref) (v : VM) : Ref * VM :=
     let cc := ref_ctr v in
     let (cc, ctr) :=
       match get parent cc with
@@ -117,14 +117,22 @@ Section VM.
       | None =>
           (put parent 2 cc, 1)
       end in
-    (v<| ref_ctr := cc |>, parent ++ [ctr]).
+    (parent ++ [ctr], v<| ref_ctr := cc |>).
+
+  Definition vm_make_ref (parent : Ref) : MFunRet Ref VM.
+    refine (pure (make_ref parent) _).
+    destruct a as [? ? rc1].
+    destruct a' as [? ? rc1'].
+    intros H. inversion_clear H. destruct H1 as [Hrc Hrq].
+    unfold make_ref. simpl.
+  Admitted.
 
   Lemma make_ref_commut vm r1 r2 vm1' vm1'' vm2' vm2'' r11 r12 r21 r22 :
     r1 <> r2 ->
-    make_ref r1 vm = (vm1', r11) ->
-    make_ref r2 vm1' = (vm1'', r12) ->
-    make_ref r2 vm = (vm2', r22) ->
-    make_ref r1 vm2' = (vm2'', r21) ->
+    make_ref r1 vm = (r11, vm1') ->
+    make_ref r2 vm1' = (r12, vm1'') ->
+    make_ref r2 vm = (r22, vm2') ->
+    make_ref r1 vm2' = (r21, vm2'') ->
     r11 = r21 /\ r12 = r22 /\ vm1'' == vm2''.
   Proof.
     intros Hr12 H11 H12 H21 H22.
@@ -205,7 +213,7 @@ Section VM.
   Abort.
 
   Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
-    let (v, new_pid) := make_ref parent v in
+    let (new_pid, v) := make_ref parent v in
     let rq := runq v in
     let new_process := {|
                         pid := new_pid;
@@ -294,11 +302,11 @@ Section VM.
     intros Hvm1 Hvm2.
     destruct Hvm1 as [Hw1 [Hrc1 Hrq1]].
     remember (make_ref pid {| world := w1; runq := rq1; ref_ctr := rc1 |}) as Hchild_pid.
-    destruct Hchild_pid as [vm3 child_pid].
+    destruct Hchild_pid as [child_pid vm3].
     destruct vm3 as [w3 rq3 rc3].
     inversion_clear Hvm2.
     remember (make_ref pid {| world := w1'; runq := rq1'; ref_ctr := rc1' |}) as Hchild_pid'.
-    destruct Hchild_pid' as [[w3' rq3' rc3'] child_pid'].
+    destruct Hchild_pid' as [child_pid' [w3' rq3' rc3']].
     assert (w3' =h= w3 /\ rq3 =p= rq3' /\ rc3 == rc3' /\ child_pid = child_pid') as H. {
       unfold make_ref in *.
       simpl in HeqHchild_pid. simpl in HeqHchild_pid'. rewrite <-Hrc1 in HeqHchild_pid'.
