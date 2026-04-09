@@ -16,24 +16,8 @@ From Hammer Require Import
   Tactics.
 
 Section defn.
-  Inductive Message {AppMessage} :=
-  | appmsg : AppMessage -> Message.
-
-  (** Contents of the mailbox *)
-  Record Mailbox := {
-      mb_t : Set;
-      mb_q : @Queue (@Message mb_t);
-    }.
-
   (** Handler state *)
   Let t := Ref.FMap.M.t Mailbox.
-
-  (** "Address" of the mailbox *)
-  Record Address {mba_t : Set} :=
-    mkAddress
-    {
-      mba_pid : Ref
-    }.
 
   Inductive MBReq : Type :=
   | send {T : Set} : @Address T -> @Message T -> MBReq.

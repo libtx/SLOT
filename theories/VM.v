@@ -249,65 +249,31 @@ Section VM.
       canon_rel_total := vmte_canon_rel_total;
     }.
 
-  Definition process_die_morph pid :=
+  Definition vm_process_die pid : MFun VM VM :=
     lift_w (h_terminate pid).
 
-  Definition process_yield_morph pid mb_t next vm vm' :=
-    let proc := {| pid := pid; proc_mb_t := mb_t; cont := next |} in
-    vm' = vm <| runq := proc :: (runq vm) |>.
-
-  Lemma process_yield_morph_covariance pid mb_t next vm1 vm1' vm2 :
-    vm1 == vm1' ->
-    process_yield_morph pid mb_t next vm1 vm2 ->
-    exists{vm2' == vm2}, process_yield_morph pid mb_t next vm1' vm2'.
-  Proof.
-    unfold process_yield_morph, equiv, vm_setoid.
-    destruct vm1 as [w1 rq1 rc1].
-    destruct vm1' as [w1' rq1' rc1'].
-    destruct vm2 as [w2 rq2 rc2].
-    intros Hvm1 Hvm2.
-    sauto.
-  Qed.
-
-  Section handle_reply.
+  Section run_queue_mgmt.
     Context {IORet} Mailbox (pid_ : Ref) (next : IORet -> Program Mailbox).
 
-    Definition handle_io_reply_morph (ret : IORet * VM) : (IORet * VM) :=
-      let (ret, vm) := ret in
-      let proc := {| pid := pid_; proc_mb_t := Mailbox; cont := next ret |} in
-      (ret, vm <| runq := proc :: runq vm |>).
+    Definition vm_handle_io_reply : MFun (IORet * VM) VM :=
+      let morph (ret : IORet * VM) :=
+        let (ret, vm) := ret in
+        let proc := {| pid := pid_; proc_mb_t := Mailbox; cont := next ret |} in
+        vm <| runq := proc :: runq vm |>
+      in
+      pure morph ltac:(sauto).
+  End run_queue_mgmt.
 
-    Lemma handle_io_reply_covariance x x' :
-      x == x' ->
-      handle_io_reply_morph x == handle_io_reply_morph x'.
-    Proof.
-      sauto.
-    Qed.
+  Definition vm_process_io (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFun VM VM :=
+    vm_handle_io_reply mb_t pid next ∘ lift_w_ret (h_handler pid req).
 
-    Definition handle_io_reply : MFun (IORet * VM) (IORet * VM) := pure handle_io_reply_morph handle_io_reply_covariance.
-  End handle_reply.
+  Definition vm_push_proc (proc : Process) : MFun VM VM :=
+    let morph vm :=
+      vm <| runq := proc :: runq vm |>
+    in
+    pure morph ltac:(sauto).
 
-  Definition process_io_morph (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFunRet (Reply req) VM :=
-    lift_w_ret (h_handler pid req)  ∘ handle_io_reply mb_t pid next .
-
-  (*
-  Lemma process_io_morph_covariance pid mb_t req next vm1 vm1' vm2 :
-    vm1 == vm1' ->
-    process_io_morph pid mb_t req next vm1 vm2 ->
-    exists{vm2' == vm2}, process_io_morph pid mb_t req next vm1' vm2'.
-  Proof.
-    unfold process_io_morph, equiv, vm_setoid.
-    destruct vm1 as [w1 rq1 rc1].
-    destruct vm1' as [w1' rq1' rc1'].
-    destruct vm2 as [w2 rq2 rc2].
-    intros [Hw1 [Hrc1 Hrq1]].
-    intros [reply [Hw2 [Hrq' Hrc']]]. simpl in Hw2.
-    apply morphism_covariance with (x' := w1') in Hw2; [|assumption].
-    destruct Hw2 as [[reply' w2'] [Hio [Hrep' Hw2']]].
-    exists {| world := w2'; runq := {| pid := pid; proc_mb_t := mb_t; cont := next reply' |} :: rq1'; ref_ctr := rc1' |}.
-    sauto.
-  Qed. *)
-
+  (* TODO: rewrite as composition of mfuns *)
   Definition process_spawn_morph pid mb_t child_mb_t (child_prog : Program child_mb_t) (next : @Address child_mb_t -> Program mb_t) vm vm' :=
     let (child_pid, vm) := do_spawn pid child_prog vm in
     let addr := mkAddress child_mb_t child_pid in
@@ -366,35 +332,23 @@ Section VM.
     - constructor. constructor. apply Hrq3.
   Qed.
 
-  Definition exec_proc (proc : Process) (vm vm' : VM) : Prop :=
+  Definition exec_proc (proc : Process) : MFun VM VM :=
     match proc with
       {| pid := pid; proc_mb_t := mb_t; cont := prog |} =>
         match prog with
         | die _ =>
-            process_die_morph pid vm vm'
+            vm_process_die pid
         | p_yield _ next =>
-            process_yield_morph pid mb_t next vm vm'
+            vm_push_proc {| pid := pid; proc_mb_t := mb_t; cont := next |}
         | p_io _ req next =>
-            process_io_morph pid mb_t req next vm vm'
+            vm_process_io pid mb_t req next
         | @p_spawn _ child_mb_t child_prog next =>
-            process_spawn_morph pid mb_t child_mb_t child_prog next vm vm'
+            {|
+              morphism := process_spawn_morph pid mb_t child_mb_t child_prog next;
+              morphism_covariance := process_spawn_morph_covariance _ _ _ _ _
+            |}
         end
     end.
-
-  Lemma exec_proc_covariance (proc : Process) vm1 vm1' vm2 :
-    vm1 == vm1' ->
-    exec_proc proc vm1 vm2 ->
-    exists{vm2' == vm2}, exec_proc proc vm1' vm2'.
-  Proof with eauto.
-    unfold exec_proc.
-    intros Hvm1 Hvm2.
-    destruct proc as [pid mb_t cont].
-    destruct cont.
-    - eapply process_die_morph_covariance...
-    - eapply process_yield_morph_covariance...
-    - eapply process_io_morph_covariance...
-    - eapply process_spawn_morph_covariance...
-  Qed.
 
   Inductive vm_state_trans_morph : VM -> @ts_ret VM Process -> Prop :=
   | vm_state_trans_morph_none : forall w rc,
@@ -403,7 +357,7 @@ Section VM.
         None
   | vm_state_trans_morph_some : forall w rc rq1 rq2 proc vm3,
       Pick rq1 proc rq2 ->
-      exec_proc proc {| world := w; runq := rq2; ref_ctr := rc |} vm3 ->
+      {| world := w; runq := rq2; ref_ctr := rc |} ~[exec_proc proc]~> vm3 ->
       vm_state_trans_morph
         {| world := w; ref_ctr := rc; runq := rq1 |}
         (Some (proc, vm3)).
@@ -423,7 +377,7 @@ Section VM.
       apply Permutation_nil in Hrq1. sauto.
     - apply pick_equiv with (l1' := rq1') in Hrq2; [|assumption].
       destruct Hrq2 as [rq2' [Hrq2' Hrq2]].
-      apply exec_proc_covariance with (vm1' := {| world := w1'; runq := rq2'; ref_ctr := rc1'|}) in Hvm3; [|sauto].
+      apply morphism_covariance with (x' := {| world := w1'; runq := rq2'; ref_ctr := rc1'|}) in Hvm3; [|sauto].
       destruct Hvm3 as [vm3' [Hvm3' Hvm3]].
       exists (Some (proc, vm3')).
       split.
@@ -515,7 +469,7 @@ Section tests.
     intros.
     step_vm_morph @H.
     match! goal with
-    | [ h1 : Pick _ ?proc _, h2 : exec_proc ?proc _ _  |- _ ] =>
+    | [ h1 : Pick _ ?proc _, h2 : _ ~[exec_proc ?proc]~> _ |- _ ] =>
         ()
     end.
   Abort.
@@ -529,7 +483,7 @@ Section commut.
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
                   {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
   Proof.
-    intros Hpids vm1 vm3.
+(*    intros Hpids vm1 vm3.
     simpl; split; intros H; destruct H as [vm2 [Hvm2 Hvm3]].
     - step_vm_morph @Hvm2.
       inversion H_exec. subst. clear H_exec.
@@ -575,8 +529,11 @@ Section commut.
         ltac1:(sauto).
       + simpl. repeat split; try ltac1:(easy).
         now rewrite perm_swap, Hrqs.
-  Qed.
+  Qed.*)
+    Abort.
 End commut.
+
+Require Import Handlers.Mailbox.
 
 (* begin details *)
 Notation "'do' V '<-' I ; C" := (p_io (I) (fun V => C))

@@ -165,8 +165,8 @@ Section canonical_trace.
         - firstorder.
       }
       (* Use commutativity to derive an intermediate state on
-         the [g ∘ f] path: *)
-      assert (exists{v' == v}, x ~[tm_state_trans g ∘ tm_state_trans f]~> v') as Hv'. {
+         the [f ∘ g] path: *)
+      assert (exists{v' == v}, x ~[tm_state_trans f ∘ tm_state_trans g]~> v') as Hv'. {
         morph_shift (tm_state_trans g) y.
         destruct (Hfg_comm x v') as [Hcomm _].
         destruct Hcomm as [w Hw].

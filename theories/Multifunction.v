@@ -80,7 +80,7 @@ Section compose.
   Qed.
 End compose.
 
-Infix "∘" := compose : slot_scope.
+Notation "g ∘ f" := (compose f g) : slot_scope.
 
 Section assoc.
   Context {A B C D} `{HA : Setoid A} `{HB : Setoid B} `{HC : Setoid C} `{HD : Setoid D}.
@@ -91,7 +91,7 @@ Section assoc.
 
   Lemma mfun_assoc (f : F) (g : G) (h : H) :
     forall a b,
-      a ~[f ∘ (g ∘ h)]~> b <-> a ~[(f ∘ g) ∘ h]~> b.
+      a ~[h ∘ (g ∘ f)]~> b <-> a ~[(h ∘ g) ∘ f]~> b.
   Proof.
     sauto.
   Qed.
@@ -103,13 +103,13 @@ Section props.
 
   (* Strong definition of commutativity based on equality *)
   Definition eq_commute (f g : T) :=
-    forall (x y : A), x ~[f ∘ g]~> y <-> x ~[g ∘ f]~> y.
+    forall (x y : A), x ~[g ∘ f]~> y <-> x ~[f ∘ g]~> y.
 
   (* Relaxed version of the above based on equivalence *)
   Definition commute (f g : T) :=
     forall x y,
-      (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y') /\
-      (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y').
+      (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y') /\
+      (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y').
 
   Lemma commute_sym (f g : T) :
     commute f g ->
@@ -131,7 +131,7 @@ Section props.
     match l with
     | [] => id_mfun
     | [a] => a
-    | (a :: l) => a ∘ compose_list l
+    | (a :: l) => compose a (compose_list l)
     end.
 
   Lemma compose_list_split (l1 l2 : list T) x z :
