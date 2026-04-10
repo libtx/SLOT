@@ -487,10 +487,12 @@ Section commut.
   Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}.
 
   Lemma yield_yield_commut cont1 cont2 :
-    pid1 <> pid2 ->
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
                   {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
   Proof.
+    unfold event_commute, tm_state_trans.
+    simpl. unfold ts_mfun, ts_state_trans.
+
 (*    intros Hpids vm1 vm3.
     simpl; split; intros H; destruct H as [vm2 [Hvm2 Hvm3]].
     - step_vm_morph @Hvm2.

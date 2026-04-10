@@ -237,6 +237,7 @@ Proof.
     sauto.
 Qed.
 
+(** ** Product of multfunctions *)
 Section mfun_prod.
   Context {A B C D : Type} `{setoidA : Setoid A} `{setoidB : Setoid B} `{setoidC : Setoid C} `{setoidD : Setoid D}.
 
@@ -254,6 +255,7 @@ Section mfun_prod.
   Qed.
 End mfun_prod.
 
+(** ** Sum of multfunctions *)
 Section mfun_sum.
   Context {A A' B : Type} `{setoidA : Setoid A} `{setoidA' : Setoid A'} `{setoidB : Setoid B}.
 
@@ -284,6 +286,7 @@ Section mfun_sum.
   Qed.
 End mfun_sum.
 
+(** ** Lifting pure function to [MFun] *)
 Section pure.
   Context {Dom Cod : Type}
     `{setoidDom : Setoid Dom}
@@ -305,6 +308,33 @@ Section pure.
   Qed.
 End pure.
 
+Lemma pure_commutativity {T} `{setoidT : Setoid T}
+  (f g : T -> T)
+  f_covariance g_covariance
+  (H : forall x, f (g x) == g (f x)) :
+  commute (pure f f_covariance) (pure g g_covariance).
+Proof.
+  unfold pure, commute.
+  intros x z.
+  split; intros Hxz;
+    destruct Hxz as [y [Hy Hz]];
+    simpl in *;
+    subst.
+  - exists (f (g x)). split.
+    + now exists (g x).
+    + symmetry. apply H.
+  - exists (g (f x)). split.
+    + now exists (f x).
+    + apply H.
+Qed.
+
+(** ** Multi-valued function with return value
+
+ [MFunRet] is a helper that defines a multi-valued function that
+ returns a value of type [Ret] while updating [State].
+
+ It is equivalent to pure function of type [State -> Ret * State].
+*)
 Section MFunRet.
   Context {Ret State : Type}.
 
