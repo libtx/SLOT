@@ -82,12 +82,11 @@ Section VM.
 
   Record VM :=
     mkVM
-      { (* State of the I/O handler *)
+      { (** State of the I/O handler *)
         world : World;
-        (* Set of runnable processes *)
+        (** Set of runnable processes *)
         runq : list Process;
-        (* Counter that gets incremented when process spawns a child.
-        This counter is used as a suffix of the child's pid *)
+        (** Counter that gets incremented when process creates a reference. *)
         ref_ctr : Ref.FMap.M.t positive;
       }.
 

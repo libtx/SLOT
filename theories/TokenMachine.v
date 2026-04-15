@@ -1,3 +1,9 @@
+(** * Token Machine
+
+ Token machine class describes a class of nondeterministic state
+ automata, where type [Event] enumerates all state transitions.
+ Each value of [Event] is mapped to [MFun state state].
+ *)
 From Stdlib Require Import
   Program
   Decidable
@@ -19,6 +25,10 @@ From SLOT Require Import
 
 Import ListNotations.
 
+(** ** Canonical order of events
+
+ A binary relation to compare events less or equal.
+ *)
 Section canonical_order.
   Context {A : Type}.
 

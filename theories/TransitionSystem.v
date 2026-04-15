@@ -43,7 +43,9 @@ Section TransitionSystem.
     {| morphism s s' :=
         s ~[ts_state_trans]~> Some (e, s');
     |}.
-  Solve All Obligations with sauto.
+  Next Obligation.
+    sauto.
+  Qed.
 
   Global Instance tsTokenSystem `{TransitionSystem} : @TokenMachine State Event :=
     { tm_setoid := ts_setoid;
