@@ -54,6 +54,7 @@ Declare Scope slot_scope.
 Open Scope slot_scope.
 
 Notation "A '~[' B ']~>' C" := (morphism B A C) (at level 20) : slot_scope.
+Notation "C '<~[' B ']~' A" := (morphism B A C) (at level 20) : slot_scope.
 
 (* begin details *)
 Ltac morph_shift morphism point :=
@@ -128,6 +129,43 @@ Section props.
     intros H x y.
     destruct (H x y) as [Hxy Hyx].
     split; assumption.
+  Qed.
+
+  Lemma commute_compose (f g h : T) :
+    commute f h ->
+    commute g h ->
+    commute (g ∘ f) h.
+  Proof.
+    intros Hfh Hgh a d.
+    split; intros H;
+      [apply mfun_assoc in H|];
+      destruct H as [b [Hb [c [Hc Hd]]]].
+    - (* Original: d <~[ h ∘ g ∘ f ]~ a *)
+      destruct (Hgh b d) as [Hd' H_]. clear H_.
+      destruct Hd' as [d' [[c' [Hbc' Hc'd']] Hdd']].
+      { now exists c. }
+      destruct (Hfh a c') as [Hb' H_]. clear H_.
+      destruct Hb' as [c'' [Hac' Hc'c'']].
+      { now exists b. }
+      apply morphism_covariance with (x' := c'') in Hc'd'; [|assumption].
+      destruct Hc'd' as [d'' [Hc''d'' Hd'd'']].
+      exists d''.
+      split.
+      + sauto.
+      + now rewrite Hdd', Hd'd''.
+    - (* Original: d <~[ g ∘ f ∘ h ]~ a *)
+      destruct (Hfh a c) as [H_ Hac']. clear H_.
+      destruct Hac' as [c' [[b' [Hab' Hac']] Hcc']].
+      { now exists b. }
+      apply morphism_covariance with (x' := c') in Hd; [|assumption].
+      destruct Hd as [d' [Hc'd' Hdd']].
+      destruct (Hgh b' d') as [H_ Hb'd']. clear H_.
+      destruct Hb'd' as [d'' [[c'' [Hc'' Hd'']] Hd'd'']].
+      { now exists c'. }
+      exists d''.
+      split.
+      + sauto.
+      + now rewrite Hdd', Hd'd''.
   Qed.
 
   Program Definition id_mfun : T :=
