@@ -62,7 +62,15 @@ Section defn.
       Pick l1 b l2' /\
       Pick l2' a l3' /\
       l3' =p= l3.
-  Admitted.
+  Proof.
+    unfold Pick.
+    intros H12. generalize dependent l3.
+    induction H12.
+    - intros l3 H23.
+      induction H23; sauto.
+    - intros l3 H23.
+      sauto.
+  Qed.
 
   Lemma pick_cons {a b l1 l2} :
     Pick (a :: l1) b l2 ->
@@ -87,6 +95,13 @@ Section defn.
     exists (a, l2'); sauto.
   Qed.
 
+  Program Definition pick_certain_mfun (a : A) : @MFun (list A) (list A)
+                                                   (setoid_permutation _) (setoid_permutation _) :=
+    {| morphism l l' := Pick l a l' |}.
+  Next Obligation.
+    eapply pick_equiv in H0; eauto.
+  Qed.
+
   Inductive PickMFunOption : list A -> option (A * list A) -> Prop :=
   | PickMFunOption_None :
     PickMFunOption [] None
@@ -108,13 +123,10 @@ Section defn.
       exists (Some ret). sauto.
   Qed.
 
-  Definition pick_cons_mfun (a : A) : @MFun (list A) (list A)
-                                        (setoid_permutation _)
-                                        (setoid_permutation _).
-    refine (pure (cons a) _).
-    intros l l' Hll'.
-    now constructor.
-  Defined.
+  Program Definition pick_cons_mfun (a : A) : @MFun (list A) (list A)
+                                                (setoid_permutation _)
+                                                (setoid_permutation _) :=
+    pure (cons a) _.
 
   Lemma pick_cons_cons_commute (a b : A) : commute (pick_cons_mfun a) (pick_cons_mfun b).
   Proof.
