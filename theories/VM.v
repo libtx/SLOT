@@ -10,13 +10,14 @@ From SLOT Require
   TransitionSystem
   Ref
   ListSelector
-  IOHandler.
+  IOHandler
+  RestrictedPermutation.
 
 From LibTx Require Import
   Storage
   Storage.Properties.
 
-Import Setoids TransitionSystem ListSelector Ref.FMap.
+Import Setoids TransitionSystem ListSelector Ref.FMap RestrictedPermutation.
 Export Ref IOHandler.
 
 From Hammer Require Import
@@ -205,12 +206,6 @@ Section VM.
     - apply Hrc.
   Qed.
 
-  Global Instance vmIOHandlerBlocks : @IOHandlerBlocks VM World vm_setoid.
-  Proof.
-    split.
-    - intros Ret State Heqiv_r Hequiv_w w_morph.
-  Abort.
-
   Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
     let (new_pid, v) := make_ref parent v in
     let rq := runq v in
@@ -274,11 +269,87 @@ Section VM.
   Definition vm_process_io (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFun VM VM :=
     vm_handle_io_reply mb_t pid next ∘ lift_w_ret (h_handler pid req).
 
-  Definition vm_push_proc (proc : Process) : MFun VM VM :=
-    let morph vm :=
-      vm <| runq := proc :: runq vm |>
-    in
-    pure morph ltac:(sauto).
+  Definition maybe_proc_vm := option (Process * VM).
+
+  Program Definition schedule_in (proc : Process) : MFun VM VM :=
+    pure (fun vm => vm <| runq := proc :: runq vm |>) _.
+  Next Obligation.
+    sauto.
+  Qed.
+
+  Inductive ScheduleOutOption : VM -> maybe_proc_vm -> Prop :=
+  | ScheduleOut_Some : forall w refc runq runq' proc,
+      runq ~[pick_mfun_option]~> (Some (proc, runq')) ->
+      ScheduleOutOption
+        {| world := w; ref_ctr := refc; runq := runq |}
+        (Some (proc, {| world := w; ref_ctr := refc; runq := runq' |}))
+  | ScheduleOut_None : forall w refc,
+      ScheduleOutOption
+        {| world := w; ref_ctr := refc; runq := [] |}
+        None.
+
+  Program Definition schedule_out : MFun VM maybe_proc_vm :=
+    {| morphism := ScheduleOutOption |}.
+  Next Obligation.
+    unfold exists_equiv.
+    destruct x as [w rq1 rc].
+    destruct x' as [w' rq1' rc'].
+    destruct H as [Heq_w [Heq_refc Heq_runq]].
+    inversion H0; subst.
+    - apply morphism_covariance with (x' := rq1') in H4; [|assumption].
+      sauto.
+    - apply Permutation_nil in Heq_runq. subst.
+      sauto.
+  Qed.
+
+  Inductive ScheduleOutCertain proc : VM -> VM -> Prop :=
+  | ScheduleOutCertain_ : forall w refc runq runq',
+      runq ~[pick_certain_mfun proc]~> runq' ->
+      ScheduleOutCertain
+        proc
+        {| world := w; ref_ctr := refc; runq := runq |}
+        {| world := w; ref_ctr := refc; runq := runq' |}.
+
+  Program Definition schedule_out_certain proc :=
+    {| morphism := ScheduleOutCertain proc |}.
+  Next Obligation.
+    destruct x as [w1 rq1 rc1].
+    destruct x' as [w1' rq1' rc1'].
+    destruct y as [w2 rq2 rc2].
+    destruct H as [Hw [Hrc Hrq]].
+    inversion H0; subst.
+    apply morphism_covariance with (x' := rq1') in H1; [|assumption].
+    destruct H1 as [rq2' [Hrq2' Hrq2rq2']].
+    exists {| world := w1'; ref_ctr := rc1'; runq := rq2' |}.
+    sauto.
+  Qed.
+
+  Lemma schedule_out_certain_commute proc1 proc2 :
+    pid proc1 <> pid proc2 ->
+    commute (schedule_out_certain proc1) (schedule_out_certain proc2).
+  Proof.
+    intros Hpids.
+    intros vm1 vm3; split; simpl;
+      intros [vm2 [Hvm2 Hvm3]].
+    - inversion Hvm2 as [w1 rc1 rq1 rq2 Hproc1]; subst; clear Hvm2.
+      inversion Hvm3 as [? ? ? rq3 Hproc2]; subst; clear Hvm3.
+      simpl in *.
+      destruct (pick_two Hproc1 Hproc2) as [rq2' [rq3' [Hrq2' [Hrq3' Heq]]]].
+      exists {| world := w1; ref_ctr := rc1; runq := rq3' |}.
+      split.
+      2:{ simpl. rewrite Heq. sauto. }
+      exists {| world := w1; ref_ctr := rc1; runq := rq2' |}.
+      sauto.
+    - inversion Hvm2 as [w1 rc1 rq1 rq2 Hproc2]; subst; clear Hvm2.
+      inversion Hvm3 as [? ? ? rq3 Hproc1]; subst; clear Hvm3.
+      simpl in *.
+      destruct (pick_two Hproc2 Hproc1) as [rq2' [rq3' [Hrq2' [Hrq3' Heq]]]].
+      exists {| world := w1; ref_ctr := rc1; runq := rq3' |}.
+      split.
+      2:{ simpl. rewrite Heq. sauto. }
+      exists {| world := w1; ref_ctr := rc1; runq := rq2' |}.
+      sauto.
+  Qed.
 
   (* TODO: rewrite as composition of mfuns *)
   Definition process_spawn_morph pid mb_t child_mb_t (child_prog : Program child_mb_t) (next : @Address child_mb_t -> Program mb_t) vm vm' :=
@@ -346,7 +417,7 @@ Section VM.
         | die _ =>
             vm_process_die pid
         | p_yield _ next =>
-            vm_push_proc {| pid := pid; proc_mb_t := mb_t; cont := next |}
+            schedule_in {| pid := pid; proc_mb_t := mb_t; cont := next |}
         | p_io _ req next =>
             vm_process_io pid mb_t req next
         | @p_spawn _ child_mb_t child_prog next =>
@@ -357,50 +428,178 @@ Section VM.
         end
     end.
 
-  Inductive vm_state_trans_morph : VM -> @ts_ret VM Process -> Prop :=
-  | vm_state_trans_morph_none : forall w rc,
-      vm_state_trans_morph
-        {| world := w; ref_ctr := rc; runq := [] |}
-        None
-  | vm_state_trans_morph_some : forall w rc rq1 rq2 proc vm3,
-      Pick rq1 proc rq2 ->
-      {| world := w; runq := rq2; ref_ctr := rc |} ~[exec_proc proc]~> vm3 ->
-      vm_state_trans_morph
-        {| world := w; ref_ctr := rc; runq := rq1 |}
-        (Some (proc, vm3)).
-
-  Lemma vm_state_trans_morph_covariance vm1 vm1' (ret : @ts_ret VM Process) :
-    vm1 == vm1' ->
-    vm_state_trans_morph vm1 ret ->
-    exists{ret' == ret}, vm_state_trans_morph vm1' ret'.
+  Lemma exec_proc_schedule_commute proc1 proc2 :
+    pid proc1 <> pid proc2 ->
+    commute (exec_proc proc1) (schedule_out_certain proc2).
   Proof.
-    intros Hvm Hret.
-    destruct vm1 as [w1 rq1 rc1].
-    destruct vm1' as [w1' rq1' rc1'].
-    destruct Hvm as [Hw1 [Hrc1 Hrq1]].
-    inversion Hret as [|? ? ? rq2 proc vm3 Hrq2 Hvm3]; subst.
-    - exists None.
-      unfold equiv, vm_setoid in *.
-      apply Permutation_nil in Hrq1. sauto.
-    - apply pick_equiv with (l1' := rq1') in Hrq2; [|assumption].
-      destruct Hrq2 as [rq2' [Hrq2' Hrq2]].
-      apply morphism_covariance with (x' := {| world := w1'; runq := rq2'; ref_ctr := rc1'|}) in Hvm3; [|sauto].
-      destruct Hvm3 as [vm3' [Hvm3' Hvm3]].
-      exists (Some (proc, vm3')).
-      split.
-      + apply vm_state_trans_morph_some with (rq2 := rq2'); assumption.
-      + sauto.
-  Qed.
+    intros Hpids.
+    destruct proc1 as [pid1 mb_t1 cont1].
+    intros [w1 rq1 rc1] [w3 rq3 rc3]; split;
+      intros [[w2 rq2 rc2] [Hvm2 Hvm3]].
+    - inversion Hvm3 as [? ? ? ? Hvm3_]; subst; clear Hvm3.
+      unfold exists_equiv.
+      destruct cont1.
+      + destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
+        exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
+        split; [|easy].
+        unfold exec_proc, vm_process_die.
+        exists {| world := w1; runq := rq3; ref_ctr := rc3 |}.
+        sauto.
+      + inversion Hvm2; subst; clear Hvm2.
+        simpl in Hvm3_.
+        apply pick_cons in Hvm3_; [|sauto].
+        destruct Hvm3_ as [rq2 [? Hrq2]]. subst.
+        exists {|
+            world := w3;
+            ref_ctr := rc3;
+            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 |} :: rq2
+          |}.
+        split; [|sauto].
+        exists {| world := w3; ref_ctr := rc3; runq := rq2 |}.
+        sauto.
+  Admitted.
 
-  Definition vm_state_trans : MFun VM (@ts_ret VM Process) :=
+  Inductive exec_proc_pair_morph : maybe_proc_vm -> maybe_proc_vm -> Prop :=
+  | exec_proc_pair_morph_none :
+    exec_proc_pair_morph None None
+  | exec_proc_pair_morph_some : forall proc vm vm',
+      vm ~[exec_proc proc]~> vm' ->
+      exec_proc_pair_morph (Some (proc, vm)) (Some (proc, vm')).
+
+  Lemma exec_proc_pair_morph_covariance : forall x x' y : maybe_proc_vm,
+      x == x' ->
+      exec_proc_pair_morph x y -> (exists{ y' == y}, exec_proc_pair_morph x' y').
+  Admitted.
+
+  Definition exec_proc' : MFun maybe_proc_vm maybe_proc_vm :=
     {|
-      morphism := vm_state_trans_morph;
-      morphism_covariance := vm_state_trans_morph_covariance;
+      morphism := exec_proc_pair_morph;
+      morphism_covariance := exec_proc_pair_morph_covariance;
     |}.
+
+  Definition vm_state_trans : MFun VM maybe_proc_vm :=
+    exec_proc' ∘ schedule_out.
+
+  Lemma vm_pick_simplify proc vm vm' :
+    Some (proc, vm') <~[exec_proc' ∘ schedule_out]~ vm <->
+      vm' <~[exec_proc proc ∘ schedule_out_certain proc]~ vm.
+  Admitted.
 
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     { ts_state_trans := vm_state_trans;
     }.
+
+  Lemma commute_swap0 f g h i a e :
+    commute h g ->
+    e <~[h ∘ g ∘ f ∘ i]~ a ->
+    exists{e' == e}, e' <~[g ∘ h ∘ f ∘ i]~ a.
+  Proof.
+    intros Hgh Hz.
+    apply mfun_assoc in Hz.
+    destruct Hz as [c [Hc He]].
+    specialize (Hgh c e).
+    apply Hgh in He.
+    destruct He as [e' [Hce' Hee']].
+    exists e'. split; [|assumption].
+    apply mfun_assoc.
+    exists c. sauto.
+  Qed.
+
+  Lemma commute_swap1 f g h i a e :
+    commute g h ->
+    e <~[i ∘ h ∘ g ∘ f]~ a ->
+    exists{e' == e}, e' <~[i ∘ g ∘ h ∘ f]~ a.
+  Proof.
+    intros Hgh [b [Hb He]].
+    apply mfun_assoc in He.
+    destruct He as [d [Hd He]].
+    apply Hgh in Hd.
+    destruct Hd as [d' [Hbd' Hdd']].
+    morph_shift i d'.
+    exists e'. split; [|assumption].
+    exists b. split; [assumption|].
+    apply mfun_assoc.
+    exists d'. sauto.
+  Qed.
+
+  Lemma commute_swap2 f g h i x y :
+    commute f g ->
+    y <~[i ∘ h ∘ g ∘ f]~ x ->
+    exists{y' == y}, y' <~[i ∘ h ∘ f ∘ g]~ x.
+  Admitted.
+
+  Lemma vm_exec_commute proc1 proc2 :
+    pid proc1 <> pid proc2 ->
+    commute (exec_proc proc1) (exec_proc proc2) ->
+    event_commute proc1 proc2.
+  Proof.
+    intros Hprocs Hexec_comm.
+    unfold event_commute, tm_state_trans, tsTokenSystem.
+    unfold ts_mfun, ts_state_trans, vmTransitionSystem, vm_state_trans.
+    intros vm0 vm4; split; intros [vm1 [Hvm1 Hvm4]].
+    - rewrite (vm_pick_simplify proc1 vm0 vm1) in Hvm1.
+      rewrite (vm_pick_simplify proc2 vm1 vm4) in Hvm4.
+      assert (Hvm04 : vm4 <~[exec_proc proc2 ∘ schedule_out_certain proc2 ∘ exec_proc proc1 ∘ schedule_out_certain proc1]~ vm0) by sauto.
+      clear Hvm1. clear Hvm4.
+      apply commute_swap1 in Hvm04.
+      2:{ now apply exec_proc_schedule_commute. }
+      destruct Hvm04 as [vm4' [Hvm04 Hequiv1]].
+      apply commute_swap0 in Hvm04.
+      2:{ apply commute_sym, Hexec_comm. }
+      destruct Hvm04 as [vm4'' [Hvm04 Hequiv2]].
+      apply commute_swap2 in Hvm04.
+      2:{ now apply schedule_out_certain_commute. }
+      destruct Hvm04 as [vm4''' [Hvm04 Hequiv3]].
+      apply commute_swap1 in Hvm04.
+      2:{ now apply commute_sym, exec_proc_schedule_commute. }
+      destruct Hvm04 as [vm4'''' [Hvm04 Hequiv4]].
+      exists vm4''''.
+      split.
+      + clear Hequiv1. clear Hequiv2. clear Hequiv3. clear Hequiv4. clear vm1. clear vm4.
+        rename vm4'''' into vm5.
+        simpl.
+        repeat match goal with
+        | [H : ?vm' <~[?a ∘ ?b]~ ?vm |- _ ] =>
+            let vm_ := fresh vm in
+            let H_ := fresh H in
+            destruct H as [vm_ [H H_]]
+         end.
+        exists vm2. split.
+        * exists (Some (proc2, vm1)). sauto.
+        * exists (Some (proc1, vm3)). sauto.
+      + now rewrite Hequiv1, Hequiv2, Hequiv3, Hequiv4.
+    - rewrite (vm_pick_simplify proc2 vm0 vm1) in Hvm1.
+      rewrite (vm_pick_simplify proc1 vm1 vm4) in Hvm4.
+      assert (Hvm04 : vm4 <~[exec_proc proc1 ∘ schedule_out_certain proc1 ∘ exec_proc proc2 ∘ schedule_out_certain proc2]~ vm0) by sauto.
+      clear Hvm1. clear Hvm4.
+      apply commute_swap1 in Hvm04.
+      2:{ now apply exec_proc_schedule_commute. }
+      destruct Hvm04 as [vm4' [Hvm04 Hequiv1]].
+      apply commute_swap0 in Hvm04.
+      2:{ apply Hexec_comm. }
+      destruct Hvm04 as [vm4'' [Hvm04 Hequiv2]].
+      apply commute_swap2 in Hvm04.
+      2:{ now apply schedule_out_certain_commute. }
+      destruct Hvm04 as [vm4''' [Hvm04 Hequiv3]].
+      apply commute_swap1 in Hvm04.
+      2:{ now apply commute_sym, exec_proc_schedule_commute. }
+      destruct Hvm04 as [vm4'''' [Hvm04 Hequiv4]].
+      exists vm4''''.
+      split.
+      + clear Hequiv1. clear Hequiv2. clear Hequiv3. clear Hequiv4. clear vm1. clear vm4.
+        rename vm4'''' into vm5.
+        simpl.
+        repeat match goal with
+        | [H : ?vm' <~[?a ∘ ?b]~ ?vm |- _ ] =>
+            let vm_ := fresh vm in
+            let H_ := fresh H in
+            destruct H as [vm_ [H H_]]
+         end.
+        exists vm2. split.
+        * exists (Some (proc1, vm1)). sauto.
+        * exists (Some (proc2, vm3)). sauto.
+      + now rewrite Hequiv1, Hequiv2, Hequiv3, Hequiv4.
+  Qed.
 End VM.
 
 Global Arguments VM {_ _} _.
@@ -413,7 +612,8 @@ Global Arguments initVm {_ _} _ {_}.
 From Ltac2 Require
   Fresh
   String
-  Ident.
+  Ident
+  Std.
 From Ltac2 Require Import
   Notations
   Printf.
@@ -444,102 +644,64 @@ Ltac2 unfold_proc_hyp (hyp : Init.constr) :=
   | _ => ()
   end.
 
-Ltac2 step_vm_morph (hyp_id : Ident.t) :=
-  let hyp := Control.hyp hyp_id in
-  lazy_match! Constr.type hyp with
-  | vm_state_trans_morph ?vm (Some (?proc, ?vm')) =>
-      let (h_proc, h_pick, rq)
-        := match Constr.Unsafe.kind proc with
-           | Constr.Unsafe.Var h_proc_id =>
-               let h_proc_id := Ident.to_string h_proc_id in
-               ( fresh_id (String.app "H_exec_" h_proc_id),
-                 fresh_id (String.app "H_pick_" h_proc_id),
-                 fresh_id (String.app "rq_wo_" h_proc_id)
-               )
-           | _ =>
-               ( fresh_id "H_exec",
-                 fresh_id "H_pick",
-                 fresh_id "rq_"
-               )
-           end in
-      unfold_vm_hyp vm;
-      unfold_vm_hyp vm';
-      unfold_proc_hyp proc;
-      inversion_clear $hyp as [|? ? ? $rq ? ? $h_pick $h_proc]
-  end.
+(* Ltac2 step_vm_morph (hyp_id : Ident.t) := *)
+(*   let hyp := Control.hyp hyp_id in *)
+(*   lazy_match! Constr.type hyp with *)
+(*   | vm_state_trans_morph ?vm (Some (?proc, ?vm')) => *)
+(*       let (h_proc, h_pick, rq) *)
+(*         := match Constr.Unsafe.kind proc with *)
+(*            | Constr.Unsafe.Var h_proc_id => *)
+(*                let h_proc_id := Ident.to_string h_proc_id in *)
+(*                ( fresh_id (String.app "H_exec_" h_proc_id), *)
+(*                  fresh_id (String.app "H_pick_" h_proc_id), *)
+(*                  fresh_id (String.app "rq_wo_" h_proc_id) *)
+(*                ) *)
+(*            | _ => *)
+(*                ( fresh_id "H_exec", *)
+(*                  fresh_id "H_pick", *)
+(*                  fresh_id "rq_" *)
+(*                ) *)
+(*            end in *)
+(*       unfold_vm_hyp vm; *)
+(*       unfold_vm_hyp vm'; *)
+(*       unfold_proc_hyp proc; *)
+(*       inversion_clear $hyp as [|? ? ? $rq ? ? $h_pick $h_proc] *)
+(*   end. *)
 
-Section tests.
-  Context `{HIOh : IOHandler}.
-  Goal forall vm1 vm2 proc,
-      vm_state_trans_morph vm1 (Some (proc, vm2)) ->
-      False.
-    intros.
-    step_vm_morph @H.
-    match! goal with
-    | [ h1 : Pick _ ?proc _, h2 : _ ~[exec_proc ?proc]~> _ |- _ ] =>
-        ()
-    end.
-  Abort.
-End tests.
+(* Section tests. *)
+(*   Context `{HIOh : IOHandler}. *)
+(*   Goal forall vm1 vm2 proc, *)
+(*       vm_state_trans_morph vm1 (Some (proc, vm2)) -> *)
+(*       False. *)
+(*     intros. *)
+(*     step_vm_morph @H. *)
+(*     match! goal with *)
+(*     | [ h1 : Pick _ ?proc _, h2 : _ ~[exec_proc ?proc]~> _ |- _ ] => *)
+(*         () *)
+(*     end. *)
+(*   Abort. *)
+(* End tests. *)
 
 Section commut.
   Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}.
 
   Lemma yield_yield_commut cont1 cont2 :
+    pid1 <> pid2 ->
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
                   {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
   Proof.
-    unfold event_commute, tm_state_trans.
-    simpl. unfold ts_mfun, ts_state_trans.
-
-(*    intros Hpids vm1 vm3.
-    simpl; split; intros H; destruct H as [vm2 [Hvm2 Hvm3]].
-    - step_vm_morph @Hvm2.
-      inversion H_exec. subst. clear H_exec.
-      step_vm_morph @Hvm3.
-      inversion H_exec. subst. clear H_exec.
-      apply pick_cons in H_pick0 > [|intros Habsurd; now inversion Habsurd].
-      destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
-      destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
-      subst.
-      exists {| world := vm1_w;
-          runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |}
-                :: {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |}
-                :: rq2';
-          ref_ctr := vm1_rc
-        |}.
+    intros Hpids.
+    apply vm_exec_commute.
+    - intros Habsurd. now inversion Habsurd.
+    - simpl. unfold schedule_in. apply pure_commutativity.
+      intros vm.
+      simpl.
       split.
-      + exists {| world := vm1_w;
-            runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |} :: rq1';
-            ref_ctr := vm1_rc
-          |}.
-        ltac1:(sauto).
-      + simpl. repeat split; try ltac1:(easy).
-        now rewrite perm_swap, Hrqs.
-    - step_vm_morph @Hvm2.
-      inversion H_exec. subst. clear H_exec.
-      step_vm_morph @Hvm3.
-      inversion H_exec. subst. clear H_exec.
-      apply pick_cons in H_pick0 > [| intros Habsurd; inversion Habsurd; now symmetry in H0 ].
-      destruct H_pick0 as [rq_0' [Hrq_0' H_pick0]].
-      destruct (pick_two H_pick H_pick0) as [rq1' [rq2' [Hrq1' [Hrq2' Hrqs]]]].
-      subst.
-      exists {| world := vm1_w;
-          runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 |}
-                :: {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |}
-                :: rq2';
-          ref_ctr := vm1_rc
-        |}.
-      split.
-      + exists {| world := vm1_w;
-            runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 |} :: rq1';
-            ref_ctr := vm1_rc
-          |}.
-        ltac1:(sauto).
-      + simpl. repeat split; try ltac1:(easy).
-        now rewrite perm_swap, Hrqs.
-  Qed.*)
-    Abort.
+      + reflexivity.
+      + split.
+        * reflexivity.
+        * constructor.
+  Qed.
 End commut.
 
 Require Import Handlers.Mailbox.
@@ -594,6 +756,5 @@ Section test.
     subst vm prog.
     inversion Ht; subst.
     - inversion_clear H.
-    - unfold initVm, do_spawn in H0.
   Abort.
 End test.
