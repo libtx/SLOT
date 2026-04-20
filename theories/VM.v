@@ -46,32 +46,43 @@ Section VM.
 
   Let Heqiv_w := @h_setoid _ _ IOH.
 
+  (** ** Processes
+   *** Programs
+   [Program] datatype defines all primitives used by the business logic.
+   *)
   CoInductive Program (Mailbox : Set) : Type :=
-  | die : (* Program termintes *)
-      Program Mailbox
+  (** Program termintes: *)
+  | die :
+    Program Mailbox
+  (** Interrupt the computation without producing any side effects.
+
+      This primitive is used to softly introduce the concept of
+      Erlang's "reductions", and to side-step termination checker,
+      making programs non-Turing in a practically useful, as opposed
+      to forced, way.
+
+      In Erlang, reduction counting improves responsiveness of the
+      system, in SLOT it *additionally* gives a structural argument
+      "for free". *)
   | p_yield :
-    (** Interrupt the computation without producing any side effects.
-
-        This primitive is used to softly introduce the concept of
-        Erlang's "reductions", and to side-step termination checker,
-        making programs non-Turing in a practically useful, as opposed
-        to forced, way.
-
-        In Erlang, reduction counting improves responsiveness of the
-        system, in SLOT it *additionally* gives a structural argument
-        "for free". *)
     forall (continuation : Program Mailbox),
       Program Mailbox
-  | p_io : (* Program is doing I/O *)
+  (** Program is doing I/O: *)
+  | p_io :
     forall (pending_req : Request)
       (continuation : Reply pending_req -> Program Mailbox),
       Program Mailbox
-  | p_spawn : (* Spawn a new process: *)
+  (** Program spawns a child process: *)
+  | p_spawn :
     forall {Mailbox' : Set}
       (child : @Program Mailbox')
       (continuation : @Address Mailbox' -> Program Mailbox),
       Program Mailbox.
 
+  (** *** Process
+      [Process] is defined via its pid,
+      type of messages it can receive in the main mailbox ([proc_mb_t]),
+      and continuation, which is [Program]. *)
   Record Process :=
     mkProcess
       { pid : Ref;
@@ -79,19 +90,26 @@ Section VM.
         cont : @Program proc_mb_t;
       }.
 
+  (* begin hide *)
   #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
+  (* end hide *)
 
+  (** ** VM
+      [VM] record defines state of the entire VM.
+   *)
   Record VM :=
     mkVM
-      { (** State of the I/O handler *)
+      { (** State of the I/O handler: *)
         world : World;
-        (** Set of runnable processes *)
+        (** Set of runnable processes: *)
         runq : list Process;
-        (** Counter that gets incremented when process creates a reference. *)
+        (** Counter that gets incremented when process creates a reference: *)
         ref_ctr : Ref.FMap.M.t positive;
       }.
 
+  (* begin hide *)
   #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr>.
+  (* end hide *)
 
   Global Program Instance vm_setoid : Setoid VM :=
     {| equiv a b :=
@@ -118,14 +136,6 @@ Section VM.
           (put parent 2 cc, 1)
       end in
     (parent ++ [ctr], v<| ref_ctr := cc |>).
-
-  Definition vm_make_ref (parent : Ref) : MFunRet Ref VM.
-    refine (pure (make_ref parent) _).
-    destruct a as [? ? rc1].
-    destruct a' as [? ? rc1'].
-    intros H. inversion_clear H. destruct H1 as [Hrc Hrq].
-    unfold make_ref. simpl.
-  Admitted.
 
   Lemma make_ref_commut vm r1 r2 vm1' vm1'' vm2' vm2'' r11 r12 r21 r22 :
     r1 <> r2 ->
@@ -457,6 +467,31 @@ Section VM.
         split; [|sauto].
         exists {| world := w3; ref_ctr := rc3; runq := rq2 |}.
         sauto.
+      + inversion Hvm2; subst; clear Hvm2.
+        destruct x as [iorepl vm2].
+        destruct H as [Hvm2 Hcont].
+        inversion Hcont; subst; clear Hcont.
+        apply pick_cons in Hvm3_.
+        2:{ sauto. }
+        destruct Hvm3_ as [rq3' [Hrq3' Hpick]]. subst.
+        destruct vm2 as [w2 rq2 rc2].
+        destruct Hvm2 as [Hrepl [Hrq Hrc]]. subst.
+        exists {|
+            world := w2;
+            ref_ctr := rc2;
+            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := continuation iorepl |} :: rq3';
+          |}.
+        split.
+        * unfold exec_proc.
+          exists {| world := w1; ref_ctr := rc2; runq := rq3' |}.
+          split.
+          -- sauto.
+          -- unfold vm_process_io.
+             exists (iorepl, {| world := w2; ref_ctr:= rc2; runq := rq3' |}).
+             sauto.
+        * sauto.
+      + unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
+        simpl in Hvm3_.
   Admitted.
 
   Inductive exec_proc_pair_morph : maybe_proc_vm -> maybe_proc_vm -> Prop :=
@@ -469,7 +504,21 @@ Section VM.
   Lemma exec_proc_pair_morph_covariance : forall x x' y : maybe_proc_vm,
       x == x' ->
       exec_proc_pair_morph x y -> (exists{ y' == y}, exec_proc_pair_morph x' y').
-  Admitted.
+  Proof.
+    intros x x' y Hxx' Hxy.
+    destruct x.
+    - inversion Hxy; subst; clear Hxy.
+      destruct x' as [[proc_ vm_]|].
+      + unfold equiv, setoid_option, equiv, pair_setoid in Hxx'.
+        destruct Hxx' as [Hproc_ Hvm_].
+        morph_shift (exec_proc proc) vm_.
+        exists (Some (proc, vm'')).
+        sauto.
+      + inversion Hxx'.
+    - inversion_clear Hxy.
+      exists None.
+      sauto.
+  Qed.
 
   Definition exec_proc' : MFun maybe_proc_vm maybe_proc_vm :=
     {|
@@ -480,10 +529,21 @@ Section VM.
   Definition vm_state_trans : MFun VM maybe_proc_vm :=
     exec_proc' ∘ schedule_out.
 
-  Lemma vm_pick_simplify proc vm vm' :
-    Some (proc, vm') <~[exec_proc' ∘ schedule_out]~ vm <->
-      vm' <~[exec_proc proc ∘ schedule_out_certain proc]~ vm.
-  Admitted.
+  Lemma vm_pick_simplify proc vm1 vm3 :
+    Some (proc, vm3) <~[exec_proc' ∘ schedule_out]~ vm1 <->
+      vm3 <~[exec_proc proc ∘ schedule_out_certain proc]~ vm1.
+  Proof.
+    split; intros [x2 [Hx2 Hvm3]].
+    - inversion Hvm3; subst; clear Hvm3.
+      inversion Hx2; subst; clear Hx2.
+      inversion H2; subst; clear H2.
+      exists {| world := w; runq := runq'; ref_ctr := refc |}.
+      sauto.
+    - inversion Hx2; subst; clear Hx2.
+      simpl in H.
+      exists (Some (proc, {| world := w; runq := runq'; ref_ctr := refc |})).
+      sauto.
+  Qed.
 
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     { ts_state_trans := vm_state_trans;
