@@ -489,6 +489,7 @@ Section VM.
     { ts_state_trans := vm_state_trans;
     }.
 
+  (* begin hide *)
   Lemma commute_swap0 f g h i a e :
     commute h g ->
     e <~[h ∘ g ∘ f ∘ i]~ a ->
@@ -528,6 +529,27 @@ Section VM.
     exists{y' == y}, y' <~[i ∘ h ∘ f ∘ g]~ x.
   Admitted.
 
+  Ltac unfold_vm_microsteps :=
+    repeat match goal with
+      | [H : ?vm' <~[?a ∘ ?b]~ ?vm |- _ ] =>
+          let vm_ := fresh vm in
+          let H_ := fresh H in
+          destruct H as [vm_ [H H_]]
+      end.
+
+  Ltac vm_microstep_commute :=
+    lazymatch goal with
+    | [ |- commute (exec_proc ?proc1) (schedule_out_certain ?proc2) ] =>
+        now apply exec_proc_schedule_commute
+    | [ |- commute (schedule_out_certain ?proc2) (exec_proc ?proc1) ] =>
+        now apply commute_sym, exec_proc_schedule_commute
+    | [ |- commute (schedule_out_certain ?proc1) (schedule_out_certain ?proc2) ] =>
+        now apply schedule_out_certain_commute
+    | _ =>
+        first [assumption | now apply commute_sym]
+    end.
+  (* end hide *)
+
   Lemma vm_exec_commute proc1 proc2 :
     pid proc1 <> pid proc2 ->
     commute (exec_proc proc1) (exec_proc proc2) ->
@@ -541,29 +563,20 @@ Section VM.
       rewrite (vm_pick_simplify proc2 vm1 vm4) in Hvm4.
       assert (Hvm04 : vm4 <~[exec_proc proc2 ∘ schedule_out_certain proc2 ∘ exec_proc proc1 ∘ schedule_out_certain proc1]~ vm0) by sauto.
       clear Hvm1. clear Hvm4.
-      apply commute_swap1 in Hvm04.
-      2:{ now apply exec_proc_schedule_commute. }
+      apply commute_swap1 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4' [Hvm04 Hequiv1]].
-      apply commute_swap0 in Hvm04.
-      2:{ apply commute_sym, Hexec_comm. }
+      apply commute_swap0 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4'' [Hvm04 Hequiv2]].
-      apply commute_swap2 in Hvm04.
-      2:{ now apply schedule_out_certain_commute. }
+      apply commute_swap2 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4''' [Hvm04 Hequiv3]].
-      apply commute_swap1 in Hvm04.
-      2:{ now apply commute_sym, exec_proc_schedule_commute. }
+      apply commute_swap1 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4'''' [Hvm04 Hequiv4]].
       exists vm4''''.
       split.
       + clear Hequiv1. clear Hequiv2. clear Hequiv3. clear Hequiv4. clear vm1. clear vm4.
         rename vm4'''' into vm5.
         simpl.
-        repeat match goal with
-        | [H : ?vm' <~[?a ∘ ?b]~ ?vm |- _ ] =>
-            let vm_ := fresh vm in
-            let H_ := fresh H in
-            destruct H as [vm_ [H H_]]
-         end.
+        unfold_vm_microsteps.
         exists vm2. split.
         * exists (Some (proc2, vm1)). sauto.
         * exists (Some (proc1, vm3)). sauto.
@@ -572,29 +585,20 @@ Section VM.
       rewrite (vm_pick_simplify proc1 vm1 vm4) in Hvm4.
       assert (Hvm04 : vm4 <~[exec_proc proc1 ∘ schedule_out_certain proc1 ∘ exec_proc proc2 ∘ schedule_out_certain proc2]~ vm0) by sauto.
       clear Hvm1. clear Hvm4.
-      apply commute_swap1 in Hvm04.
-      2:{ now apply exec_proc_schedule_commute. }
+      apply commute_swap1 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4' [Hvm04 Hequiv1]].
-      apply commute_swap0 in Hvm04.
-      2:{ apply Hexec_comm. }
+      apply commute_swap0 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4'' [Hvm04 Hequiv2]].
-      apply commute_swap2 in Hvm04.
-      2:{ now apply schedule_out_certain_commute. }
+      apply commute_swap2 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4''' [Hvm04 Hequiv3]].
-      apply commute_swap1 in Hvm04.
-      2:{ now apply commute_sym, exec_proc_schedule_commute. }
+      apply commute_swap1 in Hvm04; [|vm_microstep_commute].
       destruct Hvm04 as [vm4'''' [Hvm04 Hequiv4]].
       exists vm4''''.
       split.
       + clear Hequiv1. clear Hequiv2. clear Hequiv3. clear Hequiv4. clear vm1. clear vm4.
         rename vm4'''' into vm5.
         simpl.
-        repeat match goal with
-        | [H : ?vm' <~[?a ∘ ?b]~ ?vm |- _ ] =>
-            let vm_ := fresh vm in
-            let H_ := fresh H in
-            destruct H as [vm_ [H H_]]
-         end.
+        unfold_vm_microsteps.
         exists vm2. split.
         * exists (Some (proc1, vm1)). sauto.
         * exists (Some (proc2, vm3)). sauto.
