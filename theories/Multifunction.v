@@ -324,6 +324,20 @@ Section mfun_sum.
   Qed.
 End mfun_sum.
 
+(** ** Lifting constant to [MFun] *)
+
+Section const.
+  Context {T : Type}.
+
+  Program Definition mfun_const (a : T) : MFun True T :=
+    {|
+      morphism _ ret := ret = a;
+    |}.
+  Next Obligation.
+    now exists a.
+  Qed.
+End const.
+
 (** ** Lifting pure function to [MFun] *)
 Section pure.
   Context {Dom Cod : Type}
@@ -379,3 +393,26 @@ Section MFunRet.
   Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
     @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
 End MFunRet.
+
+Section lift_mfun_option.
+  Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).
+
+  Inductive LiftMFunOption : A -> option C -> Prop :=
+  | LiftMFunOption_None : forall a,
+      a ~[f]~> None ->
+      LiftMFunOption a None
+  | LiftMFunOption_Some : forall a b,
+      a ~[f]~> Some b ->
+      LiftMFunOption a (Some (g b)).
+
+  Program Definition mfun_option_lift_pure : MFun A (option C) :=
+    {| morphism := LiftMFunOption |}.
+  Next Obligation.
+    destruct y as [c|].
+    - inversion_clear H0.
+      unfold exists_equiv.
+      exists (Some (g b)); sauto.
+    - inversion_clear H0.
+      exists None. sauto.
+  Qed.
+End lift_mfun_option.

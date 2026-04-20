@@ -87,6 +87,27 @@ Section defn.
     exists (a, l2'); sauto.
   Qed.
 
+  Inductive PickMFunOption : list A -> option (A * list A) -> Prop :=
+  | PickMFunOption_None :
+    PickMFunOption [] None
+  | PickMFunOption_Some : forall l a l',
+      l ~[pick_mfun]~> (a, l') ->
+      PickMFunOption l (Some (a, l')).
+
+  Program Definition pick_mfun_option : @MFun (list A) (option (A * list A))
+                                  (setoid_permutation _)
+                                  (@setoid_option _ (pair_setoid' Hsetoid (setoid_permutation _))) :=
+    {| morphism := PickMFunOption |}.
+  Next Obligation.
+    destruct x as [|x].
+    - apply Permutation_nil in H. subst.
+      exists None. sauto.
+    - inversion_clear H0.
+      apply morphism_covariance with (x' := x') in H1; [|assumption].
+      destruct H1 as [ret Hret].
+      exists (Some ret). sauto.
+  Qed.
+
   Definition pick_cons_mfun (a : A) : @MFun (list A) (list A)
                                         (setoid_permutation _)
                                         (setoid_permutation _).
