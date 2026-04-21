@@ -216,6 +216,31 @@ Section VM.
     - apply Hrc.
   Qed.
 
+  Lemma lift_w_commute f g :
+    commute f g ->
+    commute (lift_w f) (lift_w g).
+  Proof.
+    intros Hcommute.
+    intros [w1 rq1 rc1] [w3 rq3 rc3];
+      split;
+      intros [[w2 rq2 rc2] [Hvm2 Hvm3]];
+      simpl in Hvm2; simpl in Hvm3;
+      destruct Hvm2 as [Hw2 [? ?]];
+      destruct Hvm3 as [Hw3 [? ?]];
+      subst;
+      [ assert (H13 : w3 <~[ g ∘ f ]~ w1) by sauto
+      | assert (H13 : w3 <~[ f ∘ g ]~ w1) by sauto
+      ];
+      destruct (Hcommute w1 w3) as [Hfg Hgf];
+      [ destruct (Hfg H13) as [w3' [Hw3' Hequiv]]
+      | destruct (Hgf H13) as [w3' [Hw3' Heqiuv]]
+      ];
+      destruct Hw3' as [w2' ?];
+      exists {| world := w3'; ref_ctr := rc3; runq := rq3 |}.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
+  Qed.
+
   Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
     let (new_pid, v) := make_ref parent v in
     let rq := runq v in
@@ -267,13 +292,16 @@ Section VM.
   Section run_queue_mgmt.
     Context {IORet} Mailbox (pid_ : Ref) (next : IORet -> Program Mailbox).
 
-    Definition vm_handle_io_reply : MFun (IORet * VM) VM :=
+    Program Definition vm_handle_io_reply : MFun (IORet * VM) VM :=
       let morph (ret : IORet * VM) :=
         let (ret, vm) := ret in
         let proc := {| pid := pid_; proc_mb_t := Mailbox; cont := next ret |} in
         vm <| runq := proc :: runq vm |>
       in
-      pure morph ltac:(sauto).
+      pure morph _.
+    Next Obligation.
+      sauto.
+    Qed.
   End run_queue_mgmt.
 
   Definition vm_process_io (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFun VM VM :=
@@ -583,11 +611,22 @@ Section VM.
     exists d'. sauto.
   Qed.
 
-  Lemma commute_swap2 f g h i x y :
+  Lemma commute_swap2 f g h i a e :
     commute f g ->
-    y <~[i ∘ h ∘ g ∘ f]~ x ->
-    exists{y' == y}, y' <~[i ∘ h ∘ f ∘ g]~ x.
-  Admitted.
+    e <~[i ∘ h ∘ g ∘ f]~ a ->
+    exists{e' == e}, e' <~[i ∘ h ∘ f ∘ g]~ a.
+  Proof.
+    intros Hfg Hae.
+    apply mfun_assoc in Hae.
+    destruct Hae as [d [Hd He]].
+    apply Hfg in Hd.
+    destruct Hd as [d' [Had' Hdd']].
+    morph_shift (i ∘ h) d'.
+    exists e'.
+    split; [|assumption].
+    apply mfun_assoc.
+    sauto.
+  Qed.
 
   Ltac unfold_vm_microsteps :=
     repeat match goal with
