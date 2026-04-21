@@ -768,45 +768,68 @@ Section commut.
         destruct Hvm2 as [Hw2 [Hrq2 Hrc2]];
         destruct Hvm4 as [Hw4 [Hrq4 Hrc4]];
         subst;
-        destruct (Hcomm w1 w4) as [Hcomm21 Hcomm12];
+        [ destruct (Hcomm w1 w2 w4 ret2 ret4) as [Hcomm21 Hcomm12]
+        | destruct (Hcomm w1 w2 w4 ret4 ret2) as [Hcomm21 Hcomm12]
+        ];
         simpl in Hcomm12; simpl in Hcomm21.
-      + assert (H : exists y : h_state,
-            MFunRet_drop (Reply req1) h_state (h_handler pid1 req1) w1 y /\
-              MFunRet_drop (Reply req2) h_state (h_handler pid2 req2) y w4).
-        { sauto. }
-        apply Hcomm21 in H.
-        destruct H as [w4' [Hw4' Hequiv]].
-        destruct Hw4' as [w3' [Hw3' Hw4']].
-        inversion Hw3' as [? ? ret2' Hw3]; subst; clear Hw3'.
-        inversion Hw4' as [? ? ret4' Hw4_]; subst; clear Hw4'.
+      + apply Hcomm21 in Hw4. destruct Hw4 as [w4' [Hw2' Hequiv]].
+        clear Hcomm12. clear Hcomm21.
+        destruct Hw2' as [w2' [Hw2' Hw4']].
         exists {|
             world := w4';
-            runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret4' |} ::
-                    {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} ::
+            runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret2 |} ::
+                    {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret4 |} ::
                     rq2;
             ref_ctr := rc2
           |}.
         split.
         * apply mfun_assoc.
-          exists (ret2', {| world := w3'; runq := rq2; ref_ctr := rc2 |}).
+          exists (ret4, {| world := w2'; runq := rq2; ref_ctr := rc2 |}).
           split; [sauto|].
           exists {|
-              world := w3';
-              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} :: rq2;
+              world := w2';
+              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret4 |} :: rq2;
               ref_ctr := rc2
             |}.
           split; [sauto|].
-          exists (ret4',
+          exists (ret2,
               {|
               world := w4';
-              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} :: rq2;
+              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret4 |} :: rq2;
               ref_ctr := rc2
               |}).
           sauto.
-        * simpl. split; [assumption|split].
-          -- reflexivity.
-          --
-  Abort.
+        * sauto.
+        * assumption.
+      + apply Hcomm12 in Hw4. destruct Hw4 as [w4' [Hw2' Hequiv]].
+        clear Hcomm12. clear Hcomm21.
+        destruct Hw2' as [w2' [Hw2' Hw4']].
+        exists {|
+            world := w4';
+            runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2 |} ::
+                    {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret4 |} :: rq2;
+            ref_ctr := rc2
+          |}.
+        split.
+        * apply mfun_assoc.
+          exists (ret4, {| world := w2'; runq := rq2; ref_ctr := rc2 |}).
+          split; [sauto|].
+          exists {|
+              world := w2';
+              runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret4 |} :: rq2;
+              ref_ctr := rc2
+            |}.
+          split; [sauto|].
+          exists (ret2,
+              {|
+              world := w4';
+              runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret4 |} :: rq2;
+              ref_ctr := rc2
+              |}).
+          sauto.
+        * sauto.
+        * assumption.
+  Qed.
 End commut.
 
 From Ltac2 Require

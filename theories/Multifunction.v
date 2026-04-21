@@ -392,21 +392,6 @@ Section MFunRet.
 
   Definition MFunRet := @MFun State (Ret * State)
                           HState (@pair_setoid _ _ HRet HState).
-
-  Inductive MFunRet_drop (f : MFunRet) : State -> State -> Prop :=
-  | MFunRet_drop_ : forall s s' ret,
-      s ~[f]~> (ret, s') ->
-      MFunRet_drop f s s'.
-
-  Program Definition MFunRet_drop_ret (f : MFunRet) : @MFun State State HState HState :=
-    {| morphism := MFunRet_drop f |}.
-  Next Obligation.
-    inversion_clear H0.
-    apply morphism_covariance with (x' := x') in H1; [|assumption].
-    destruct H1 as [[ret' y'] [Hy' Hyy']].
-    destruct Hyy'.
-    exists y'. sauto.
-  Qed.
 End MFunRet.
 
 Definition MFunRet_commute {State Ret1 Ret2}
@@ -415,7 +400,15 @@ Definition MFunRet_commute {State Ret1 Ret2}
   `{Hsr2 : Setoid Ret2}
   (f : MFunRet Ret1 State)
   (g : MFunRet Ret2 State) :=
-  commute (MFunRet_drop_ret _ _ f) (MFunRet_drop_ret _ _ g).
+  forall s1 s2 s3 ret_f ret_g,
+    (s1 ~[f]~> (ret_f, s2) ->
+     s2 ~[g]~> (ret_g, s3) ->
+     exists{s3' == s3}, exists s2', s1  ~[g]~> (ret_g, s2') /\
+                          s2' ~[f]~> (ret_f, s3')) /\
+    (s1 ~[g]~> (ret_g, s2) ->
+     s2 ~[f]~> (ret_f, s3) ->
+     exists{s3' == s3}, exists s2', s1  ~[f]~> (ret_f, s2') /\
+                          s2' ~[g]~> (ret_g, s3')).
 
 Section lift_mfun_option.
   Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).
