@@ -388,11 +388,34 @@ Qed.
  It is equivalent to pure function of type [State -> Ret * State].
 *)
 Section MFunRet.
-  Context {Ret State : Type}.
+  Context (Ret State : Type) `{HRet : Setoid Ret} `{HState : Setoid State}.
 
-  Definition MFunRet Ret State `{HRet : Setoid Ret} `{HState : Setoid State} :=
-    @MFun State (Ret * State) HState (@pair_setoid _ _ HRet HState).
+  Definition MFunRet := @MFun State (Ret * State)
+                          HState (@pair_setoid _ _ HRet HState).
+
+  Inductive MFunRet_drop (f : MFunRet) : State -> State -> Prop :=
+  | MFunRet_drop_ : forall s s' ret,
+      s ~[f]~> (ret, s') ->
+      MFunRet_drop f s s'.
+
+  Program Definition MFunRet_drop_ret (f : MFunRet) : @MFun State State HState HState :=
+    {| morphism := MFunRet_drop f |}.
+  Next Obligation.
+    inversion_clear H0.
+    apply morphism_covariance with (x' := x') in H1; [|assumption].
+    destruct H1 as [[ret' y'] [Hy' Hyy']].
+    destruct Hyy'.
+    exists y'. sauto.
+  Qed.
 End MFunRet.
+
+Definition MFunRet_commute {State Ret1 Ret2}
+  `{Hss : Setoid State}
+  `{Hsr1 : Setoid Ret1}
+  `{Hsr2 : Setoid Ret2}
+  (f : MFunRet Ret1 State)
+  (g : MFunRet Ret2 State) :=
+  commute (MFunRet_drop_ret _ _ f) (MFunRet_drop_ret _ _ g).
 
 Section lift_mfun_option.
   Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).

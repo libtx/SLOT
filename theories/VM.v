@@ -30,7 +30,7 @@ Open Scope positive_scope.
 
 Set Hammer Debug.
 Set Hammer ATPLimit 100.
-Set Hammer GSMode 64.
+Set Hammer GSMode 4.
 
 Opaque put.
 Opaque get.
@@ -520,6 +520,7 @@ Section VM.
         * sauto.
       + unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
         simpl in Hvm3_.
+        unfold do_spawn in Hvm2.
   Admitted.
 
   Inductive exec_proc_pair_morph : maybe_proc_vm -> maybe_proc_vm -> Prop :=
@@ -712,6 +713,102 @@ Global Arguments p_io {_ _ _}.
 Global Arguments p_spawn {_ _ _ _}.
 Global Arguments initVm {_ _} _ {_}.
 
+Section commut.
+  Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}
+    (Hpids : pid1 <> pid2).
+
+  Lemma yield_yield_commute cont1 cont2 :
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
+  Proof.
+    apply vm_exec_commute.
+    - sauto.
+    - simpl. unfold schedule_in. apply pure_commutativity.
+      sauto.
+  Qed.
+
+  Lemma die_die_commute :
+    commute (h_terminate pid1) (h_terminate pid2) ->
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := die |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := die |}.
+  Proof.
+    intros Htermcomm.
+    apply vm_exec_commute.
+    - sauto.
+    - unfold exec_proc, vm_process_die.
+      now apply lift_w_commute.
+  Qed.
+
+  Lemma yield_die_commute cont1 :
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := die |}.
+  Proof.
+    apply vm_exec_commute.
+    - sauto.
+    - unfold exec_proc, vm_process_die, schedule_in.
+      intros vm1 vm3; split; intros H.
+  Abort.
+
+  Lemma io_io_commute req1 req2 cont1 cont2 :
+    MFunRet_commute (h_handler pid1 req1) (h_handler pid2 req2) ->
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := p_io req1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := p_io req2 cont2 |}.
+  Proof.
+    intros Hcomm.
+    apply vm_exec_commute.
+    - sauto.
+    - simpl. unfold vm_process_io.
+      intros vm1 vm5; split; intros [vm3 [Hvm3 Hvm5]];
+        destruct Hvm3 as [[ret2 vm2] [Hvm2 Hvm3]];
+        destruct Hvm5 as [[ret4 vm4] [Hvm4 Hvm5]];
+        simpl in Hvm3; simpl in Hvm5; subst;
+        destruct vm1 as [w1 rq1 rc1];
+        destruct vm2 as [w2 rq2 rc2];
+        destruct vm4 as [w4 rq4 rc4];
+        destruct Hvm2 as [Hw2 [Hrq2 Hrc2]];
+        destruct Hvm4 as [Hw4 [Hrq4 Hrc4]];
+        subst;
+        destruct (Hcomm w1 w4) as [Hcomm21 Hcomm12];
+        simpl in Hcomm12; simpl in Hcomm21.
+      + assert (H : exists y : h_state,
+            MFunRet_drop (Reply req1) h_state (h_handler pid1 req1) w1 y /\
+              MFunRet_drop (Reply req2) h_state (h_handler pid2 req2) y w4).
+        { sauto. }
+        apply Hcomm21 in H.
+        destruct H as [w4' [Hw4' Hequiv]].
+        destruct Hw4' as [w3' [Hw3' Hw4']].
+        inversion Hw3' as [? ? ret2' Hw3]; subst; clear Hw3'.
+        inversion Hw4' as [? ? ret4' Hw4_]; subst; clear Hw4'.
+        exists {|
+            world := w4';
+            runq := {| pid := pid1; proc_mb_t := mbt1; cont := cont1 ret4' |} ::
+                    {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} ::
+                    rq2;
+            ref_ctr := rc2
+          |}.
+        split.
+        * apply mfun_assoc.
+          exists (ret2', {| world := w3'; runq := rq2; ref_ctr := rc2 |}).
+          split; [sauto|].
+          exists {|
+              world := w3';
+              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} :: rq2;
+              ref_ctr := rc2
+            |}.
+          split; [sauto|].
+          exists (ret4',
+              {|
+              world := w4';
+              runq := {| pid := pid2; proc_mb_t := mbt2; cont := cont2 ret2' |} :: rq2;
+              ref_ctr := rc2
+              |}).
+          sauto.
+        * simpl. split; [assumption|split].
+          -- reflexivity.
+          --
+  Abort.
+End commut.
+
 From Ltac2 Require
   Fresh
   String
@@ -784,28 +881,6 @@ Ltac2 unfold_proc_hyp (hyp : Init.constr) :=
 (*     end. *)
 (*   Abort. *)
 (* End tests. *)
-
-Section commut.
-  Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}.
-
-  Lemma yield_yield_commut cont1 cont2 :
-    pid1 <> pid2 ->
-    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
-                  {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
-  Proof.
-    intros Hpids.
-    apply vm_exec_commute.
-    - intros Habsurd. now inversion Habsurd.
-    - simpl. unfold schedule_in. apply pure_commutativity.
-      intros vm.
-      simpl.
-      split.
-      + reflexivity.
-      + split.
-        * reflexivity.
-        * constructor.
-  Qed.
-End commut.
 
 Require Import Handlers.Mailbox.
 
