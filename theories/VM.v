@@ -717,6 +717,8 @@ Section commut.
   Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}
     (Hpids : pid1 <> pid2).
 
+  Let Program := @Program (h_request_t IOH) (h_reply_t IOH).
+
   Lemma yield_yield_commute cont1 cont2 :
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := @p_yield _ _ mbt1 cont1 |}
                   {| pid := pid2; proc_mb_t := mbt2; cont := @p_yield _ _ mbt2 cont2 |}.
@@ -830,6 +832,24 @@ Section commut.
         * sauto.
         * assumption.
   Qed.
+
+  Lemma spawn_spawn_commute {child_mb_t1 child_mb_t2 : Set}
+    (child1 : Program child_mb_t1)
+    (child2 : Program child_mb_t2) cont1 cont2 :
+    event_commute {| pid := pid1; proc_mb_t := mbt1; cont := p_spawn child1 cont1 |}
+                  {| pid := pid2; proc_mb_t := mbt2; cont := p_spawn child2 cont2 |}.
+  Proof.
+    apply vm_exec_commute; [sauto|].
+    intros vm1 vm5; split; simpl;
+      intros [vm3 [Hvm3 Hvm5]];
+      unfold process_spawn_morph, do_spawn in *;
+      remember (make_ref pid1 vm1) as make_ref1;
+      destruct make_ref1 as [child_pid1 vm2];
+      remember (make_ref pid2 vm3) as make_ref2;
+      destruct make_ref2 as [child_pid2 vm4].
+    - subst.
+      simpl in Heqmake_ref2.
+  Abort.
 End commut.
 
 From Ltac2 Require

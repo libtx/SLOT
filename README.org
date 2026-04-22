@@ -1,0 +1,91 @@
+#+TITLE: SLOT
+[[https://github.com/libtx/SLOT/actions/workflows/coqchk.yml/badge.svg?branch=master]]
+
+New to Rocq?
+Read [[Formal verification for a working functional programmer][this section]].
+
+* Introduction
+
+SLOT is a fully formally-verified model checker that can verify safety properties of programs written in "SLOTLang", a shallow-embedded DSL inspired by Erlang.
+
+* SLOTLang
+
+SLOTLang is an actor-based language capable of performing input-output operations in a simulated environment.
+It extends plain Gallina[fn:1] with 4 primitives:
+
++ *spawn*: spawn a child process
++ *do*: perform I/O operation
++ *yield*: NOP, interrupts the computation
++ *die*: terminate the process
+
+They allow to write programs that (if you squint hard enough) resemble Erlang:
+
+#+begin_src coq
+Let prog : prog_t h True :=
+      spawn c1 <- child1;
+      c1 ! 1;
+      spawn c2 <- child2;
+      c2 ! false;
+      die.
+#+end_src
+
+* Input/Output
+
+I/O operations are non-deterministic:
+they can fail, produce different results for the same input or block.
+This is sufficient, for example, to model network with packet loss and reordering.
+SLOT verification is total:
+it considers every possible outcome of such operations.
+
+I/O is implemented via composable effect handlers.
+This makes SLOT extendable:
+it is possible for the user to implement custom effects,
+and mix and match them with the existing ones.
+
+* TODO Setoids
+
+* TODO Commutativity
+
+* Formal verification for a working functional programmer
+
+This section is not a Rocq tutorial,
+but rather an encouragement to research and study it.
+
+While [[https://rocq-prover.org/][Rocq language]] (formerly known as Coq) has a baroque syntax inspired by mathematical proofs,
+the good news is that under the hood it is merely a *functional programming language* with an extremely expressive type system and unparalleled meta-programming facilities.
+There's no special mathematical magic beyond that.
+So, if you are, say, an Erlang programmer,
+you should already know about 70% of the basics to start using it.
+
+Using functional programming to prove mathematical theorems is possible thanks to
+[[https://en.wikipedia.org/wiki/Curry%E2%80%93Howard_correspondence][Curry-Howard correspondance]].
+It's an observation that application of a pure function to the arguments is similar to /modus ponens/ logical inference rule:
+arguments of the function can be thought as hypotheses,
+the return type of the function as a theorem,
+and body of the function as a proof of the theorem.
+
+Please note that this similarity is all but superficial,
+and most programming languages would fail miserably as theorem provers:
+to serve as proofs,
+functions must be pure and total,
+i.e. they must return a value for every possible input.
+Regular programming languages allow functions to throw exceptions,
+perform unsafe types casts and/or loop infinitely.
+Such behaviors allow to "prove" false statements,
+which is disastrous due to /ex falso quodlibet/ principle:
+a formal system containing even a single logical contradiction allows to prove any statement whatsoever:
+given =A= and =¬A=, =A → A ∨ B=, and =¬ A ∧ (A ∨ B) → B=, where =B= is any statement.
+
+Rocq is one of a few exceptions:
+it enforces totality of the functions,
+often at the cost of other features,
+like I/O or Turing completeness.
+
+SLOT framework bridges the gap between the two worlds:
+it simulates I/O via logical statements describing mutations of the state space,
+and allows for infinitely running programs,
+as long as they either do I/O or yield.
+
+* Footnotes
+
+[fn:1] Gallina is the specification language of Rocq

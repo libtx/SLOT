@@ -99,14 +99,27 @@ Section defn.
       rewrite H; easy.
   Defined.
 
+  Definition mailbox_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |}.
+
+  Lemma mailbox_spawn_commute :
+    forall pid1 pid2 mb_t1 mb_t2 s,
+      pid1 <> pid2 ->
+        mailbox_spawn pid1 mb_t1 (mailbox_spawn pid2 mb_t2 s) == mailbox_spawn pid2 mb_t2 (mailbox_spawn pid1 mb_t1 s).
+  Proof.
+    intros pid1 pid2 mb_t1 mb_t2 s Hpids.
+    unfold mailbox_spawn.
+    now apply put_distict_comm.
+  Qed.
+
   Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
       h_handler _ req := mailbox_step req;
       h_initial := new;
-      h_spawn pid mb_t := put pid {| mb_t := mb_t; mb_q := empty |};
+      h_spawn := mailbox_spawn;
       h_spawn_covariance _ _ _ _ H := ltac:(now rewrite H);
+      h_spawn_commutativity := mailbox_spawn_commute;
       h_terminate := delete_mailbox;
     |}.
 End defn.

@@ -57,6 +57,10 @@ Section IOHandler.
         s == s' ->
         h_spawn pid mailbox_t s == h_spawn pid mailbox_t s';
 
+      h_spawn_commutativity : forall pid1 pid2 mb_t1 mb_t2 s,
+        pid1 <> pid2 ->
+        h_spawn pid1 mb_t1 (h_spawn pid2 mb_t2 s) == h_spawn pid2 mb_t2 (h_spawn pid1 mb_t1 s);
+
       h_terminate (pid : Ref) : MFun h_state h_state;
     }.
 End IOHandler.
