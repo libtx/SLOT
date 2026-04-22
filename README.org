@@ -2,7 +2,7 @@
 [[https://github.com/libtx/SLOT/actions/workflows/coqchk.yml/badge.svg?branch=master]]
 
 New to Rocq?
-Read [[Formal verification for a working functional programmer][this section]].
+Read [[https://github.com/libtx/slot#formal-verification-for-a-working-functional-programmer][this section]].
 
 * Introduction
 
@@ -48,36 +48,39 @@ and mix and match them with the existing ones.
 
 * Formal verification for a working functional programmer
 
-This section is not a Rocq tutorial,
-but rather an encouragement to research and study it.
+This section is meant as a soft encouragement for programmers unfamiliar with [[https://rocq-prover.org/][Rocq]] to research and study it.
+For a full tutorial please check a free e-book [[https://softwarefoundations.cis.upenn.edu/][Software Foundations]].
 
-While [[https://rocq-prover.org/][Rocq language]] (formerly known as Coq) has a baroque syntax inspired by mathematical proofs,
+While Rocq (formerly known as Coq) features a baroque syntax inspired by mathematical proofs,
+that may look rather intimidating,
 the good news is that under the hood it is merely a *functional programming language* with an extremely expressive type system and unparalleled meta-programming facilities.
-There's no special mathematical magic beyond that.
+It does not contain any special magic,
+just functions and data types cleverly mapped to various mathematical concepts.
 So, if you are, say, an Erlang programmer,
-you should already know about 70% of the basics to start using it.
+you already have about 70% of the basics covered.
 
-Using functional programming to prove mathematical theorems is possible thanks to
-[[https://en.wikipedia.org/wiki/Curry%E2%80%93Howard_correspondence][Curry-Howard correspondance]].
-It's an observation that application of a pure function to the arguments is similar to /modus ponens/ logical inference rule:
-arguments of the function can be thought as hypotheses,
+Using functional programming to prove mathematical theorems is possible thanks to [[https://en.wikipedia.org/wiki/Curry%E2%80%93Howard_correspondence][Curry-Howard correspondence]].
+It's an observation that application of a function to arguments is similar to /modus ponens/ logical inference rule:
+the arguments can be thought as hypotheses,
 the return type of the function as a theorem,
 and body of the function as a proof of the theorem.
 
 Please note that this similarity is all but superficial,
-and most programming languages would fail miserably as theorem provers:
+and most programming languages fail miserably as theorem provers:
 to serve as proofs,
 functions must be pure and total,
 i.e. they must return a value for every possible input.
 Regular programming languages allow functions to throw exceptions,
 perform unsafe types casts and/or loop infinitely.
 Such behaviors allow to "prove" false statements,
-which is disastrous due to /ex falso quodlibet/ principle:
+which is disastrous from the logic perspective due to /ex falso quodlibet/ principle:
 a formal system containing even a single logical contradiction allows to prove any statement whatsoever:
-given =A= and =¬A=, =A → A ∨ B=, and =¬ A ∧ (A ∨ B) → B=, where =B= is any statement.
+given statements =A= and =¬A=,
+=A → A ∨ B=, and =¬ A ∧ (A ∨ B) → B=,
+where =B= is any statement.
 
-Rocq is one of a few exceptions:
-it enforces totality of the functions,
+Rocq is one of a few exceptions,
+because at its core it enforces totality of the functions,
 often at the cost of other features,
 like I/O or Turing completeness.
 
@@ -85,6 +88,30 @@ SLOT framework bridges the gap between the two worlds:
 it simulates I/O via logical statements describing mutations of the state space,
 and allows for infinitely running programs,
 as long as they either do I/O or yield.
+
+** Fancy syntax and meta-programming
+
+While code in this repository may look nothing like, say, Erlang,
+it's all just functional programming in disguise.
+
+Fancy syntax like
+
+#+begin_src coq
+Lemma foo : forall (a b : nat), a + b = b + a.
+Proof.
+  intros.
+  induction a.
+  - auto.
+  - simpl. now rewrite IHa, plus_n_Sm.
+Qed.
+#+end_src
+
+is translated to "normal" FP language as a definition of function =foo= with type
+=fun a b => eq (a + b) (b + a)=.
+Body of this function defined with the help of Rocq's meta-programming language called [[https://rocq-prover.org/doc/V9.0.1/refman/proof-engine/ltac.html][Ltac]]:
+=intros.= command prompts Rocq to create an anonymous function with arguments guessed from the context,
+=induction a.= calls a special function associated with the type =nat=,
+=auto.= means "vibe-code whatever term to fill the gap", etc.
 
 * Footnotes
 
