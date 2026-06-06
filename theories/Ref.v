@@ -9,7 +9,8 @@ Import ListNotations.
 From Hammer Require Import
   Tactics.
 
-From LibTx Require
+From LibTx Require Import
+  Classes
   Storage.Instances.AVL.
 
 Definition Ref : Set := list positive.
@@ -163,3 +164,69 @@ Module FMap.
   Include FMapAVL.Make RefOrd.
   Include Storage.Instances.AVL.Make RefOrd.
 End FMap.
+
+Module Fresh.
+  Open Scope positive_scope.
+
+  Definition t := FMap.M.t positive.
+
+  Definition make (parent : Ref) (cc : t) : Ref * t :=
+    let (cc, ctr) :=
+      match get parent cc with
+      | Some ctr =>
+          (put parent (ctr + 1) cc, ctr)
+      | None =>
+          (put parent 2 cc, 1)
+      end in
+    (parent ++ [ctr], cc).
+
+  Definition take_last (l : Ref) : option (positive * Ref) :=
+    let fix f lst acc l :=
+      match l with
+      | [] => (lst, acc)
+      | (el :: l) => f el (lst :: acc) l
+      end in
+    match l with
+    | [] => None
+    | (a :: l) =>
+        let (lst, head) := f a [] l in
+        Some (lst, rev head)
+    end.
+
+  Goal take_last [] = None.
+    easy.
+  Qed.
+
+  Goal take_last [1] = Some (1, []).
+    easy.
+  Qed.
+
+  Goal take_last [1; 2; 3] = Some (3, [1; 2]).
+    easy.
+  Qed.
+
+  Definition is_valid_ref (ref : Ref) (cc : t) : bool :=
+    match take_last ref with
+    | None => true
+    | Some (lst, parent) =>
+        match get (rev parent) cc with
+        | None => false
+        | Some ctr => Pos.leb lst ctr
+        end
+    end.
+
+  Lemma make_valid_ref (parent other new : Ref) (cc cc' : t) :
+    is_valid_ref other cc = true ->
+    make parent cc = (new, cc') ->
+    new <> other.
+  Proof.
+    intros Hvald Hnew.
+    unfold make, is_valid_ref in *.
+    remember (get parent cc) as ctr.
+    destruct other as [|a others_tl].
+    - destruct ctr as [ctr|];
+        inversion Hnew;
+        destruct parent;
+        easy.
+  Admitted.
+End Fresh.

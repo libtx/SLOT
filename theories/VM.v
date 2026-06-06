@@ -104,7 +104,7 @@ Section VM.
         (** Set of runnable processes: *)
         runq : list Process;
         (** Counter that gets incremented when process creates a reference: *)
-        ref_ctr : Ref.FMap.M.t positive;
+        ref_ctr : Ref.Fresh.t;
       }.
 
   (* begin hide *)
@@ -128,15 +128,10 @@ Section VM.
 
   Definition make_ref (parent : Ref) (v : VM) : Ref * VM :=
     let cc := ref_ctr v in
-    let (cc, ctr) :=
-      match get parent cc with
-      | Some ctr =>
-          (put parent (ctr + 1) cc, ctr)
-      | None =>
-          (put parent 2 cc, 1)
-      end in
-    (parent ++ [ctr], v<| ref_ctr := cc |>).
+    let (ref, cc) := Fresh.make parent cc in
+    (ref, v<| ref_ctr := cc |>).
 
+  (*
   Lemma make_ref_commut vm r1 r2 vm1' vm1'' vm2' vm2'' r11 r12 r21 r22 :
     r1 <> r2 ->
     make_ref r1 vm = (r11, vm1') ->
@@ -146,7 +141,7 @@ Section VM.
     r11 = r21 /\ r12 = r22 /\ vm1'' == vm2''.
   Proof.
     intros Hr12 H11 H12 H21 H22.
-    unfold make_ref in *.
+    unfold make_ref, Fresh.make in *.
     replace (get r2 (ref_ctr vm1')) with (get r2 (ref_ctr vm)) in H12 by sauto use:distinct.
     replace (get r1 (ref_ctr vm2')) with (get r1 (ref_ctr vm)) in H22 by sauto use:distinct.
     repeat split.
@@ -163,7 +158,7 @@ Section VM.
         repeat split;
         try reflexivity;
         now apply put_distict_comm.
-  Qed.
+  Qed.*)
 
   Program Definition lift_w_ret {Ret : Type} `{Heqiv_r : Setoid Ret}
     (w_morph : @MFunRet Ret World Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid :=
@@ -416,7 +411,7 @@ Section VM.
     remember (make_ref pid {| world := w1'; runq := rq1'; ref_ctr := rc1' |}) as Hchild_pid'.
     destruct Hchild_pid' as [child_pid' [w3' rq3' rc3']].
     assert (w3' =h= w3 /\ rq3 =p= rq3' /\ rc3 == rc3' /\ child_pid = child_pid') as H. {
-      unfold make_ref in *.
+      unfold make_ref,Fresh.make in *.
       simpl in HeqHchild_pid. simpl in HeqHchild_pid'. rewrite <-Hrc1 in HeqHchild_pid'.
       destruct (get pid rc1);
         inversion_clear HeqHchild_pid;
@@ -467,7 +462,7 @@ Section VM.
     end.
 
   Lemma exec_proc_schedule_commute proc1 proc2 :
-    pid proc1 <> pid proc2 ->
+    Ref_Unrelated (pid proc1) (pid proc2) ->
     commute (exec_proc proc1) (schedule_out_certain proc2).
   Proof.
     intros Hpids.
@@ -477,15 +472,17 @@ Section VM.
     - inversion Hvm3 as [? ? ? ? Hvm3_]; subst; clear Hvm3.
       unfold exists_equiv.
       destruct cont1.
-      + destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
+      + (* die *)
+        destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
         exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
         split; [|easy].
         unfold exec_proc, vm_process_die.
         exists {| world := w1; runq := rq3; ref_ctr := rc3 |}.
         sauto.
-      + inversion Hvm2; subst; clear Hvm2.
+      + (* yield *)
+        inversion Hvm2; subst; clear Hvm2.
         simpl in Hvm3_.
-        apply pick_cons in Hvm3_; [|sauto].
+        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
         destruct Hvm3_ as [rq2 [? Hrq2]]. subst.
         exists {|
             world := w3;
@@ -495,12 +492,12 @@ Section VM.
         split; [|sauto].
         exists {| world := w3; ref_ctr := rc3; runq := rq2 |}.
         sauto.
-      + inversion Hvm2; subst; clear Hvm2.
+      + (* do I/O *)
+        inversion Hvm2; subst; clear Hvm2.
         destruct x as [iorepl vm2].
         destruct H as [Hvm2 Hcont].
         inversion Hcont; subst; clear Hcont.
-        apply pick_cons in Hvm3_.
-        2:{ sauto. }
+        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
         destruct Hvm3_ as [rq3' [Hrq3' Hpick]]. subst.
         destruct vm2 as [w2 rq2 rc2].
         destruct Hvm2 as [Hrepl [Hrq Hrc]]. subst.
@@ -518,9 +515,40 @@ Section VM.
              exists (iorepl, {| world := w2; ref_ctr:= rc2; runq := rq3' |}).
              sauto.
         * sauto.
-      + unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
-        simpl in Hvm3_.
+      + (* spawn *)
+        unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
         unfold do_spawn in Hvm2.
+        remember (make_ref pid1 {| world := w1; runq := rq1; ref_ctr := rc1 |}) as x.
+        destruct x as [new_pid vm2].
+        inversion Hvm2. subst. clear Hvm2. simpl in Hpids.
+        simpl in Hvm3_.
+        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
+        destruct Hvm3_ as [rq3' [Hrq3 Hrq3']]. subst.
+        apply pick_cons in Hrq3'.
+        2:{ (* Prove that new_proc =/= proc2 *)
+          symmetry in Heqx. unfold make_ref in Heqx.
+          rewrite vm2
+          simpl in Heqx.
+          specialize Fresh.make_from_unrelated with
+            (parent := pid1)
+            (child := new_pid)
+            (other := (pid proc2))
+            (c := rc1) as Hunrel.
+          apply ref_unrelated_neq in Hunrel.
+          Search Ref_Unrelated.
+          inversion Heqx.
+          eapply H in Hpids.
+
+
+          apply Fresh.make_unrelated with (other := (pid proc2)) in Heqx;
+            [|assumption].
+            apply ref_unrelated_neq in Heqx.
+            sauto.
+        }
+        destruct Hrq3' as [rq4 [Hrq3 Hrq4]]. subst.
+        hammer.
+        sauto.
+        unfol
   Admitted.
 
   Inductive exec_proc_pair_morph : maybe_proc_vm -> maybe_proc_vm -> Prop :=
@@ -637,21 +665,30 @@ Section VM.
           destruct H as [vm_ [H H_]]
       end.
 
+  Ltac vm_microstep_pid_neq :=
+    match goal with
+    | _ => assumption
+    | [H : Ref_Unrelated ?b ?a |- Ref_Unrelated ?a ?b] => now apply ref_unrelated_symm
+    | [H : ?b <> ?a |- ?a <> ?b] => now symmetry
+    | [H : Ref_Unrelated ?a ?b |- ?a <> ?b] => now apply ref_unrelated_neq
+    | [H : Ref_Unrelated ?b ?a |- ?a <> ?b] => symmetry; now apply ref_unrelated_neq
+    end.
+
   Ltac vm_microstep_commute :=
     lazymatch goal with
     | [ |- commute (exec_proc ?proc1) (schedule_out_certain ?proc2) ] =>
-        now apply exec_proc_schedule_commute
+        apply exec_proc_schedule_commute; vm_microstep_pid_neq
     | [ |- commute (schedule_out_certain ?proc2) (exec_proc ?proc1) ] =>
-        now apply commute_sym, exec_proc_schedule_commute
+        apply commute_sym, exec_proc_schedule_commute; vm_microstep_pid_neq
     | [ |- commute (schedule_out_certain ?proc1) (schedule_out_certain ?proc2) ] =>
-        now apply schedule_out_certain_commute
+        apply schedule_out_certain_commute; vm_microstep_pid_neq
     | _ =>
         first [assumption | now apply commute_sym]
     end.
   (* end hide *)
 
   Lemma vm_exec_commute proc1 proc2 :
-    pid proc1 <> pid proc2 ->
+    Ref_Unrelated (pid proc1) (pid proc2) ->
     commute (exec_proc proc1) (exec_proc proc2) ->
     event_commute proc1 proc2.
   Proof.
@@ -715,7 +752,7 @@ Global Arguments initVm {_ _} _ {_}.
 
 Section commut.
   Context `{IOH : IOHandler} {mbt1 mbt2 : Set} {pid1 pid2 : Ref}
-    (Hpids : pid1 <> pid2).
+    (Hpids : Ref_Unrelated pid1 pid2).
 
   Let Program := @Program (h_request_t IOH) (h_reply_t IOH).
 
@@ -752,7 +789,7 @@ Section commut.
   Abort.
 
   Lemma io_io_commute req1 req2 cont1 cont2 :
-    MFunRet_commute (h_handler pid1 req1) (h_handler pid2 req2) ->
+    commute_ret (h_handler pid1 req1) (h_handler pid2 req2) ->
     event_commute {| pid := pid1; proc_mb_t := mbt1; cont := p_io req1 cont1 |}
                   {| pid := pid2; proc_mb_t := mbt2; cont := p_io req2 cont2 |}.
   Proof.

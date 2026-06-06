@@ -36,16 +36,6 @@ End mailbox.
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
-  Class IOHandlerBlocks (VM World : Type) `{iohm_setoid : Setoid VM} := {
-      lift_w_ret {Ret World : Type} `{Heqiv_r : Setoid Ret} `{Hequiv_w : Setoid World}
-        (w_morph : @MFunRet Ret World Heqiv_r Hequiv_w) : @MFunRet Ret VM Heqiv_r iohm_setoid;
-
-      lift_w {World : Type} `{Hequiv_w : Setoid World}
-        (w_morph : @MFun World World Hequiv_w Hequiv_w) : @MFun VM VM iohm_setoid iohm_setoid;
-
-      make_ref : @MFunRet Ref VM _ iohm_setoid;
-    }.
-
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;

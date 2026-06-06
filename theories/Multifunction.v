@@ -107,6 +107,14 @@ Section assoc.
   Qed.
 End assoc.
 
+Section equiv.
+  Context {Dom Cod} `{HDom : Setoid Dom} `{HCod : Setoid Cod}.
+
+  Definition mfun_equiv (f g : @MFun Dom Cod HDom HCod) :=
+    forall a b,
+      a ~[f]~> b <-> a ~[g]~> b.
+End equiv.
+
 Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.
@@ -266,6 +274,56 @@ Section props.
   Qed.
 End props.
 
+Section mfun_equiv_commut.
+  Context {A} `{HA : Setoid A}.
+
+  Let F := @MFun A A HA HA.
+
+  Lemma mfun_equiv_commut f g g1 g2 :
+    mfun_equiv g (g2 ∘ g1) ->
+    commute f g1 ->
+    commute f g2 ->
+    commute f g.
+  Proof.
+    intros Hg Hcomm_g1 Hcomm_g2 a z.
+    split; intros H; unfold mfun_equiv in Hg.
+    - destruct H as [b [Hb Hz]].
+      rewrite Hg in Hz.
+      destruct Hz as [d [Hd Hz]].
+      destruct (Hcomm_g1 a d) as [Hg1f Hfg1]. clear Hfg1.
+      destruct Hg1f as [d' [Had' Hcd']]. { sauto. }
+      morph_shift g2 d'.
+      destruct Had' as [c' Hc'].
+      destruct (Hcomm_g2 c' z') as [Hg2f Hfg2].
+      destruct Hg2f as [z'' [Hz'' Hz'z'']]. { sauto. }
+      destruct Hz'' as [e'' He''].
+      exists z''.
+      split.
+      + exists e''.
+        split.
+        * rewrite Hg. sauto.
+        * easy.
+      + now rewrite Hequiv_z_z', Hz'z''.
+    - destruct H as [c [Hc Hz]].
+      rewrite Hg in Hc.
+      destruct Hc as [b [Hb Hc]].
+      destruct (Hcomm_g2 b z) as [Hg2f Hfg2]. clear Hg2f.
+      destruct Hfg2 as [z' [Hbz' Hzz']]. { sauto. }
+      destruct Hbz' as [d [Hdz' Hbd']].
+      destruct (Hcomm_g1 a d) as [Hg1f Hfg1]. clear Hg1f.
+      destruct Hfg1 as [d' [Had' Hdd']]. { sauto. }
+      destruct Had' as [b' [Hab' Hb'd']].
+      morph_shift g2 d'.
+      exists z''.
+      split.
+      + exists b'.
+        split.
+        * easy.
+        * rewrite Hg. exists d'. sauto.
+      + now rewrite Hzz', Hequiv_z'_z''.
+  Qed.
+End mfun_equiv_commut.
+
 Fact eq_setoid_commutative {A} (a b : @MFun A A (eq_setoid A) (eq_setoid A)) :
   eq_commute a b <-> commute a b.
 Proof.
@@ -394,7 +452,7 @@ Section MFunRet.
                           HState (@pair_setoid _ _ HRet HState).
 End MFunRet.
 
-Definition MFunRet_commute {State Ret1 Ret2}
+Definition commute_ret {State Ret1 Ret2}
   `{Hss : Setoid State}
   `{Hsr1 : Setoid Ret1}
   `{Hsr2 : Setoid Ret2}
