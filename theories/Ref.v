@@ -2,7 +2,8 @@ From Stdlib Require Import
   ZArith
   FMapInterface
   FMapAVL
-  OrderedTypeEx.
+  OrderedTypeEx
+  Lia.
 
 Import ListNotations.
 
@@ -158,6 +159,14 @@ Module RefOrd <: OrderedType.
     - constructor 1. now symmetry in HeqH.
     - constructor 3. symmetry in HeqH. now apply compare_asymm in HeqH.
   Qed.
+
+  Lemma ref_eq_dec (a b : t) : {a = b} + {a <> b}.
+  Proof.
+    destruct (compare a b).
+    - right. now apply lt_not_eq.
+    - now left.
+    - right. apply lt_not_eq in l. now symmetry.
+  Qed.
 End RefOrd.
 
 Module FMap.
@@ -178,55 +187,86 @@ Module Fresh.
       | None =>
           (put parent 2 cc, 1)
       end in
-    (parent ++ [ctr], cc).
-
-  Definition take_last (l : Ref) : option (positive * Ref) :=
-    let fix f lst acc l :=
-      match l with
-      | [] => (lst, acc)
-      | (el :: l) => f el (lst :: acc) l
-      end in
-    match l with
-    | [] => None
-    | (a :: l) =>
-        let (lst, head) := f a [] l in
-        Some (lst, rev head)
-    end.
-
-  Goal take_last [] = None.
-    easy.
-  Qed.
-
-  Goal take_last [1] = Some (1, []).
-    easy.
-  Qed.
-
-  Goal take_last [1; 2; 3] = Some (3, [1; 2]).
-    easy.
-  Qed.
+    (ctr :: parent, cc).
 
   Definition is_valid_ref (ref : Ref) (cc : t) : bool :=
-    match take_last ref with
-    | None => true
-    | Some (lst, parent) =>
-        match get (rev parent) cc with
-        | None => false
-        | Some ctr => Pos.leb lst ctr
+    match ref with
+    | [] => true
+    | (child :: parent) =>
+        match get parent cc with
+        | None =>
+            false
+        | Some parent_child_ctr =>
+            Pos.ltb child parent_child_ctr
         end
     end.
+
+  Opaque put.
+
+  Lemma makes_valid_ref (parent new : Ref) (cc cc' : t) :
+    make parent cc = (new, cc') ->
+    is_valid_ref new cc' = true.
+  Proof with try easy; lia.
+    unfold make, is_valid_ref.
+    intros Hnew.
+    destruct (get parent cc).
+    - inversion Hnew.
+      rewrite keep.
+      assert (H : p <= p + 1) by lia.
+      destruct (Pos.ltb_spec0 p (p + 1))...
+    - inversion Hnew.
+      rewrite keep.
+      destruct (Pos.leb_spec0 1 2)...
+  Qed.
+
+  Lemma make_keeps_valid (parent other new : Ref) (cc cc' : t) :
+    is_valid_ref other cc = true ->
+    make parent cc = (new, cc') ->
+    is_valid_ref other cc' = true.
+  Proof.
+    unfold make, is_valid_ref.
+    intros Hvalid Hnew.
+    destruct other as [|oc oparent].
+    - easy.
+    - destruct (RefOrd.ref_eq_dec oparent parent).
+      2:{ (* parent <> oparent *)
+        destruct (get parent cc);
+          inversion Hnew; clear Hnew;
+          rewrite <-distinct; assumption.
+      }
+      (* parent = oparent *)
+      subst. unfold Ref in *.
+      destruct (get parent cc); inversion Hnew; clear Hnew.
+      + subst. rewrite keep.
+        destruct (Pos.ltb_spec0 oc (p + 1));
+          destruct (Pos.ltb_spec0 oc p);
+          try easy; lia.
+      + discriminate.
+  Qed.
 
   Lemma make_valid_ref (parent other new : Ref) (cc cc' : t) :
     is_valid_ref other cc = true ->
     make parent cc = (new, cc') ->
     new <> other.
   Proof.
+    unfold is_valid_ref, make.
     intros Hvald Hnew.
-    unfold make, is_valid_ref in *.
-    remember (get parent cc) as ctr.
-    destruct other as [|a others_tl].
-    - destruct ctr as [ctr|];
-        inversion Hnew;
-        destruct parent;
-        easy.
-  Admitted.
+    destruct other as [|oc oparent].
+    - sauto.
+    - destruct (RefOrd.ref_eq_dec parent oparent).
+      2:{ (* parent <> oparent *)
+        destruct (get parent cc) as [pctr|];
+          inversion Hnew; clear Hnew; sauto.
+      }
+      (* parent = oparent *)
+      intros Habsurd.
+      subst.
+      unfold Ref in *.
+      remember (get oparent cc) as maybe_ctr.
+      destruct maybe_ctr as [ctr|].
+      + inversion Hnew; clear Hnew.
+        subst.
+        destruct (Pos.ltb_spec0 oc oc); lia.
+      + discriminate.
+  Qed.
 End Fresh.
