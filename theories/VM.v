@@ -94,6 +94,8 @@ Section VM.
   #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
   (* end hide *)
 
+  Definition proc_valid_pid ref_ctr proc := Fresh.is_valid_ref (pid proc) ref_ctr = true.
+
   (** ** VM
       [VM] record defines state of the entire VM.
    *)
@@ -105,10 +107,12 @@ Section VM.
         runq : list Process;
         (** Counter that gets incremented when process creates a reference: *)
         ref_ctr : Ref.Fresh.t;
+        (** Invariant: all processes have valid pids: *)
+        inv_valid_pids : Forall (proc_valid_pid ref_ctr) runq;
       }.
 
   (* begin hide *)
-  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr>.
+  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr; inv_valid_pids>.
   (* end hide *)
 
   Global Program Instance vm_setoid : Setoid VM :=
@@ -126,10 +130,246 @@ Section VM.
     - intros a b c. destruct a, b, c. repeat split...
   Qed.
 
-  Definition make_ref (parent : Ref) (v : VM) : Ref * VM :=
-    let cc := ref_ctr v in
-    let (ref, cc) := Fresh.make parent cc in
-    (ref, v<| ref_ctr := cc |>).
+  Fixpoint do_delete (runq : list Process) (ref : Ref) :=
+    match runq with
+    | [] => []
+    | (proc :: rest) =>
+        match RefOrd.eqb (pid proc) ref with
+        | true => rest
+        | false => proc :: do_delete rest ref
+        end
+    end.
+
+  Lemma sched_delete_invariant
+    (ref : Ref)
+    (rq : list Process)
+    (rc : Fresh.t)
+    (inv_valid_rq : Forall (proc_valid_pid rc) rq) :
+    Forall (proc_valid_pid rc) (do_delete rq ref).
+  Proof.
+    induction rq as [|proc rq IH].
+    - easy.
+    - unfold do_delete.
+      remember (RefOrd.eqb (pid proc) ref) as is_equal.
+      destruct is_equal as [Hpids|Hpids].
+      + now inversion inv_valid_rq.
+      + inversion inv_valid_rq. subst. clear inv_valid_rq.
+        symmetry in Heqis_equal.
+        sauto.
+  Qed.
+
+  Fixpoint do_replace (f : Process -> Process) (runq : list Process) (ref : Ref) :=
+    match runq with
+    | [] => []
+    | (proc :: rest) =>
+        match RefOrd.eqb (pid proc) ref with
+        | true => f proc :: rest
+        | false => proc :: do_replace f rest ref
+        end
+    end.
+
+  Definition with_old_pid (mb_t : Set) (cont : Program mb_t) (proc : Process) :=
+    {| pid := pid proc; proc_mb_t := mb_t; cont := cont |}.
+
+  Lemma sched_replace_invariant
+    (mb_t : Set)
+    (cont : Program mb_t)
+    (ref : Ref)
+    (rq : list Process)
+    (rc : Fresh.t)
+    (inv_valid_rq : Forall (proc_valid_pid rc) rq) :
+    Forall
+      (proc_valid_pid rc)
+      (do_replace (with_old_pid mb_t cont) rq ref).
+  Proof.
+    induction rq as [|proc rq IH].
+    - easy.
+    - inversion inv_valid_rq as [|proc_ rq_ Hvalid_proc Hvalid_rq Hproc_].
+      subst.
+      remember (RefOrd.eqb (pid proc) ref) as is_eq. symmetry in Heqis_eq.
+      specialize (RefOrd.eqb_spec (pid proc) ref) as H.
+      destruct is_eq; rewrite Heqis_eq in H; inversion H; subst.
+      + simpl. rewrite RefOrd.eqb_refl. constructor.
+        * unfold proc_valid_pid in Hvalid_proc.
+          unfold proc_valid_pid.
+          simpl. assumption.
+        * assumption.
+      + simpl. rewrite Heqis_eq.
+        constructor.
+        * assumption.
+        * now apply IH.
+  Qed.
+
+  Definition sched_replace
+    (mb_t : Set) (cont : Program mb_t) (ref : Ref) (vm : VM) : VM.
+  Proof.
+    destruct vm as [w rq rc inv_valid_rq].
+    set (rq' := do_replace (with_old_pid mb_t cont) rq ref).
+    specialize (sched_replace_invariant mb_t cont ref rq rc inv_valid_rq) as inv_valid_rq'.
+    exact {| world := w;
+            runq := rq';
+            ref_ctr := rc;
+            inv_valid_pids := inv_valid_rq'
+          |}.
+  Defined.
+
+  (* begin details *)
+  Lemma schedule_in_new_inv
+    (parent : Ref)
+    (rq : list Process)
+    (rc : Fresh.t)
+    (inv_valid : Forall (proc_valid_pid rc) rq)
+    (new : Ref)
+    (rc' : Fresh.t)
+    (Heqfresh : Fresh.make parent rc = (new, rc'))
+    (Hnewvalid : Fresh.is_valid_ref new rc' = true) :
+    Forall (proc_valid_pid rc') rq.
+  Proof.
+    induction inv_valid as [|proc l Hproc Hl IH].
+    - constructor.
+    - constructor.
+      + apply Fresh.make_keeps_valid with (new := new) (cc := rc) (parent := parent); assumption.
+      + assumption.
+  Qed.
+  (* end details *)
+
+  (** Allocate a new pid for a process and add it to the VM *)
+  Definition schedule_in_new
+    (child_mb_t : Set) (child_cont : Program child_mb_t)
+    (parent : Ref) (parent_cont : @Address child_mb_t)
+    (v : VM) : @Address child_mb_t * VM.
+  Proof.
+    destruct v as [w rq rc inv_valid].
+    remember (Fresh.make parent rc) as fresh.
+    symmetry in Heqfresh.
+    destruct fresh as [new rc'].
+    specialize (Fresh.makes_valid_ref parent new rc rc' Heqfresh) as Hnewvalid.
+    specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
+    set (rq' := {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} :: rq).
+    assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
+      apply Forall_cons_iff. split; assumption.
+    }
+    exact
+      ( mkAddress child_mb_t new,
+        {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}
+      ).
+  Defined.
+
+  Definition do_spawn
+    (child_mb_t : Set) (child_cont : Program child_mb_t)
+    (parent : Ref) (parent_mb_t : Set)
+    (parent_cont : @Address child_mb_t -> Program parent_mb_t)
+    (vm : VM)
+    (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
+    : VM :=
+    (* TODO: change the world *)
+    let (new, vm') := schedule_in_new parent child_mb_t child_cont vm in
+    sched_replace parent_mb_t (parent_cont new) parent vm'.
+
+  Lemma proc_in_vm_is_valid vm proc :
+    List.In proc (runq vm) ->
+    Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true.
+  Proof.
+    intros Hin.
+    destruct vm as [w rq rc inv].
+    simpl in Hin.
+    induction rq.
+    - sauto.
+    - destruct Hin as [Hin | Hin].
+      + subst.
+        inversion inv. sauto.
+      + inversion inv. subst.
+        specialize (IHrq H2 Hin). assumption.
+  Qed.
+
+  Definition schedule_morph0 (proc : Process) (vm1 vm2 : VM) (Hin : List.In proc (runq vm1)) : Prop.
+  Proof.
+    destruct (cont proc) as [| | |child_mb_t child cont].
+    - (* die *)
+      exact False.
+    - (* yield *)
+      exact False.
+    - (* io *)
+      exact False.
+    - (* spawn *)
+      set (vm' := do_spawn child_mb_t child (pid proc) (proc_mb_t proc) cont vm1 (proc_in_vm_is_valid vm1 proc Hin)).
+      exact (vm2 = vm').
+  Defined.
+
+  Inductive schedule_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
+  | schedule_morph_ :
+    forall (H : List.In proc (runq vm1)),
+      schedule_morph0 proc vm1 vm2 H ->
+      schedule_morph proc vm1 vm2.
+
+  (* Inductive ScheduleDef (vm : VM) : Process -> VM -> Prop := *)
+  (* | schedule_spawn : *)
+  (*   forall (child_mb_t : Set) (child_cont : Program child_mb_t) *)
+  (*     (parent : Ref) (parent_mb_t : Set) *)
+  (*     (parent_cont : @Address child_mb_t -> Program parent_mb_t), *)
+  (*     let proc := {| *)
+  (*                  pid := parent; *)
+  (*                  proc_mb_t := parent_mb_t; *)
+  (*                  cont := @p_spawn _ child_mb_t child_cont parent_cont *)
+  (*                |} in *)
+  (*     forall (Hin : List.In proc (runq vm)), *)
+  (*       ScheduleDef *)
+  (*         vm *)
+  (*         proc *)
+  (*         (do_spawn *)
+  (*            child_mb_t *)
+  (*            child_cont *)
+  (*            parent *)
+  (*            parent_mb_t *)
+  (*            parent_cont *)
+  (*            vm *)
+  (*            (proc_in_vm_is_valid vm proc Hin)). *)
+
+  Lemma schedule_covariance proc vm1 vm1' vm2 :
+    vm1 == vm1' ->
+    schedule_morph proc vm1 vm2 ->
+    exists{vm2' == vm2}, schedule_morph proc vm1' vm2'.
+  Admitted.
+
+  Definition schedule (proc : Process) : MFun VM VM :=
+    {| morphism := schedule_morph proc;
+      morphism_covariance := schedule_covariance proc;
+    |}.
+
+  Lemma spawn_spawn_commut
+    (child_mb_t1 : Set) (child_cont1 : Program child_mb_t1)
+    (parent1 : Ref) (parent_mb_t1 : Set)
+    (parent_cont1 : @Address child_mb_t1 -> Program parent_mb_t1)
+    (child_mb_t2 : Set) (child_cont2 : Program child_mb_t2)
+    (parent2 : Ref) (parent_mb_t2 : Set)
+    (parent_cont2 : @Address child_mb_t2 -> Program parent_mb_t2):
+    parent1 <> parent2 ->
+    commute_ctx
+      (fun w =>
+         Fresh.is_valid_ref parent1 (ref_ctr w) = true /\
+         Fresh.is_valid_ref parent2 (ref_ctr w) = true)
+      (schedule {| pid := parent1;
+                  proc_mb_t := parent_mb_t1;
+                  cont := @p_spawn _ child_mb_t1 child_cont1 parent_cont1
+                |})
+      (schedule {| pid := parent2;
+                  proc_mb_t := parent_mb_t2;
+                  cont := @p_spawn _ child_mb_t2 child_cont2 parent_cont2
+                |}).
+  Proof.
+    intros Hpids. intros [w1 rq1 rc1 pids_inv1] [w3 rq3 pids_inv3].
+    split; intros Hvm3.
+    { destruct Hvm3 as [vm2 [Hvm2 Hvm3]].
+      simpl in *.
+      destruct Hvm2 as [Hin1 Hvm2].
+      destruct Hvm3 as [Hin2 Hvm3].
+      unfold schedule_morph0 in *. simpl in *. subst.
+
+      unfold do_spawn in *. simpl in *.
+
+      inversion Hvm2 as [? ? ? ? p1_cont p1 Hp1in] ; subst; clear Hvm2.
+      subst p1.
+
 
   (*
   Lemma make_ref_commut vm r1 r2 vm1' vm1'' vm2' vm2'' r11 r12 r21 r22 :
