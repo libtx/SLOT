@@ -130,6 +130,8 @@ Section VM.
     - intros a b c. destruct a, b, c. repeat split...
   Qed.
 
+  Let maybe_proc_vm := option (Process * VM).
+
   Fixpoint do_delete (runq : list Process) (ref : Ref) :=
     match runq with
     | [] => []
@@ -233,38 +235,33 @@ Section VM.
   Qed.
   (* end details *)
 
-  (** Allocate a new pid for a process and add it to the VM *)
-  Definition schedule_in_new
+  (** Allocate a new pid for a process and add it to the VM.
+      Update the parent process (which should be scheduled out),
+      and add it to the VM too *)
+  Definition do_spawn
     (child_mb_t : Set) (child_cont : Program child_mb_t)
-    (parent : Ref) (parent_cont : @Address child_mb_t)
-    (v : VM) : @Address child_mb_t * VM.
+    (parent : Ref) (parent_mb_t : Set) (parent_cont : @Address child_mb_t -> Program parent_mb_t)
+    (vm : VM)
+    (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
   Proof.
-    destruct v as [w rq rc inv_valid].
+    destruct vm as [w rq rc inv_valid].
     remember (Fresh.make parent rc) as fresh.
     symmetry in Heqfresh.
     destruct fresh as [new rc'].
     specialize (Fresh.makes_valid_ref parent new rc rc' Heqfresh) as Hnewvalid.
     specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
-    set (rq' := {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} :: rq).
+    set (addr := mkAddress child_mb_t new).
+    set (rq' :=
+           {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
+           {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
+           rq).
     assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
-      apply Forall_cons_iff. split; assumption.
+      apply Forall_cons_iff. split.
+      - eapply Fresh.make_keeps_valid; eauto.
+      - apply Forall_cons_iff. split; assumption.
     }
-    exact
-      ( mkAddress child_mb_t new,
-        {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}
-      ).
+    exact {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
   Defined.
-
-  Definition do_spawn
-    (child_mb_t : Set) (child_cont : Program child_mb_t)
-    (parent : Ref) (parent_mb_t : Set)
-    (parent_cont : @Address child_mb_t -> Program parent_mb_t)
-    (vm : VM)
-    (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
-    : VM :=
-    (* TODO: change the world *)
-    let (new, vm') := schedule_in_new parent child_mb_t child_cont vm in
-    sched_replace parent_mb_t (parent_cont new) parent vm'.
 
   Lemma proc_in_vm_is_valid vm proc :
     List.In proc (runq vm) ->
@@ -282,7 +279,7 @@ Section VM.
         specialize (IHrq H2 Hin). assumption.
   Qed.
 
-  Definition schedule_morph0 (proc : Process) (vm1 vm2 : VM) (Hin : List.In proc (runq vm1)) : Prop.
+  Definition schedule_morph0 (proc : Process) (vm1 vm2 : VM) (Hvalid : proc_valid_pid (ref_ctr vm1) proc) : Prop.
   Proof.
     destruct (cont proc) as [| | |child_mb_t child cont].
     - (* die *)
@@ -292,7 +289,7 @@ Section VM.
     - (* io *)
       exact False.
     - (* spawn *)
-      set (vm' := do_spawn child_mb_t child (pid proc) (proc_mb_t proc) cont vm1 (proc_in_vm_is_valid vm1 proc Hin)).
+      set (vm' := do_spawn child_mb_t child (pid proc) (proc_mb_t proc) cont vm1 Hvalid).
       exact (vm2 = vm').
   Defined.
 
@@ -541,8 +538,6 @@ Section VM.
 
   Definition vm_process_io (pid : Ref) mb_t (req : Request) (next : Reply req -> Program mb_t) : MFun VM VM :=
     vm_handle_io_reply mb_t pid next ∘ lift_w_ret (h_handler pid req).
-
-  Definition maybe_proc_vm := option (Process * VM).
 
   Program Definition schedule_in (proc : Process) : MFun VM VM :=
     pure (fun vm => vm <| runq := proc :: runq vm |>) _.
