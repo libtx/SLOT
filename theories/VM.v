@@ -130,90 +130,13 @@ Section VM.
     - intros a b c. destruct a, b, c. repeat split...
   Qed.
 
+  Inductive MaybeValidProc :=
+  | mvp_nil : MaybeValidProc
+  | mvp_some : forall (proc : Process) (vm : VM),
+      proc_valid_pid (ref_ctr vm) proc ->
+      MaybeValidProc.
+
   Let maybe_proc_vm := option (Process * VM).
-
-  Fixpoint do_delete (runq : list Process) (ref : Ref) :=
-    match runq with
-    | [] => []
-    | (proc :: rest) =>
-        match RefOrd.eqb (pid proc) ref with
-        | true => rest
-        | false => proc :: do_delete rest ref
-        end
-    end.
-
-  Lemma sched_delete_invariant
-    (ref : Ref)
-    (rq : list Process)
-    (rc : Fresh.t)
-    (inv_valid_rq : Forall (proc_valid_pid rc) rq) :
-    Forall (proc_valid_pid rc) (do_delete rq ref).
-  Proof.
-    induction rq as [|proc rq IH].
-    - easy.
-    - unfold do_delete.
-      remember (RefOrd.eqb (pid proc) ref) as is_equal.
-      destruct is_equal as [Hpids|Hpids].
-      + now inversion inv_valid_rq.
-      + inversion inv_valid_rq. subst. clear inv_valid_rq.
-        symmetry in Heqis_equal.
-        sauto.
-  Qed.
-
-  Fixpoint do_replace (f : Process -> Process) (runq : list Process) (ref : Ref) :=
-    match runq with
-    | [] => []
-    | (proc :: rest) =>
-        match RefOrd.eqb (pid proc) ref with
-        | true => f proc :: rest
-        | false => proc :: do_replace f rest ref
-        end
-    end.
-
-  Definition with_old_pid (mb_t : Set) (cont : Program mb_t) (proc : Process) :=
-    {| pid := pid proc; proc_mb_t := mb_t; cont := cont |}.
-
-  Lemma sched_replace_invariant
-    (mb_t : Set)
-    (cont : Program mb_t)
-    (ref : Ref)
-    (rq : list Process)
-    (rc : Fresh.t)
-    (inv_valid_rq : Forall (proc_valid_pid rc) rq) :
-    Forall
-      (proc_valid_pid rc)
-      (do_replace (with_old_pid mb_t cont) rq ref).
-  Proof.
-    induction rq as [|proc rq IH].
-    - easy.
-    - inversion inv_valid_rq as [|proc_ rq_ Hvalid_proc Hvalid_rq Hproc_].
-      subst.
-      remember (RefOrd.eqb (pid proc) ref) as is_eq. symmetry in Heqis_eq.
-      specialize (RefOrd.eqb_spec (pid proc) ref) as H.
-      destruct is_eq; rewrite Heqis_eq in H; inversion H; subst.
-      + simpl. rewrite RefOrd.eqb_refl. constructor.
-        * unfold proc_valid_pid in Hvalid_proc.
-          unfold proc_valid_pid.
-          simpl. assumption.
-        * assumption.
-      + simpl. rewrite Heqis_eq.
-        constructor.
-        * assumption.
-        * now apply IH.
-  Qed.
-
-  Definition sched_replace
-    (mb_t : Set) (cont : Program mb_t) (ref : Ref) (vm : VM) : VM.
-  Proof.
-    destruct vm as [w rq rc inv_valid_rq].
-    set (rq' := do_replace (with_old_pid mb_t cont) rq ref).
-    specialize (sched_replace_invariant mb_t cont ref rq rc inv_valid_rq) as inv_valid_rq'.
-    exact {| world := w;
-            runq := rq';
-            ref_ctr := rc;
-            inv_valid_pids := inv_valid_rq'
-          |}.
-  Defined.
 
   (* begin details *)
   Lemma schedule_in_new_inv
