@@ -34,6 +34,50 @@ Module RefOrd <: OrderedType.
     apply list_eq_dec, positive_eq_dec.
   Qed.
 
+  Fixpoint eqb (a b : t) : bool :=
+    match a, b with
+    | [], [] =>
+        true
+    | _ :: _, [] =>
+        false
+    | [], _ :: _ =>
+        false
+    | a :: la, b :: lb =>
+        match Pos.eqb a b with
+        | true => eqb la lb
+        | false => false
+        end
+    end.
+
+  Lemma eqb_refl a : eqb a a = true.
+  Proof.
+    induction a.
+    - easy.
+    - simpl.
+      now rewrite Pos.eqb_refl.
+  Qed.
+
+  Lemma eqb_spec : forall a b, reflect (a = b) (eqb a b).
+  Proof.
+    intros.
+    destruct (eq_dec a b).
+    { subst. rewrite eqb_refl. now constructor. }
+    { assert (H : eqb a b = false).
+      2:{ rewrite H. now constructor. }
+      generalize dependent b.
+      induction a as [|a la].
+      - sauto.
+      - intros b Hb.
+        destruct b as [|b lb].
+        + sauto.
+        + destruct (Pos.eq_dec a b) as [Hab | Hab].
+          * subst. simpl. rewrite Pos.eqb_refl.
+            sauto.
+          * simpl.
+            specialize (Pos.eqb_spec a b) as H. sauto.
+    }
+  Qed.
+
   Fixpoint compare_ (a b : t) : comparison :=
     match a, b with
     | [], [] => Eq
@@ -159,14 +203,6 @@ Module RefOrd <: OrderedType.
     - constructor 1. now symmetry in HeqH.
     - constructor 3. symmetry in HeqH. now apply compare_asymm in HeqH.
   Qed.
-
-  Lemma ref_eq_dec (a b : t) : {a = b} + {a <> b}.
-  Proof.
-    destruct (compare a b).
-    - right. now apply lt_not_eq.
-    - now left.
-    - right. apply lt_not_eq in l. now symmetry.
-  Qed.
 End RefOrd.
 
 Module FMap.
@@ -228,7 +264,7 @@ Module Fresh.
     intros Hvalid Hnew.
     destruct other as [|oc oparent].
     - easy.
-    - destruct (RefOrd.ref_eq_dec oparent parent).
+    - destruct (RefOrd.eq_dec oparent parent).
       2:{ (* parent <> oparent *)
         destruct (get parent cc);
           inversion Hnew; clear Hnew;
@@ -253,7 +289,7 @@ Module Fresh.
     intros Hvald Hnew.
     destruct other as [|oc oparent].
     - sauto.
-    - destruct (RefOrd.ref_eq_dec parent oparent).
+    - destruct (RefOrd.eq_dec parent oparent).
       2:{ (* parent <> oparent *)
         destruct (get parent cc) as [pctr|];
           inversion Hnew; clear Hnew; sauto.
