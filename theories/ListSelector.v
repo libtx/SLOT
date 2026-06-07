@@ -16,7 +16,7 @@ Section defn.
   Definition Pick (l : list A) a (l' : list A) : Prop :=
     Add a l' l.
 
-  Lemma pick_forall prop l a l' :
+  Lemma pick_forall_elem prop l a l' :
     Forall prop l ->
     Pick l a l' ->
     prop a.
@@ -30,6 +30,16 @@ Section defn.
     }
     specialize (Forall_forall prop l) as [Hf Hf'].
     now apply Hf with (x := a) in Hprop.
+  Qed.
+
+  Lemma pick_forall_rest prop l a l' :
+    Forall prop l ->
+    Pick l a l' ->
+    Forall prop l'.
+  Proof.
+    unfold Pick.
+    intros Hprop Hpick.
+    induction Hpick; sauto.
   Qed.
 
   Lemma pick_equiv l1 l1' l2 a :
@@ -137,6 +147,30 @@ Section defn.
       apply morphism_covariance with (x' := x') in H1; [|assumption].
       destruct H1 as [ret Hret].
       exists (Some ret). sauto.
+  Qed.
+
+  Lemma pick_mfun_option_forall_elem prop l a l' :
+    Forall prop l ->
+    l ~[pick_mfun_option]~> Some (a, l') ->
+    prop a.
+  Proof.
+    unfold pick_mfun_option.
+    intros Hprop Hpick.
+    inversion_clear Hpick.
+    unfold pick_mfun in H. simpl in H.
+    eapply pick_forall_elem; eauto.
+  Qed.
+
+  Lemma pick_mfun_option_forall_rest prop l a l' :
+    Forall prop l ->
+    l ~[pick_mfun_option]~> Some (a, l') ->
+    Forall prop l'.
+  Proof.
+    unfold pick_mfun_option.
+    intros Hprop Hpick.
+    inversion_clear Hpick.
+    unfold pick_mfun in H. simpl in H.
+    eapply pick_forall_rest; eauto.
   Qed.
 
   Program Definition pick_cons_mfun (a : A) : @MFun (list A) (list A)
