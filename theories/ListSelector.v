@@ -16,6 +16,22 @@ Section defn.
   Definition Pick (l : list A) a (l' : list A) : Prop :=
     Add a l' l.
 
+  Lemma pick_forall prop l a l' :
+    Forall prop l ->
+    Pick l a l' ->
+    prop a.
+  Proof.
+    unfold Pick.
+    intros Hprop Hpick.
+    assert (Hin : In a l). {
+      apply Add_in with (x := a) in Hpick.
+      apply Hpick.
+      now constructor.
+    }
+    specialize (Forall_forall prop l) as [Hf Hf'].
+    now apply Hf with (x := a) in Hprop.
+  Qed.
+
   Lemma pick_equiv l1 l1' l2 a :
     l1 =p= l1' ->
     Pick l1 a l2 ->
