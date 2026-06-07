@@ -354,7 +354,9 @@ Section VM.
     apply morphism_covariance with (x' := rq1') in H1; [|assumption].
     destruct H1 as [rq2' [Hrq2' Hrq2rq2']].
     exists {| world := w1'; ref_ctr := rc1'; runq := rq2' |}.
-    sauto.
+    split.
+    - now constructor.
+    - sauto.
   Qed.
 
   Lemma schedule_out_certain_commute proc1 proc2 :
@@ -461,95 +463,6 @@ Section VM.
         end
     end.
 
-  Lemma exec_proc_schedule_commute proc1 proc2 :
-    Ref_Unrelated (pid proc1) (pid proc2) ->
-    commute (exec_proc proc1) (schedule_out_certain proc2).
-  Proof.
-    intros Hpids.
-    destruct proc1 as [pid1 mb_t1 cont1].
-    intros [w1 rq1 rc1] [w3 rq3 rc3]; split;
-      intros [[w2 rq2 rc2] [Hvm2 Hvm3]].
-    - inversion Hvm3 as [? ? ? ? Hvm3_]; subst; clear Hvm3.
-      unfold exists_equiv.
-      destruct cont1.
-      + (* die *)
-        destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
-        exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
-        split; [|easy].
-        unfold exec_proc, vm_process_die.
-        exists {| world := w1; runq := rq3; ref_ctr := rc3 |}.
-        sauto.
-      + (* yield *)
-        inversion Hvm2; subst; clear Hvm2.
-        simpl in Hvm3_.
-        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
-        destruct Hvm3_ as [rq2 [? Hrq2]]. subst.
-        exists {|
-            world := w3;
-            ref_ctr := rc3;
-            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 |} :: rq2
-          |}.
-        split; [|sauto].
-        exists {| world := w3; ref_ctr := rc3; runq := rq2 |}.
-        sauto.
-      + (* do I/O *)
-        inversion Hvm2; subst; clear Hvm2.
-        destruct x as [iorepl vm2].
-        destruct H as [Hvm2 Hcont].
-        inversion Hcont; subst; clear Hcont.
-        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
-        destruct Hvm3_ as [rq3' [Hrq3' Hpick]]. subst.
-        destruct vm2 as [w2 rq2 rc2].
-        destruct Hvm2 as [Hrepl [Hrq Hrc]]. subst.
-        exists {|
-            world := w2;
-            ref_ctr := rc2;
-            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := continuation iorepl |} :: rq3';
-          |}.
-        split.
-        * unfold exec_proc.
-          exists {| world := w1; ref_ctr := rc2; runq := rq3' |}.
-          split.
-          -- sauto.
-          -- unfold vm_process_io.
-             exists (iorepl, {| world := w2; ref_ctr:= rc2; runq := rq3' |}).
-             sauto.
-        * sauto.
-      + (* spawn *)
-        unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
-        unfold do_spawn in Hvm2.
-        remember (make_ref pid1 {| world := w1; runq := rq1; ref_ctr := rc1 |}) as x.
-        destruct x as [new_pid vm2].
-        inversion Hvm2. subst. clear Hvm2. simpl in Hpids.
-        simpl in Hvm3_.
-        apply pick_cons in Hvm3_; [|sauto use: ref_unrelated_neq].
-        destruct Hvm3_ as [rq3' [Hrq3 Hrq3']]. subst.
-        apply pick_cons in Hrq3'.
-        2:{ (* Prove that new_proc =/= proc2 *)
-          symmetry in Heqx. unfold make_ref in Heqx.
-          rewrite vm2
-          simpl in Heqx.
-          specialize Fresh.make_from_unrelated with
-            (parent := pid1)
-            (child := new_pid)
-            (other := (pid proc2))
-            (c := rc1) as Hunrel.
-          apply ref_unrelated_neq in Hunrel.
-          Search Ref_Unrelated.
-          inversion Heqx.
-          eapply H in Hpids.
-
-
-          apply Fresh.make_unrelated with (other := (pid proc2)) in Heqx;
-            [|assumption].
-            apply ref_unrelated_neq in Heqx.
-            sauto.
-        }
-        destruct Hrq3' as [rq4 [Hrq3 Hrq4]]. subst.
-        hammer.
-        sauto.
-        unfol
-  Admitted.
 
   Inductive exec_proc_pair_morph : maybe_proc_vm -> maybe_proc_vm -> Prop :=
   | exec_proc_pair_morph_none :
@@ -582,6 +495,103 @@ Section VM.
       morphism := exec_proc_pair_morph;
       morphism_covariance := exec_proc_pair_morph_covariance;
     |}.
+
+  Lemma die_schedule_out_commute pid1 mb_t1 proc2 :
+    pid1 <> pid proc2 ->
+    commute
+      (exec_proc {| pid := pid1; proc_mb_t := mb_t1; cont := @die mb_t1 |})
+      (schedule_out_certain proc2).
+  Proof.
+    intros Hneq.
+    intros [w1 rq1 rc1] [w3 rq3 rc3]; split;
+      intros [[w2 rq2 rc2] [Hvm2 Hvm3]].
+    - inversion Hvm3 as [? ? ? ? Hvm3_]; subst; clear Hvm3.
+      unfold exists_equiv.
+      destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
+      exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
+      split; [|easy].
+      unfold exec_proc, vm_process_die.
+      exists {| world := w1; runq := rq3; ref_ctr := rc3 |}.
+      sauto.
+    - inversion Hvm2 as [? ? ? ? Hvm3_]; subst; clear Hvm2.
+      unfold exists_equiv.
+      destruct Hvm3 as [Hw [Hrc Hrq]]. subst.
+      exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
+      split; [|easy].
+      unfold exec_proc, vm_process_die.
+      exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
+      sauto.
+
+  Lemma exec_proc_schedule_commute proc1 proc2 :
+    pid proc1 <> pid proc2 ->
+    commute (exec_proc proc1) (schedule_out_certain proc2).
+  Proof.
+    intros Hneq.
+    destruct proc1 as [pid1 mb_t1 cont1].
+    intros [w1 rq1 rc1] [w3 rq3 rc3]; split;
+      intros [[w2 rq2 rc2] [Hvm2 Hvm3]].
+    - inversion Hvm3 as [? ? ? ? Hvm3_]; subst; clear Hvm3.
+      unfold exists_equiv.
+      destruct cont1.
+      + (* die *)
+        destruct Hvm2 as [Hw [Hrc Hrq]]. subst.
+        exists {| world := w3; runq := rq3; ref_ctr := rc3 |}.
+        split; [|easy].
+        unfold exec_proc, vm_process_die.
+        exists {| world := w1; runq := rq3; ref_ctr := rc3 |}.
+        sauto.
+      + (* yield *)
+        inversion Hvm2; subst; clear Hvm2.
+        simpl in Hvm3_.
+        apply pick_cons in Hvm3_; [|sauto].
+        destruct Hvm3_ as [rq2 [? Hrq2]]. subst.
+        exists {|
+            world := w3;
+            ref_ctr := rc3;
+            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 |} :: rq2
+          |}.
+        split; [|sauto].
+        exists {| world := w3; ref_ctr := rc3; runq := rq2 |}.
+        sauto.
+      + (* do I/O *)
+        inversion Hvm2; subst; clear Hvm2.
+        destruct x as [iorepl vm2].
+        destruct H as [Hvm2 Hcont].
+        inversion Hcont; subst; clear Hcont.
+        apply pick_cons in Hvm3_; [|sauto].
+        destruct Hvm3_ as [rq3' [Hrq3' Hpick]]. subst.
+        destruct vm2 as [w2 rq2 rc2].
+        destruct Hvm2 as [Hrepl [Hrq Hrc]]. subst.
+        exists {|
+            world := w2;
+            ref_ctr := rc2;
+            runq := {| pid := pid1; proc_mb_t := mb_t1; cont := continuation iorepl |} :: rq3';
+          |}.
+        split.
+        * unfold exec_proc.
+          exists {| world := w1; ref_ctr := rc2; runq := rq3' |}.
+          split.
+          -- sauto.
+          -- unfold vm_process_io.
+             exists (iorepl, {| world := w2; ref_ctr:= rc2; runq := rq3' |}).
+             sauto.
+        * sauto.
+      + (* spawn *)
+        unfold exec_proc, process_spawn_morph in Hvm2. simpl in Hvm2.
+        unfold do_spawn in Hvm2.
+        remember (make_ref pid1 {| world := w1; runq := rq1; ref_ctr := rc1 |}) as x.
+        destruct x as [new_pid vm4].
+        destruct vm4 as [w4 rq4 rc4].
+        inversion Hvm2. subst. clear Hvm2. simpl in Hneq.
+        simpl in Hvm3_.
+        apply pick_cons in Hvm3_; [|sauto].
+        destruct Hvm3_ as [rq3' [Hrq3 Hrq3']]. subst.
+        remember (make_ref pid1 {| world := w1; runq := rq1; ref_ctr := rc1 |}) as x.
+        destruct (RefOrd.ref_eq_dec (pid proc2) new_pid) as [Hnewpid|Hnewpid].
+        { (* new_pid is scheduled out now *)
+          rewrite Hnewpid in *. clear Hnewpid.
+          exists
+  Admitted.
 
   Definition vm_state_trans : MFun VM maybe_proc_vm :=
     exec_proc' ∘ schedule_out.
