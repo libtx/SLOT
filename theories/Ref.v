@@ -244,7 +244,7 @@ Module Fresh.
       + discriminate.
   Qed.
 
-  Lemma make_valid_ref (parent other new : Ref) (cc cc' : t) :
+  Lemma make_valid_not_equal (parent other new : Ref) (cc cc' : t) :
     is_valid_ref other cc = true ->
     make parent cc = (new, cc') ->
     new <> other.
@@ -268,5 +268,17 @@ Module Fresh.
         subst.
         destruct (Pos.ltb_spec0 oc oc); lia.
       + discriminate.
+  Qed.
+
+  Lemma is_valid_equiv ref cc cc' :
+    s_eq cc cc' ->
+    is_valid_ref ref cc = true ->
+    is_valid_ref ref cc' = true.
+  Proof.
+    unfold is_valid_ref.
+    intros Hequiv Hvalid.
+    destruct ref.
+    - easy.
+    - now rewrite <-Hequiv.
   Qed.
 End Fresh.
