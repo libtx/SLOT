@@ -123,20 +123,35 @@ Section props.
   Definition eq_commute (f g : T) :=
     forall (x y : A), x ~[g ∘ f]~> y <-> x ~[f ∘ g]~> y.
 
-  (** Relaxed version of the above based on equivalence *)
-  Definition commute (f g : T) :=
-    forall x y,
+  Definition commute_def (f g : T) (x y : A) :=
       (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y') /\
       (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y').
+
+  (** Relaxed version of [eq_commute] based on equivalence: *)
+  Definition commute (f g : T) :=
+    forall x y, commute_def f g x y.
+
+  (** Limite version of the above *)
+  Definition commute_ctx (ctx : A -> Prop) (f g : T) :=
+    forall x y,
+      ctx x ->
+      commute_def f g x y.
+
+  Lemma commute_def_sym (f g : T) (x y : A) :
+    commute_def f g x y ->
+    commute_def g f x y.
+  Proof.
+    intros H.
+    destruct H as [Hxy Hyx].
+    split; assumption.
+  Qed.
 
   Lemma commute_sym (f g : T) :
     commute f g ->
     commute g f.
   Proof.
-    unfold commute.
     intros H x y.
-    destruct (H x y) as [Hxy Hyx].
-    split; assumption.
+    now apply (commute_def_sym f g x y).
   Qed.
 
   Lemma commute_compose (f g h : T) :
@@ -145,6 +160,7 @@ Section props.
     commute (g ∘ f) h.
   Proof.
     intros Hfh Hgh a d.
+    unfold commute in *.
     split; intros H;
       [apply mfun_assoc in H|];
       destruct H as [b [Hb [c [Hc Hd]]]].
