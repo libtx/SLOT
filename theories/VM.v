@@ -130,13 +130,173 @@ Section VM.
     - intros a b c. destruct a, b, c. repeat split...
   Qed.
 
+  (** ** Canonical order *)
+
+  Definition vmte_canon_rel (a b : Process) :=
+    (* Order of events is canonical when pid a =< pid b: *)
+    match RefOrd.compare_ (pid a) (pid b) with
+    | Gt => False
+    | _ => True
+    end.
+
+  Lemma vmte_canon_rel_dec a b : Decidable.decidable (vmte_canon_rel a b).
+  Proof.
+    unfold Decidable.decidable, vmte_canon_rel.
+    sauto.
+  Qed.
+
+  Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
+  Proof.
+    unfold Decidable.decidable, vmte_canon_rel.
+    sauto use:RefOrd.compare_asymm.
+  Qed.
+
+  Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=
+    { canon_rel_dec := vmte_canon_rel_dec;
+      canon_rel_total := vmte_canon_rel_total;
+    }.
+
+  (** ** Schedule out *)
+
   Inductive MaybeValidProc :=
-  | mvp_nil : MaybeValidProc
+  | mvp_none : VM -> MaybeValidProc
   | mvp_some : forall (proc : Process) (vm : VM),
       proc_valid_pid (ref_ctr vm) proc ->
       MaybeValidProc.
 
-  Let maybe_proc_vm := option (Process * VM).
+  Program Instance maybeValidProcSetoid : Setoid MaybeValidProc :=
+    {| equiv a b :=
+        match a, b with
+        | mvp_none vm0, mvp_none vm0' => equiv vm0 vm0'
+        | mvp_some proc1 vm1 inv1, mvp_some proc2 vm2 _ =>
+            equiv vm1 vm2 /\ proc1 = proc2
+        | _, _ => False
+        end
+    |}.
+  Next Obligation.
+    sauto.
+  Qed.
+  Next Obligation.
+    sauto.
+  Qed.
+  Next Obligation.
+    constructor.
+    + unfold Reflexive. sauto.
+    + unfold Symmetric.
+  Admitted.
+
+  Inductive schedule_out_morph : VM -> MaybeValidProc -> Prop :=
+  | ScheduleOut_Some :
+    forall w refc runq runq' proc inv
+      (Hpick : runq ~[pick_mfun_option]~> (Some (proc, runq'))),
+      schedule_out_morph
+        {| world := w; ref_ctr := refc; runq := runq; inv_valid_pids := inv |}
+        (mvp_some
+           proc
+           {| world := w;
+             ref_ctr := refc;
+             runq := runq';
+             inv_valid_pids := pick_mfun_option_forall_rest _ runq proc runq' inv Hpick
+           |}
+           (pick_mfun_option_forall_elem _ runq proc runq' inv Hpick))
+  | ScheduleOut_None : forall w refc inv,
+      schedule_out_morph
+        {| world := w; ref_ctr := refc; runq := []; inv_valid_pids := inv |}
+        (mvp_none {| world := w; ref_ctr := refc; runq := []; inv_valid_pids := inv |}).
+
+  Program Definition schedule_out : MFun VM MaybeValidProc :=
+    {| morphism := schedule_out_morph |}.
+  Next Obligation.
+    unfold exists_equiv.
+    destruct x as [w rq1 rc inv].
+    destruct x' as [w' rq1' rc' inv'].
+    destruct H as [Heq_w [Heq_refc Heq_runq]].
+    inversion H0; subst.
+    - Fail apply morphism_covariance with (x' := rq1') in H4; [|assumption].
+      admit.
+    - apply Permutation_nil in Heq_runq. subst.
+      sauto.
+  Admitted.
+
+  (** ** Operations with the world *)
+
+  Program Definition lift_w_ret {Ret : Type} `{Heqiv_r : Setoid Ret}
+    (w_morph : @MFunRet Ret World Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid :=
+    {| morphism vm1 ret :=
+        let (ret, vm2) := ret in
+        match vm1, vm2 with
+          {| world := w1; runq := rq1; ref_ctr := rc1 |},
+          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
+            w1 ~[w_morph]~> (ret, w2) /\
+            rq1 = rq2 /\
+            rc1 = rc2
+        end;
+    |}.
+  Next Obligation.
+    destruct x as [w1 rq1 rc1].
+    destruct x' as [w1' rq1' rc1'].
+    destruct v as [w2 rq2 rc2].
+    destruct H as [Hw [Hrc Hrq]].
+    destruct H0 as [Hw12 [Hrc12 Hrq12]].
+    subst.
+    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
+    destruct Hw12 as [[ret' w2'] [Hw12' H2]].
+    destruct H2 as [Hret Hw2].
+    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv_valid_pids1 |}).
+    repeat split; try assumption.
+    - apply Hrc.
+  Qed.
+
+  Program Definition lift_w (w_morph : @MFun World World Heqiv_w Heqiv_w) : @MFun VM VM vm_setoid vm_setoid :=
+    {| morphism vm1 vm2 :=
+        match vm1, vm2 with
+          {| world := w1; runq := rq1; ref_ctr := rc1 |},
+          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
+            w1 ~[w_morph]~> w2 /\
+            rq1 = rq2 /\
+            rc1 = rc2
+        end;
+    |}.
+  Next Obligation.
+    destruct x as [w1 rq1 rc1].
+    destruct x' as [w1' rq1' rc1'].
+    destruct y as [w2 rq2 rc2].
+    destruct H as [Hw [Hrc Hrq]].
+    destruct H0 as [Hw12 [Hrc12 Hrq12]].
+    subst.
+    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
+    destruct Hw12 as [w2' [Hw12' H2]].
+    exists {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv_valid_pids1 |}.
+    repeat split; try assumption.
+    - apply Hrc.
+  Qed.
+
+  Lemma lift_w_commute f g :
+    commute f g ->
+    commute (lift_w f) (lift_w g).
+  Proof.
+    intros Hcommute.
+    intros [w1 rq1 rc1] [w3 rq3 rc3];
+      split;
+      intros [[w2 rq2 rc2] [Hvm2 Hvm3]];
+      simpl in Hvm2; simpl in Hvm3;
+      destruct Hvm2 as [Hw2 [? ?]];
+      destruct Hvm3 as [Hw3 [? ?]];
+      subst;
+      [ assert (H13 : w3 <~[ g ∘ f ]~ w1) by sauto
+      | assert (H13 : w3 <~[ f ∘ g ]~ w1) by sauto
+      ];
+      destruct (Hcommute w1 w3) as [Hfg Hgf];
+      [ destruct (Hfg H13) as [w3' [Hw3' Hequiv]]
+      | destruct (Hgf H13) as [w3' [Hw3' Heqiuv]]
+      ];
+      destruct Hw3' as [w2' ?];
+      exists {| world := w3'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |}.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |} |]; sauto.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |} |]; sauto.
+  Qed.
+
+  (** ** Spawn *)
 
   (* begin details *)
   Lemma schedule_in_new_inv
@@ -186,21 +346,34 @@ Section VM.
     exact {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
   Defined.
 
-  Lemma proc_in_vm_is_valid vm proc :
-    List.In proc (runq vm) ->
-    Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true.
+  Definition exec_proc_morph (inp : MaybeValidProc) (vm2 : VM) : Prop.
   Proof.
-    intros Hin.
-    destruct vm as [w rq rc inv].
-    simpl in Hin.
-    induction rq.
+    destruct inp as [vm0|proc vm1 Hproc_valid].
+    - exact (vm2 = vm0).
+    - destruct proc as [ref mb_t cont].
+      destruct cont as [|cont|req cont|child_mb_t child cont].
+      + (* die; TODO *)
+        exact False.
+      + (* yield; TODO *)
+        exact False.
+      + (* io: TODO *)
+        exact False.
+      + (* spawn *)
+        exact (vm2 = do_spawn child_mb_t child ref mb_t cont vm1 Hproc_valid).
+  Defined.
+
+  Definition exec_proc : MFun MaybeValidProc VM.
+  Proof.
+    refine ({| morphism inp out := exec_proc_morph inp out; morphism_covariance := _|}).
+    intros [|proc1 vm1 inv1] [|proc1' vm1' inv1'] vm2 Hvm1_equiv Hvm2.
     - sauto.
-    - destruct Hin as [Hin | Hin].
-      + subst.
-        inversion inv. sauto.
-      + inversion inv. subst.
-        specialize (IHrq H2 Hin). assumption.
-  Qed.
+    - exfalso. sauto.
+    - exfalso. sauto.
+    - unfold equiv in Hvm1_equiv.
+  Admitted.
+
+  Definition vm_step : MFun VM VM := exec_proc ∘ schedule_out.
+
 
   Definition schedule_morph0 (proc : Process) (vm1 vm2 : VM) (Hvalid : proc_valid_pid (ref_ctr vm1) proc) : Prop.
   Proof.
@@ -320,81 +493,6 @@ Section VM.
         now apply put_distict_comm.
   Qed.*)
 
-  Program Definition lift_w_ret {Ret : Type} `{Heqiv_r : Setoid Ret}
-    (w_morph : @MFunRet Ret World Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid :=
-    {| morphism vm1 ret :=
-        let (ret, vm2) := ret in
-        match vm1, vm2 with
-          {| world := w1; runq := rq1; ref_ctr := rc1 |},
-          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
-            w1 ~[w_morph]~> (ret, w2) /\
-            rq1 = rq2 /\
-            rc1 = rc2
-        end;
-    |}.
-  Next Obligation.
-    destruct x as [w1 rq1 rc1].
-    destruct x' as [w1' rq1' rc1'].
-    destruct v as [w2 rq2 rc2].
-    destruct H as [Hw [Hrc Hrq]].
-    destruct H0 as [Hw12 [Hrc12 Hrq12]].
-    subst.
-    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
-    destruct Hw12 as [[ret' w2'] [Hw12' H2]].
-    destruct H2 as [Hret Hw2].
-    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1'|}).
-    repeat split; try assumption.
-    - apply Hrc.
-  Qed.
-
-  Program Definition lift_w (w_morph : @MFun World World Heqiv_w Heqiv_w) : @MFun VM VM vm_setoid vm_setoid :=
-    {| morphism vm1 vm2 :=
-        match vm1, vm2 with
-          {| world := w1; runq := rq1; ref_ctr := rc1 |},
-          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
-            w1 ~[w_morph]~> w2 /\
-            rq1 = rq2 /\
-            rc1 = rc2
-        end;
-    |}.
-  Next Obligation.
-    destruct x as [w1 rq1 rc1].
-    destruct x' as [w1' rq1' rc1'].
-    destruct y as [w2 rq2 rc2].
-    destruct H as [Hw [Hrc Hrq]].
-    destruct H0 as [Hw12 [Hrc12 Hrq12]].
-    subst.
-    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
-    destruct Hw12 as [w2' [Hw12' H2]].
-    exists {| world := w2'; runq := rq1'; ref_ctr := rc1'|}.
-    repeat split; try assumption.
-    - apply Hrc.
-  Qed.
-
-  Lemma lift_w_commute f g :
-    commute f g ->
-    commute (lift_w f) (lift_w g).
-  Proof.
-    intros Hcommute.
-    intros [w1 rq1 rc1] [w3 rq3 rc3];
-      split;
-      intros [[w2 rq2 rc2] [Hvm2 Hvm3]];
-      simpl in Hvm2; simpl in Hvm3;
-      destruct Hvm2 as [Hw2 [? ?]];
-      destruct Hvm3 as [Hw3 [? ?]];
-      subst;
-      [ assert (H13 : w3 <~[ g ∘ f ]~ w1) by sauto
-      | assert (H13 : w3 <~[ f ∘ g ]~ w1) by sauto
-      ];
-      destruct (Hcommute w1 w3) as [Hfg Hgf];
-      [ destruct (Hfg H13) as [w3' [Hw3' Hequiv]]
-      | destruct (Hgf H13) as [w3' [Hw3' Heqiuv]]
-      ];
-      destruct Hw3' as [w2' ?];
-      exists {| world := w3'; ref_ctr := rc3; runq := rq3 |}.
-    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
-    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
-  Qed.
 
   Definition do_spawn {Mailbox : Set} (parent : Ref) (prog : @Program Mailbox) (v : VM) : (Ref * VM) :=
     let (new_pid, v) := make_ref parent v in
@@ -416,30 +514,6 @@ Section VM.
       |} in
     let (_, vm) := do_spawn [] p vm in
     vm.
-
-  Definition vmte_canon_rel (a b : Process) :=
-    (* Order of events is canonical when pid a =< pid b: *)
-    match RefOrd.compare_ (pid a) (pid b) with
-    | Gt => False
-    | _ => True
-    end.
-
-  Lemma vmte_canon_rel_dec a b : Decidable.decidable (vmte_canon_rel a b).
-  Proof.
-    unfold Decidable.decidable, vmte_canon_rel.
-    sauto.
-  Qed.
-
-  Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
-  Proof.
-    unfold Decidable.decidable, vmte_canon_rel.
-    sauto use:RefOrd.compare_asymm.
-  Qed.
-
-  Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=
-    { canon_rel_dec := vmte_canon_rel_dec;
-      canon_rel_total := vmte_canon_rel_total;
-    }.
 
   Definition vm_process_die pid : MFun VM VM :=
     lift_w (h_terminate pid).
@@ -466,31 +540,6 @@ Section VM.
     pure (fun vm => vm <| runq := proc :: runq vm |>) _.
   Next Obligation.
     sauto.
-  Qed.
-
-  Inductive ScheduleOutOption : VM -> maybe_proc_vm -> Prop :=
-  | ScheduleOut_Some : forall w refc runq runq' proc,
-      runq ~[pick_mfun_option]~> (Some (proc, runq')) ->
-      ScheduleOutOption
-        {| world := w; ref_ctr := refc; runq := runq |}
-        (Some (proc, {| world := w; ref_ctr := refc; runq := runq' |}))
-  | ScheduleOut_None : forall w refc,
-      ScheduleOutOption
-        {| world := w; ref_ctr := refc; runq := [] |}
-        None.
-
-  Program Definition schedule_out : MFun VM maybe_proc_vm :=
-    {| morphism := ScheduleOutOption |}.
-  Next Obligation.
-    unfold exists_equiv.
-    destruct x as [w rq1 rc].
-    destruct x' as [w' rq1' rc'].
-    destruct H as [Heq_w [Heq_refc Heq_runq]].
-    inversion H0; subst.
-    - apply morphism_covariance with (x' := rq1') in H4; [|assumption].
-      sauto.
-    - apply Permutation_nil in Heq_runq. subst.
-      sauto.
   Qed.
 
   Inductive ScheduleOutCertain proc : VM -> VM -> Prop :=

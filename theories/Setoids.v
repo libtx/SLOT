@@ -40,6 +40,25 @@ Section option.
   Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
 End option.
 
+Section sum.
+  Context {A B : Type} `{HA : Setoid A} `{HB : Setoid B}.
+
+  Search Setoid.
+
+  Global Program Instance setoid_sum : Setoid (A + B) :=
+    {| equiv (a b : A + B) :=
+        match a, b with
+        | inl a, inl b => @equiv _ HA a b
+        | inr a, inr b => @equiv _ HB a b
+        | _, _ => False
+        end
+    |}.
+  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
+End sum.
+
+Definition sum_setoid {A B} (HA : Setoid A) (HB : Setoid B) :=
+  @setoid_sum A B HA HB.
+
 Section permutation.
   Context (T : Type).
 
@@ -47,5 +66,6 @@ Section permutation.
     {| equiv a b := Permutation a b |}.
 End permutation.
 
+Declare Scope slot_scope.
 Infix "=p=" := (@equiv _ (setoid_permutation _)) (at level 50) : slot_scope.
 Infix "=s=" := (@equiv _ s_eq_setoid) (at level 50) : slot_scope.
