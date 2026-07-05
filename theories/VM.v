@@ -350,7 +350,7 @@ Section VM.
       (vm vm' : VM)
       (Hvm' : vm == vm')
       (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
-      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm') = true):
+      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm') = true) :
       do_spawn vm parent_valid == do_spawn vm' parent_valid'.
     Proof.
       destruct vm as [w1 rq1 rc1 inv1].
@@ -396,60 +396,44 @@ Section VM.
 
   Program Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
     {| morphism := vm_step_morph;
-       morphism_covariance vm vm' ret Hequiv Hret := _;
+       morphism_covariance vm0 vm0' ret Hequiv Hret := _;
     |}.
   Next Obligation.
-    inversion Hret; subst.
-    - destruct vm as [w rq rc inv].
-      destruct vm' as [w' rq' rc' inv'].
+    inversion Hret as [|H vm1 vm2 proc Hvm1 Hvm2]; subst; clear Hret.
+    - destruct vm0 as [w0 rq0 rc0 inv0].
+      destruct vm0' as [w0' rq0' rc0' inv0'].
       destruct Hequiv as [Hw [Hrc Hrq]].
       exists None. split; [|easy].
       simpl in H.
-      destruct rq.
+      destruct rq0.
       + apply Permutation_nil in Hrq. subst.
         now constructor.
       + contradiction.
-    - destruct (morphism_covariance schedule_out vm vm' (Some (proc, vm1)) Hequiv Hproc) as [ret1' Hret1'].
+    - destruct (morphism_covariance schedule_out vm0 vm0' (Some (proc, vm1)) Hequiv Hvm1) as [ret1' Hret1'].
       destruct ret1' as [[proc' vm1']|]; [| exfalso; sauto].
       destruct Hret1' as [Hvm1' Hequiv1].
       unfold equiv, setoid_option, equiv, pair_setoid in Hequiv1.
       destruct Hequiv1 as [Hproc'proc Hvm1'vm1].
-      simpl in Hproc'proc. subst.
-      unfold exec_proc_morph in H.
-      destruct (cont proc').
+      simpl in Hproc'proc. rewrite <-Hproc'proc in *. clear Hproc'proc proc'.
+
+      unfold exec_proc_morph in Hvm2.
+      remember (cont proc) as cont_.
+      destruct cont_ as [| | |child_mb_t child_cont cont].
       + (* die: TODO *) contradiction.
       + (* yield: TODO *) contradiction.
       + (* io: TODO *) contradiction.
       + (* spawn *)
         subst.
-
-
-MFun VM VM.
-  Proof.
-    refine ({| morphism inp out := exec_proc_morph inp out; morphism_covariance := _|}).
-    intros [|proc1 vm1 inv1] [|proc1' vm1' inv1'] vm2 Hvm1_equiv Hvm2.
-    - sauto.
-    - exfalso. sauto.
-    - exfalso. sauto.
-    - unfold equiv in Hvm1_equiv.
-  Admitted.
-
-  Definition vm_step : MFun VM VM := exec_proc ∘ schedule_out.
-
-
-  Definition schedule_morph0 (proc : Process) (vm1 vm2 : VM) (Hvalid : proc_valid_pid (ref_ctr vm1) proc) : Prop.
-  Proof.
-    destruct (cont proc) as [| | |child_mb_t child cont].
-    - (* die *)
-      exact False.
-    - (* yield *)
-      exact False.
-    - (* io *)
-      exact False.
-    - (* spawn *)
-      set (vm' := do_spawn child_mb_t child (pid proc) (proc_mb_t proc) cont vm1 Hvalid).
-      exact (vm2 = vm').
-  Defined.
+        specialize (do_spawn_covariance child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1 vm1' Hvm1'vm1
+                      (schedule_out_valid_pid vm0 proc vm1 Hvm1)
+                      (schedule_out_valid_pid vm0' proc vm1' Hvm1')) as H.
+        exists (Some (proc, (do_spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1')))).
+        split.
+        * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
+          unfold exec_proc_morph.
+          rewrite <-Heqcont_. reflexivity.
+        * sauto.
+  Qed.
 
   Inductive schedule_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
   | schedule_morph_ :
