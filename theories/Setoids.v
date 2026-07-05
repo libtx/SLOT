@@ -2,6 +2,9 @@ From Stdlib Require Export
   SetoidClass
   Permutation.
 
+From Stdlib Require Export
+  SetoidDec.
+
 From Stdlib Require Import
   Program.
 

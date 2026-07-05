@@ -158,64 +158,48 @@ Section VM.
 
   (** ** Schedule out *)
 
-  Inductive MaybeValidProc :=
-  | mvp_none : VM -> MaybeValidProc
-  | mvp_some : forall (proc : Process) (vm : VM),
-      proc_valid_pid (ref_ctr vm) proc ->
-      MaybeValidProc.
-
-  Program Instance maybeValidProcSetoid : Setoid MaybeValidProc :=
-    {| equiv a b :=
-        match a, b with
-        | mvp_none vm0, mvp_none vm0' => equiv vm0 vm0'
-        | mvp_some proc1 vm1 inv1, mvp_some proc2 vm2 _ =>
-            equiv vm1 vm2 /\ proc1 = proc2
-        | _, _ => False
-        end
-    |}.
-  Next Obligation.
-    sauto.
-  Qed.
-  Next Obligation.
-    sauto.
-  Qed.
-  Next Obligation.
-    constructor.
-    + unfold Reflexive. sauto.
-    + unfold Symmetric.
-  Admitted.
-
-  Inductive schedule_out_morph : VM -> MaybeValidProc -> Prop :=
-  | ScheduleOut_Some :
-    forall w refc runq runq' proc inv
-      (Hpick : runq ~[pick_mfun_option]~> (Some (proc, runq'))),
-      schedule_out_morph
-        {| world := w; ref_ctr := refc; runq := runq; inv_valid_pids := inv |}
-        (mvp_some
-           proc
-           {| world := w;
-             ref_ctr := refc;
-             runq := runq';
-             inv_valid_pids := pick_mfun_option_forall_rest _ runq proc runq' inv Hpick
-           |}
-           (pick_mfun_option_forall_elem _ runq proc runq' inv Hpick))
-  | ScheduleOut_None : forall w refc inv,
-      schedule_out_morph
-        {| world := w; ref_ctr := refc; runq := []; inv_valid_pids := inv |}
-        (mvp_none {| world := w; ref_ctr := refc; runq := []; inv_valid_pids := inv |}).
+  Definition MaybeValidProc : Type := option (Process * VM).
 
   Program Definition schedule_out : MFun VM MaybeValidProc :=
-    {| morphism := schedule_out_morph |}.
+      {| morphism vm ret :=
+          match vm with
+            {| world := w; runq := rq; ref_ctr := rc |} =>
+              match rq with
+              | [] =>
+                  ret = None
+              | _ =>
+                  match ret with
+                  | None => False
+                  | Some (proc, {| world := w'; runq := rq'; ref_ctr := rc' |}) =>
+                      rq ~[pick_mfun]~> (proc, rq') /\
+                        w = w' /\
+                        rc = rc'
+                        (* TODO: invariants *)
+                  end
+              end
+          end
+      |}.
   Next Obligation.
-    unfold exists_equiv.
-    destruct x as [w rq1 rc inv].
-    destruct x' as [w' rq1' rc' inv'].
-    destruct H as [Heq_w [Heq_refc Heq_runq]].
-    inversion H0; subst.
-    - Fail apply morphism_covariance with (x' := rq1') in H4; [|assumption].
-      admit.
-    - apply Permutation_nil in Heq_runq. subst.
-      sauto.
+  Admitted.
+
+  Lemma schedule_out_valid_pid_prev vm proc vm' :
+    vm ~[schedule_out]~> Some (proc, vm') ->
+    proc_valid_pid (ref_ctr vm) proc.
+  Proof.
+    unfold proc_valid_pid, schedule_out. simpl.
+    intros Hsched.
+    destruct vm as [w rq rc Hinv].
+    destruct vm' as [w' rq' rc' Hinv'].
+    destruct rq as [|_first _rest].
+    - discriminate.
+    - destruct Hsched as [Hpick [Hworld Hrc]].
+      simpl.
+      now apply pick_forall_elem with (a := proc) (l' := rq') in Hinv.
+  Qed.
+
+  Lemma schedule_out_valid_pid vm proc vm' :
+    vm ~[schedule_out]~> Some (proc, vm') ->
+    proc_valid_pid (ref_ctr vm') proc.
   Admitted.
 
   (** ** Operations with the world *)
@@ -318,51 +302,129 @@ Section VM.
   Qed.
   (* end details *)
 
-  (** Allocate a new pid for a process and add it to the VM.
-      Update the parent process (which should be scheduled out),
-      and add it to the VM too *)
-  Definition do_spawn
-    (child_mb_t : Set) (child_cont : Program child_mb_t)
-    (parent : Ref) (parent_mb_t : Set) (parent_cont : @Address child_mb_t -> Program parent_mb_t)
-    (vm : VM)
-    (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
+  Section spawn.
+    Context
+      (child_mb_t : Set) (child_cont : Program child_mb_t)
+      (parent : Ref) (parent_mb_t : Set)
+      (parent_cont : @Address child_mb_t -> Program parent_mb_t).
+
+    Inductive NewValidPid (rc : Fresh.t) : Type :=
+    | new_valid_pid : forall (new_pid : Ref) (rc' : Fresh.t),
+        Fresh.is_valid_ref new_pid rc' = true ->
+        Fresh.make parent rc = (new_pid, rc') ->
+        NewValidPid rc.
+
+    Lemma alloc_pid (rc : Fresh.t) : NewValidPid rc.
+      remember (Fresh.make parent rc) as fresh.
+      symmetry in Heqfresh.
+      destruct fresh as [new rc'].
+      refine (new_valid_pid rc new rc' _ _).
+      - apply (Fresh.makes_valid_ref parent new rc rc' Heqfresh).
+      - assumption.
+    Qed.
+
+    (** Allocate a new pid for a process and add it to the VM.
+        Update the parent process (which should be scheduled out),
+        and add it to the VM too *)
+    Definition do_spawn
+      (vm : VM)
+      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
+    Proof.
+      destruct vm as [w rq rc inv_valid].
+      destruct (alloc_pid rc) as [new rc' Hnewvalid Heqfresh].
+      specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
+      set (addr := mkAddress child_mb_t new).
+      set (rq' :=
+             {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
+             {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
+             rq).
+      assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
+        apply Forall_cons_iff. split.
+        - eapply Fresh.make_keeps_valid; eauto.
+        - apply Forall_cons_iff. split; assumption.
+      }
+      exact {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
+    Defined.
+
+    Lemma do_spawn_covariance
+      (vm vm' : VM)
+      (Hvm' : vm == vm')
+      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
+      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm') = true):
+      do_spawn vm parent_valid == do_spawn vm' parent_valid'.
+    Proof.
+      destruct vm as [w1 rq1 rc1 inv1].
+      destruct vm' as [w1' rq1' rc1' inv1'].
+      unfold do_spawn.
+      destruct (alloc_pid rc1) as [new_pid rc2 H_1 H_2].
+      destruct (alloc_pid rc1') as [new_pid' rc2' H_1' H_2'].
+      simpl.
+      simpl in Hvm'. destruct Hvm' as [Hw [Hrc Hrq]].
+      specialize (Fresh.make_morph parent rc1 rc1' Hrc) as H.
+      rewrite H_2, H_2' in H.
+      simpl in H. destruct H as [Hpids Hrc2]. subst.
+      split; [|split].
+      - apply Hw.
+      - assumption.
+      - now repeat apply perm_skip.
+    Qed.
+  End spawn.
+
+  Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
   Proof.
-    destruct vm as [w rq rc inv_valid].
-    remember (Fresh.make parent rc) as fresh.
-    symmetry in Heqfresh.
-    destruct fresh as [new rc'].
-    specialize (Fresh.makes_valid_ref parent new rc rc' Heqfresh) as Hnewvalid.
-    specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
-    set (addr := mkAddress child_mb_t new).
-    set (rq' :=
-           {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
-           {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
-           rq).
-    assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
-      apply Forall_cons_iff. split.
-      - eapply Fresh.make_keeps_valid; eauto.
-      - apply Forall_cons_iff. split; assumption.
-    }
-    exact {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
+    set (proc_ := proc).
+    destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont].
+    - (* die; TODO *)
+      exact False.
+    - (* yield; TODO *)
+      exact False.
+    - (* io: TODO *)
+      exact False.
+    - (* spawn *)
+      refine (vm2 = do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _).
+      specialize (schedule_out_valid_pid vm0 proc vm1) as H.
+      now apply H in Hproc.
   Defined.
 
-  Definition exec_proc_morph (inp : MaybeValidProc) (vm2 : VM) : Prop.
-  Proof.
-    destruct inp as [vm0|proc vm1 Hproc_valid].
-    - exact (vm2 = vm0).
-    - destruct proc as [ref mb_t cont].
-      destruct cont as [|cont|req cont|child_mb_t child cont].
-      + (* die; TODO *)
-        exact False.
-      + (* yield; TODO *)
-        exact False.
-      + (* io: TODO *)
-        exact False.
+  Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
+  | vm_step_nil : forall vm,
+      vm ~[schedule_out]~> None ->
+      vm_step_morph vm None
+  | vm_step_some : forall vm0 vm1 vm2 proc (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)),
+      exec_proc_morph vm0 vm1 vm2 proc Hproc ->
+      vm_step_morph vm0 (Some (proc, vm2)).
+
+  Program Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
+    {| morphism := vm_step_morph;
+       morphism_covariance vm vm' ret Hequiv Hret := _;
+    |}.
+  Next Obligation.
+    inversion Hret; subst.
+    - destruct vm as [w rq rc inv].
+      destruct vm' as [w' rq' rc' inv'].
+      destruct Hequiv as [Hw [Hrc Hrq]].
+      exists None. split; [|easy].
+      simpl in H.
+      destruct rq.
+      + apply Permutation_nil in Hrq. subst.
+        now constructor.
+      + contradiction.
+    - destruct (morphism_covariance schedule_out vm vm' (Some (proc, vm1)) Hequiv Hproc) as [ret1' Hret1'].
+      destruct ret1' as [[proc' vm1']|]; [| exfalso; sauto].
+      destruct Hret1' as [Hvm1' Hequiv1].
+      unfold equiv, setoid_option, equiv, pair_setoid in Hequiv1.
+      destruct Hequiv1 as [Hproc'proc Hvm1'vm1].
+      simpl in Hproc'proc. subst.
+      unfold exec_proc_morph in H.
+      destruct (cont proc').
+      + (* die: TODO *) contradiction.
+      + (* yield: TODO *) contradiction.
+      + (* io: TODO *) contradiction.
       + (* spawn *)
-        exact (vm2 = do_spawn child_mb_t child ref mb_t cont vm1 Hproc_valid).
-  Defined.
+        subst.
 
-  Definition exec_proc : MFun MaybeValidProc VM.
+
+MFun VM VM.
   Proof.
     refine ({| morphism inp out := exec_proc_morph inp out; morphism_covariance := _|}).
     intros [|proc1 vm1 inv1] [|proc1' vm1' inv1'] vm2 Hvm1_equiv Hvm2.

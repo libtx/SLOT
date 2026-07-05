@@ -3,7 +3,8 @@ From Stdlib Require Import
   FMapInterface
   FMapAVL
   OrderedTypeEx
-  Lia.
+  Lia
+  SetoidClass.
 
 Import ListNotations.
 
@@ -13,6 +14,9 @@ From Hammer Require Import
 From LibTx Require Import
   Classes
   Storage.Instances.AVL.
+
+From SLOT Require Import
+  Setoids.
 
 Definition Ref : Set := list positive.
 
@@ -316,5 +320,25 @@ Module Fresh.
     destruct ref.
     - easy.
     - now rewrite <-Hequiv.
+  Qed.
+
+
+  Add Parametric Morphism (parent : Ref) :
+    (make parent) with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid)) as make_morph.
+  Proof.
+    intros a1 a1' Hequiv.
+    unfold make.
+    rewrite <-Hequiv.
+    destruct (get parent a1) as [ctr|].
+    - simpl. split; [|split].
+      + reflexivity.
+      + intros k. rewrite Hequiv.
+        reflexivity.
+        exact True. (* ??? *)
+    - split.
+      + reflexivity.
+      + rewrite Hequiv.
+        * reflexivity.
+        * exact True. (* ??? *)
   Qed.
 End Fresh.
