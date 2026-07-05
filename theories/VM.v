@@ -435,6 +435,14 @@ Section VM.
         * sauto.
   Qed.
 
+  Instance vmTransitionSystem : @TransitionSystem VM Process :=
+    {|
+      ts_setoid := vm_setoid;
+      ts_canon_rel := vmte_canon_rel;
+      ts_canon_order := vmevCanonOrder;
+      ts_state_trans := vm_step
+    |}.
+
   Inductive schedule_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
   | schedule_morph_ :
     forall (H : List.In proc (runq vm1)),
@@ -956,7 +964,7 @@ Section VM.
     event_commute proc1 proc2.
   Proof.
     intros Hprocs Hexec_comm.
-    unfold event_commute, tm_state_trans, tsTokenSystem.
+    unfold event_commute, tm_state_trans, tsTokenMachine.
     unfold ts_mfun, ts_state_trans, vmTransitionSystem, vm_state_trans.
     intros vm0 vm4; split; intros [vm1 [Hvm1 Hvm4]].
     - rewrite (vm_pick_simplify proc1 vm0 vm1) in Hvm1.

@@ -47,7 +47,7 @@ Section TransitionSystem.
     sauto.
   Qed.
 
-  Global Instance tsTokenSystem `{TransitionSystem} : @TokenMachine State Event :=
+  Global Instance tsTokenMachine `{TransitionSystem} : @TokenMachine State Event :=
     { tm_setoid := ts_setoid;
       tm_canon_rel := ts_canon_rel;
       tm_canon_order := ts_canon_order;
