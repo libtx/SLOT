@@ -374,8 +374,8 @@ Section VM.
   Proof.
     set (proc_ := proc).
     destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont].
-    - (* die; TODO *)
-      exact False.
+    - (* die *)
+      exact (vm1 ~[lift_w (h_terminate (pid proc))]~> vm2).
     - (* yield; TODO *)
       exact False.
     - (* io: TODO *)
@@ -419,7 +419,14 @@ Section VM.
       unfold exec_proc_morph in Hvm2.
       remember (cont proc) as cont_.
       destruct cont_ as [| | |child_mb_t child_cont cont].
-      + (* die: TODO *) contradiction.
+      + (* die *)
+        morph_shift (lift_w (h_terminate (pid proc))) vm1'.
+        exists (Some (proc, vm2')).
+        split.
+        *  constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
+           unfold exec_proc_morph. rewrite <-Heqcont_.
+           assumption.
+        * sauto.
       + (* yield: TODO *) contradiction.
       + (* io: TODO *) contradiction.
       + (* spawn *)
@@ -430,8 +437,8 @@ Section VM.
         exists (Some (proc, (do_spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1')))).
         split.
         * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
-          unfold exec_proc_morph.
-          rewrite <-Heqcont_. reflexivity.
+          unfold exec_proc_morph. rewrite <-Heqcont_.
+          reflexivity.
         * sauto.
   Qed.
 
