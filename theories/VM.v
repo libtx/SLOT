@@ -182,6 +182,21 @@ Section VM.
   Next Obligation.
   Admitted.
 
+  Lemma schedule_out_some vm0 vm1 proc :
+    Some (proc, vm1) <~[schedule_out]~ vm0 ->
+    (runq vm0) ~[pick_mfun]~> (proc, runq vm1) /\
+      (world vm0) = (world vm1) /\
+      (ref_ctr vm0) = (ref_ctr vm1).
+  Proof.
+    intros H.
+    destruct vm0 as [w0 rq0 rc0 inv0].
+    destruct vm1 as [w1 rq1 rc1 inv1].
+    simpl in H.
+    destruct rq0 as [|f r].
+    - exfalso. discriminate.
+    - assumption.
+  Qed.
+
   Lemma schedule_out_valid_pid_prev vm proc vm' :
     vm ~[schedule_out]~> Some (proc, vm') ->
     proc_valid_pid (ref_ctr vm) proc.
@@ -323,6 +338,25 @@ Section VM.
       - assumption.
     Qed.
 
+    Lemma do_spawn_keeps_invariniant
+      addr
+      (rq : list Process)
+      (rc rc' : Fresh.t)
+      (new : Ref)
+      (inv_valid : Forall (proc_valid_pid rc) rq)
+      (parent_valid : Fresh.is_valid_ref parent rc = true)
+      (Hnewvalid : Fresh.is_valid_ref new rc' = true)
+      (Heqfresh : Fresh.make parent rc = (new, rc'))
+      (inv_valid' : Forall (proc_valid_pid rc') rq) :
+      Forall (proc_valid_pid rc')
+        ({| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |}
+           :: {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} :: rq).
+    Proof.
+      apply Forall_cons_iff. split.
+      - eapply Fresh.make_keeps_valid; eauto.
+      - eapply Forall_cons_iff. split; assumption.
+    Qed.
+
     (** Allocate a new pid for a process and add it to the VM.
         Update the parent process (which should be scheduled out),
         and add it to the VM too *)
@@ -338,10 +372,9 @@ Section VM.
              {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
              {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
              rq).
+
       assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
-        apply Forall_cons_iff. split.
-        - eapply Fresh.make_keeps_valid; eauto.
-        - apply Forall_cons_iff. split; assumption.
+        apply (do_spawn_keeps_invariniant addr rq rc rc' new inv_valid parent_valid Hnewvalid Heqfresh inv_valid').
       }
       exact {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
     Defined.
@@ -442,13 +475,300 @@ Section VM.
         * sauto.
   Qed.
 
-  Instance vmTransitionSystem : @TransitionSystem VM Process :=
+  Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     {|
       ts_setoid := vm_setoid;
       ts_canon_rel := vmte_canon_rel;
       ts_canon_order := vmevCanonOrder;
       ts_state_trans := vm_step
     |}.
+End VM.
+
+From Ltac2 Require
+  Fresh
+  String
+  Ident
+  Std
+  Ident
+  Constr
+  Control.
+From Ltac2 Require Import
+  Notations
+  Printf
+  Init.
+
+Set Default Proof Mode "Ltac2".
+
+Ltac2 fresh_id str := Fresh.in_goal (Option.get (Ident.of_string str)).
+
+Ltac2 dvm (vms : ident list) :=
+  List.iter
+    (fun vm =>
+       let prefix := Ident.to_string vm in
+       let w := fresh_id (String.app prefix "_w") in
+       let rq := fresh_id (String.app prefix "_rq") in
+       let rc := fresh_id (String.app prefix "_rc") in
+       let inv := fresh_id (String.app prefix "_pids_valid") in
+       let vm_ := Control.hyp vm in
+       destruct $vm_ as [$w $rq $rc $inv])
+    vms.
+
+Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
+
+Section tests.
+  Context `{IO: IOHandler}.
+
+  Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
+    intros vm1 vm2 H.
+    dvm vm1 vm2.
+  Abort.
+End tests.
+
+(* Alternative notation for inversion tactic that allows passing ident
+as a destruction argument, which for some reason doesn't work for the
+standard notation. *)
+Ltac2 Notation "iinversion"
+  arg(ident)
+  pat(opt(seq("as", intropattern)))
+  ids(opt(seq("in", list1(ident)))) :=
+  Std.inversion Std.FullInversion (Std.ElimOnIdent arg) pat ids.
+
+Section canned.
+  Context `{IOH : IOHandler}.
+
+  Lemma canned_schedule_out_some proc vm0 vm1 :
+    Some (proc, vm1) <~[schedule_out]~ vm0 ->
+    Pick (runq vm0) proc (runq vm1) /\
+      world vm0 = world vm1 /\
+      ref_ctr vm0 = ref_ctr vm1.
+  Proof.
+    intros H.
+    dvm vm0 vm1.
+    simpl in *.
+    destruct vm0_rq as [|a b].
+    - discriminate.
+    - assumption.
+  Qed.
+End canned.
+
+Ltac2 unfold_vm_step_morph (id : ident) :=
+  lazy_match! Constr.type (Control.hyp id) with
+  | vm_step_morph ?vm_start (Some (?proc, ?vm_end)) =>
+      let prefix :=
+        match Constr.Unsafe.kind vm_start with
+        | Constr.Unsafe.Var vm2_id => Ident.to_string vm2_id
+        | _ => ""
+        end in
+      let vm1 := fresh_id "vm1_" in
+      let vm1_out := fresh_id (String.app prefix "_out") in
+      let vm3 := fresh_id "vm3_" in
+      let proc := fresh_id "proc_" in
+      let schedule_out := fresh_id (String.app (String.app "H" prefix) "_out") in
+      let h_vm2 := fresh_id "vm2_" in
+      let h_vm1 := fresh_id "Hvm1_" in
+      let h_proc := fresh_id "Hproc_" in
+
+      iinversion $id as [|$vm1 $vm1_out $vm3 $proc $schedule_out $h_vm2 $h_vm1 $h_proc];
+      clear $id; Std.rename [(h_vm2, id)];
+      subst $vm1; subst $vm3; subst $proc;
+      unfold exec_proc_morph in $id; simpl in $id
+  end.
+
+Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
+
+Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
+  let prefix := Ident.to_string new_ident in
+  let new_pid := fresh_id prefix in
+  let new_rc := fresh_id (String.app prefix "_rc") in
+  let valid := fresh_id (String.app "H" (String.app prefix "_valid")) in
+  let inv := fresh_id (String.app "H" (String.app (String.app prefix "_rc") "_valid")) in
+  destruct (alloc_pid $pid $rc) as [$new_pid $new_rc $valid $inv].
+
+Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) := unfold_alloc_pid pid rc new.
+
+(*Ltac2 schedule_some (vm : ident) :=
+  lazy_match! goal with
+  | [ hyp: ?a ]
+  let tmp := fresh_id "" in
+  apply canned_schedule_out_some in $h as $tmp;
+  destruct $tmp as [Hvm0_pick [Hvm0_world Hvm0_rc]].*)
+
+Section commute.
+  Context `{IOH : IOHandler}.
+
+  Let req_t := h_request_t IOH.
+  Let rep_t := h_reply_t IOH.
+  Let prog_t := @Program req_t rep_t.
+
+  Lemma spawn_spawn_commute pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2
+    child1 child2 cont1 cont2 :
+    pid1 <> pid2 ->
+    ts_event_commute_ctx
+      (fun vm => Fresh.is_valid_ref pid1 (ref_ctr vm) = true /\
+              Fresh.is_valid_ref pid2 (ref_ctr vm) = true)
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
+      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
+  Proof.
+    intros Hpids12.
+    unfold ts_event_commute_ctx, commute_ctx, commute_def, exists_equiv.
+    intros vm0 vm4 [Hvalid_pid1 Hvalid_pid2].
+    split; intros [vm2 [Hvm2 Hvm4]].
+    - simpl in Hvm2, Hvm4.
+      unfold_vm_step_morph Hvm2.
+      unfold_vm_step_morph Hvm4.
+      dvm vm0 vm0_out vm2 vm2_out.
+      cbn in Hvm2. cbn in Hvm4.
+      unfold_alloc_pid pid1 vm0_out_rc as new_pid1.
+      unfold_alloc_pid pid2 vm2_out_rc as new_pid2.
+      apply canned_schedule_out_some in Hvm0_out as Hvm0_out_.
+      apply canned_schedule_out_some in Hvm2_out as Hvm2_out_.
+      destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
+      destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
+      simpl in Hvm4, Hvm2_rc, Hvm2_world, Hvm2_pick, Hvm0_rc, Hvm0_world, Hvm0_pick.
+      subst.
+      (* Start rebuilding runq *)
+      inversion Hvm2. subst.
+      destruct (pick_cons Hvm2_pick) as [vm2_out_rq1 [H1 H2]]. {
+        intros Habsurd. now inversion Habsurd.
+      }
+      subst.
+      destruct (pick_cons H2) as [vm2_out_rq2 [H1 H3]]. {
+        specialize (Fresh.make_valid_not_equal pid1 pid2 new_pid1 vm0_out_rc new_pid1_rc Hvalid_pid2 Hnew_pid1_rc_valid) as H.
+        intros Habsurd. now inversion Habsurd.
+      }
+      subst.
+      destruct (pick_two Hvm0_pick H3) as [vm0_out' [vm2_out_rq2' [Hvm2_out' [H Hvm2_out_rq2'_equiv]]]].
+      apply pick_app_rev with (new :=
+                                 [{| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |};
+                                 {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}]) in H.
+      simpl in H.
+
+
+ltac1:(sauto).
+      exists {|
+          world := vm2_out_w;
+          runq :=
+        |}.
+      simpl in Hvm2_
+      subst
+      simpl in *.
+      simpl in Hvm0_rc. simpl in Hvm0_world.
+      simpl in Hvalid_pid1. simpl in Hvalid_pid2. simpl in Hvm0_pick. subst.
+
+      simpl in Hvm4.
+      destruct (alloc_pid pid1 vm0_out_rc) as [new_pid1 rc0_out Hnew_pid1_valid Hnew_pid1].
+      .
+
+      unfold_vm_step_morph Hvm4.
+
+      apply canned_schedule_out_some in H_out as H_out_.
+      destruct H_out_ as [Hvm4_pick [Hvm4_world Hvm4_rc]].
+      dvm vm4. unfold world in Hvm4_world.
+
+      unfold runq in Hvm4_pick.
+
+      apply canned_schedule_out_some in Hvm0_out as Hvm0_out_.
+      destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
+      apply canned_schedule_out_some in Hvm2_out as Hvm2_out_.
+      destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
+      dvm vm0 vm0_out vm2_out.
+      simpl in *. subst.
+
+      simpl in Hvm0_world. simpl in Hvm2_world. simpl in Hvm0_rc. simpl in Hvm2_rc.
+      subst.
+      unfold exec_proc_morph in Hvm2.
+      simpl in Hvm2. subst vm2.
+      simpl in Hvm2.
+      apply canned_schedule_out_some in Hvm0_out.
+      simpl in Hvm0_out.
+
+      unfold_vm_step_morph Hvm4.
+      dvm vm0 vm0_out vm2 vm2_out.
+      simpl in *.
+
+
+
+      repeat unfold_vm_step_morph.
+      destruct_vm vm0.
+      destruct_vm vm0_out.
+      destruct_vm vm2.
+      destruct_vm vm2_out.
+      destruct_vm vm4.
+      schedule_out_some_simpl Hschedule_out0.
+      schedule_out_some_simpl Hschedule_out.
+      unfold exec_proc_morph in Hvm1.
+      simpl in *. subst.
+      destruct (alloc_pid pid1 vm0_out_rc) as [new_pid1 H].
+      simpl in Hvm1.
+
+
+Ltac unfold_vm_step_morph :=
+    lazymatch goal with
+    | [H : vm_step_morph ?vm_start (Some (?proc, ?vm_end)) |- _] =>
+        let vm1_ := fresh "vm1_" in
+        let vm1_out := fresh vm_start "_out" in
+        let vm3_ := fresh "vm3_" in
+        let proc_ := fresh "proc_" in
+        let Hschedule_out := fresh "Hschedule_out" in
+        let Hvm2 := fresh "H" vm_end in
+        let Hvm1_ := fresh "Hvm1_" in
+        let Hproc_ := fresh "Hproc_" in
+        inversion H as [|vm1_ vm1_out vm3_ proc_ Hschedule_out Hvm2 Hvm1_ Hproc_];
+        clear H;
+        subst vm1_;
+        subst vm3_;
+        subst proc_
+    end.
+
+
+Ltac2 unfold_vm_hyp (hyp : Init.constr) :=
+  match Constr.Unsafe.kind hyp with
+  | Constr.Unsafe.Var hyp_id =>
+      let vm_id := Ident.to_string hyp_id in
+      let w := fresh_id (String.app vm_id "_w") in
+      let runq := fresh_id (String.app vm_id "_rq") in
+      let refctr := fresh_id (String.app vm_id "_rc") in
+      destruct $hyp as [$w $runq $refctr]
+  | _ => ()
+  end.
+
+Ltac2 unfold_proc_hyp (hyp : Init.constr) :=
+  match Constr.Unsafe.kind hyp with
+  | Constr.Unsafe.Var hyp_id =>
+      let proc_id := Ident.to_string hyp_id in
+      let pid := fresh_id (String.app proc_id "_pid") in
+      let mb_t := fresh_id (String.app proc_id "_mb_t") in
+      let cont := fresh_id (String.app proc_id "_cont") in
+      destruct $hyp as [$pid $mb_t $cont]
+  | _ => ()
+  end.
+
+
+Ltac schedule_out_some_simpl H :=
+  let tmp := fresh in
+  let H_pick := fresh H "_pick" in
+  let H_world := fresh H "_world" in
+  let H_rc := fresh H "_rc" in
+  match type of H with
+  | (?a ~[schedule_out]~> Some (?b, ?c)) =>
+      apply schedule_out_some in H as tmp;
+      destruct tmp as [H_pick [H_world H_rc]]
+  end.
+
+
+
+      destruct vm0 as [w0 rq0 rc0 inv0].
+      simpl in Hschedule_out0.
+
+  Lemma die_die_commute pid1 pid2 mb_t1 mb_t2 :
+    ts_event_commute
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @die mb_t1 |}
+      {| pid := pid2; proc_mb_t := mb_t2; cont := @die mb_t2 |}.
+  Proof.
+    unfold ts_event_commute, commute, commute_def. intros vm1 vm3.
+    split; intros [vm2 [Hvm2 Hvm3]].
+    - simpl in *. inversion Hvm2. inversion Hvm3. subst.
+
 
   Inductive schedule_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
   | schedule_morph_ :
@@ -1166,41 +1486,6 @@ Section commut.
       simpl in Heqmake_ref2.
   Abort.
 End commut.
-
-From Ltac2 Require
-  Fresh
-  String
-  Ident
-  Std.
-From Ltac2 Require Import
-  Notations
-  Printf.
-
-Set Default Proof Mode "Ltac2".
-
-Ltac2 fresh_id str := Fresh.in_goal (Option.get (Ident.of_string str)).
-
-Ltac2 unfold_vm_hyp (hyp : Init.constr) :=
-  match Constr.Unsafe.kind hyp with
-  | Constr.Unsafe.Var hyp_id =>
-      let vm_id := Ident.to_string hyp_id in
-      let w := fresh_id (String.app vm_id "_w") in
-      let runq := fresh_id (String.app vm_id "_rq") in
-      let refctr := fresh_id (String.app vm_id "_rc") in
-      destruct $hyp as [$w $runq $refctr]
-  | _ => ()
-  end.
-
-Ltac2 unfold_proc_hyp (hyp : Init.constr) :=
-  match Constr.Unsafe.kind hyp with
-  | Constr.Unsafe.Var hyp_id =>
-      let proc_id := Ident.to_string hyp_id in
-      let pid := fresh_id (String.app proc_id "_pid") in
-      let mb_t := fresh_id (String.app proc_id "_mb_t") in
-      let cont := fresh_id (String.app proc_id "_cont") in
-      destruct $hyp as [$pid $mb_t $cont]
-  | _ => ()
-  end.
 
 (* Ltac2 step_vm_morph (hyp_id : Ident.t) := *)
 (*   let hyp := Control.hyp hyp_id in *)

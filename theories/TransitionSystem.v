@@ -36,7 +36,7 @@ Section TransitionSystem.
       ts_setoid :: Setoid State;
       ts_canon_rel : relation Event;
       ts_canon_order :: CanonicalOrder ts_canon_rel;
-      ts_state_trans :: @MFun State (ts_ret Event) ts_setoid (ts_ret_setoid Event ts_setoid);
+      ts_state_trans : @MFun State (ts_ret Event) ts_setoid (ts_ret_setoid Event ts_setoid);
     }.
 
   Program Definition ts_mfun `{TransitionSystem} (e : Event) : MFun State State :=
@@ -55,6 +55,9 @@ Section TransitionSystem.
     }.
 
   Definition ts_event_commute `{TransitionSystem} (a b : Event) := commute (ts_mfun a) (ts_mfun b).
+
+  Definition ts_event_commute_ctx `{TransitionSystem} (ctx : State -> Prop) (a b : Event) :=
+    commute_ctx ctx (ts_mfun a) (ts_mfun b).
 End TransitionSystem.
 
 Section TSProps.

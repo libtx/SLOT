@@ -310,6 +310,20 @@ Module Fresh.
       + discriminate.
   Qed.
 
+  Lemma is_valid_neq_proxy a b rc :
+    is_valid_ref a rc = true ->
+    is_valid_ref b rc = false ->
+    a <> b.
+  Proof.
+    unfold Fresh.is_valid_ref.
+    intros Ha Hb.
+    destruct a as [|a_h a_t]; destruct b as [|b_h b_t]; intros H.
+    - discriminate.
+    - inversion H.
+    - inversion H.
+    - injection H as H_h H_t. subst. now rewrite Ha in Hb.
+  Qed.
+
   Lemma is_valid_equiv ref cc cc' :
     s_eq cc cc' ->
     is_valid_ref ref cc = true ->
@@ -321,7 +335,6 @@ Module Fresh.
     - easy.
     - now rewrite <-Hequiv.
   Qed.
-
 
   Add Parametric Morphism (parent : Ref) :
     (make parent) with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid)) as make_morph.

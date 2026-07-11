@@ -110,6 +110,18 @@ Section defn.
     induction l1; intros l2 Hl2; sauto.
   Qed.
 
+  Lemma pick_app_rev new l1 a l2 :
+    Pick l1 a l2 ->
+    Pick (new ++ l1) a (new ++ l2).
+  Proof.
+    intros H.
+    unfold Pick.
+    induction new as [|el new].
+    - assumption.
+    - apply Add_cons with (x := el) in IHnew.
+      assumption.
+  Qed.
+
   Program Definition pick_mfun : @MFunRet A (list A) Hsetoid (setoid_permutation _) :=
     {| morphism l ret :=
         let (a, l') := ret in
