@@ -593,7 +593,7 @@ Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) :
   apply canned_schedule_out_some in $h as $tmp;
   destruct $tmp as [Hvm0_pick [Hvm0_world Hvm0_rc]].*)
 
-Notation "A @ C '::' T" := {| pid := A; proc_mb_t := T; cont := C |} (at level 100).
+Notation "'P<' T > A @ C " := {| pid := A; proc_mb_t := T; cont := C |} (at level 100).
 
 Section commute.
   Context `{IOH : IOHandler}.
@@ -609,6 +609,18 @@ Section commute.
     intros Hl.
     ltac1:(sauto).
   Qed.
+
+  Ltac2 simpl_fresh_ref :=
+    fun () =>
+      match! goal with
+      | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?new ?rc = true ] =>
+          let h := Control.hyp hnew in
+          apply (Fresh.makes_valid_ref $parent $new $rc0 $rc $h)
+      | [ h : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?pid ?rc = true ] =>
+          apply Fresh.make_keeps_valid with (new := $new) (parent := $parent) (cc := $rc0) > [|assumption]
+      end.
+
+  Ltac2 Notation "simpl_fresh_ref" := simpl_fresh_ref ().
 
   Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     pid1 <> pid2 ->
@@ -663,36 +675,20 @@ Section commute.
       assert (Hvm_pids_valid : Forall (proc_valid_pid rc3') rq'). {
         subst rq'.
         unfold proc_valid_pid in *.
-        constructor. {
-          simpl.
-          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
-          now apply Fresh.make_keeps_valid with (new := new_pid2) (parent := pid2) (cc := vm0_out_rc).
-        }
-        constructor. {
-          eapply Fresh.makes_valid_ref; eauto.
-        }
-        constructor. {
-          simpl.
-          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
-          now apply Fresh.make_keeps_valid with (new := new_pid2) (parent := pid2) (cc := vm0_out_rc).
-        }
-        constructor. {
-          simpl.
-          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
-          eapply Fresh.makes_valid_ref; eauto.
-        }
+        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
+        constructor. { simpl_fresh_ref. }
+        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
+        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
         simpl.
         rewrite Hvm2_out_rq2'_equiv.
         inversion_clear vm2_out_pids_valid.
         inversion_clear H0.
         clear -H4 Hrc' Hnew_pid2_valid Hnew_pid2_rc_valid.
-        apply Fresh.make_keeps_valid with (other := pid2) in Hnew_pid2_rc_valid.
         induction H4.
         - constructor.
         - constructor > [|assumption].
-          eapply Fresh.is_valid_equiv; eauto.
-          admit.
-        - admit.
+          apply Fresh.is_valid_equiv with (cc := new_pid2_rc) > [now symmetry|].
+          now simpl_fresh_ref.
       }
 
       (* Build it: *)
@@ -708,7 +704,41 @@ Section commute.
           - subst rq'.
             eapply Permutation_swap2; eauto.
             now symmetry.
-      }
+      } {
+        simpl.
+        set (rq_ := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |}
+                      :: {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}
+                      :: vm0_rq).
+        assert (Hinv_rc2' : Forall (proc_valid_pid rc2') rq_). {
+          admit.
+        }
+        exists {|
+            world := w';
+            runq := rq_;
+            ref_ctr := rc2';
+            inv_valid_pids := Hinv_rc2';
+          |}.
+        split.
+        - assert (Hinv_rc2'' :  Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
+            admit.
+          }
+          set (v0 := {|
+                      world := w';
+                      runq := vm0_rq;
+                      ref_ctr := vm0_out_rc;
+                      inv_valid_pids := vm0_pids_valid
+                    |}).
+          specialize (vm_step_some v0) as H.
+          specialize vm_step_some with
+            (vm1 :=
+               {|
+                 world := w';
+                 runq := vm0_out';
+                 ref_ctr := vm0_out_rc;
+                 inv_valid_pids := Hinv_rc2''
+               |}) as H.
+          simpl.
+
 
 
 Ltac unfold_vm_step_morph :=
