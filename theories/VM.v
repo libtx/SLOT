@@ -505,10 +505,10 @@ From Ltac2 Require Import
   Notations
   Printf
   Init.
+From SLOT Require Import
+  Tactics.
 
 Set Default Proof Mode "Ltac2".
-
-Ltac2 fresh_id str := Fresh.in_goal (Option.get (Ident.of_string str)).
 
 Ltac2 dvm (vms : ident list) :=
   List.iter
@@ -532,15 +532,6 @@ Section tests.
     dvm vm1 vm2.
   Abort.
 End tests.
-
-(* Alternative notation for inversion tactic that allows passing ident
-as a destruction argument, which for some reason doesn't work for the
-standard notation. *)
-Ltac2 Notation "iinversion"
-  arg(ident)
-  pat(opt(seq("as", intropattern)))
-  ids(opt(seq("in", list1(ident)))) :=
-  Std.inversion Std.FullInversion (Std.ElimOnIdent arg) pat ids.
 
 Section canned.
   Context `{IOH : IOHandler}.
