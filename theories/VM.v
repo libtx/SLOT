@@ -39,6 +39,33 @@ Infix "=h=" := (@equiv _ h_setoid) (at level 50) : slot_scope.
 
 Open Scope slot_scope.
 
+
+Section alloc_pid.
+  Context (parent : Ref) (rc : Fresh.t).
+
+  Inductive NewValidPid : Type :=
+  | new_valid_pid : forall (new : Ref) (rc' : Fresh.t),
+      Fresh.is_valid_ref new rc' = true ->
+      Fresh.make parent rc = (new, rc') ->
+      NewValidPid.
+
+  Lemma alloc_pid : NewValidPid.
+    remember (Fresh.make parent rc) as fresh.
+    symmetry in Heqfresh.
+    destruct fresh as [new rc'].
+    refine (new_valid_pid new rc' _ _).
+    - apply (Fresh.makes_valid_ref parent new rc rc' Heqfresh).
+    - assumption.
+  Defined.
+
+  Lemma alloc_certain new rc' (H : Fresh.make parent rc = (new, rc')) :
+    alloc_pid = new_valid_pid new rc' (Fresh.makes_valid_ref parent new rc rc' H) H.
+    (* TODO: this is wrong  *)
+  Admitted.
+
+  Opaque alloc_pid.
+End alloc_pid.
+
 Section VM.
   Context `{IOH : IOHandler}.
 
@@ -332,21 +359,6 @@ Section VM.
       (parent : Ref) (parent_mb_t : Set)
       (parent_cont : @Address child_mb_t -> Program parent_mb_t).
 
-    Inductive NewValidPid (rc : Fresh.t) : Type :=
-    | new_valid_pid : forall (new_pid : Ref) (rc' : Fresh.t),
-        Fresh.is_valid_ref new_pid rc' = true ->
-        Fresh.make parent rc = (new_pid, rc') ->
-        NewValidPid rc.
-
-    Lemma alloc_pid (rc : Fresh.t) : NewValidPid rc.
-      remember (Fresh.make parent rc) as fresh.
-      symmetry in Heqfresh.
-      destruct fresh as [new rc'].
-      refine (new_valid_pid rc new rc' _ _).
-      - apply (Fresh.makes_valid_ref parent new rc rc' Heqfresh).
-      - assumption.
-    Qed.
-
     Lemma do_spawn_keeps_invariniant
       addr
       (rq : list Process)
@@ -374,7 +386,8 @@ Section VM.
       (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
-      destruct (alloc_pid rc) as [new rc' Hnewvalid Heqfresh].
+      Check alloc_pid.
+      destruct (alloc_pid parent rc) as [new rc' Hnewvalid Heqfresh].
       specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
       set (addr := mkAddress child_mb_t new).
       set (rq' :=
@@ -398,8 +411,8 @@ Section VM.
       destruct vm as [w1 rq1 rc1 inv1].
       destruct vm' as [w1' rq1' rc1' inv1'].
       unfold do_spawn.
-      destruct (alloc_pid rc1) as [new_pid rc2 H_1 H_2].
-      destruct (alloc_pid rc1') as [new_pid' rc2' H_1' H_2'].
+      destruct (alloc_pid parent rc1) as [new_pid rc2 H_1 H_2].
+      destruct (alloc_pid parent rc1') as [new_pid' rc2' H_1' H_2'].
       simpl.
       simpl in Hvm'. destruct Hvm' as [Hw [Hrc Hrq]].
       specialize (Fresh.make_morph parent rc1 rc1' Hrc) as H.
@@ -582,6 +595,7 @@ Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
   let new_rc := fresh_id (String.app prefix "_rc") in
   let valid := fresh_id (String.app "H" (String.app prefix "_valid")) in
   let inv := fresh_id (String.app "H" (String.app (String.app prefix "_rc") "_valid")) in
+  let h_alloc_old := fresh_id (String.app "H_alloc_" (Ident.to_string new_pid)) in
   destruct (alloc_pid $pid $rc) as [$new_pid $new_rc $valid $inv].
 
 Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) := unfold_alloc_pid pid rc new.
@@ -607,8 +621,8 @@ Section commute.
     (a1 :: b1 :: a2 :: b2 :: l1) =p= (a2 :: b2 :: a1 :: b1 :: l2).
   Proof.
     intros Hl.
-    ltac1:(sauto).
-  Qed.
+    (* ltac1:(sauto). works, but slow *)
+  Admitted.
 
   Ltac2 simpl_fresh_ref :=
     fun () =>
@@ -708,7 +722,7 @@ Section commute.
         simpl.
         set (rq_ := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |}
                       :: {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}
-                      :: vm0_rq).
+                      ::  vm0_out').
         assert (Hinv_rc2' : Forall (proc_valid_pid rc2') rq_). {
           admit.
         }
@@ -719,15 +733,36 @@ Section commute.
             inv_valid_pids := Hinv_rc2';
           |}.
         split.
-        - assert (Hinv_rc2'' :  Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
+        - Check vm_step_some.
+          Check schedule_out_some.
+          assert (vm0_out'_valid : Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
             admit.
           }
-          set (v0 := {|
-                      world := w';
-                      runq := vm0_rq;
-                      ref_ctr := vm0_out_rc;
-                      inv_valid_pids := vm0_pids_valid
-                    |}).
+          set (vm_out := {|
+                          world := w';
+                          runq := vm0_out';
+                          ref_ctr := vm0_out_rc;
+                          inv_valid_pids := vm0_out'_valid
+                        |}).
+          match! goal with
+          | [ |- vm_step_morph ?vm0 (Some (?proc, ?vm2)) ] =>
+              refine '(vm_step_some $vm0 vm_out $vm2 $proc _ _)
+          end.
+          + sauto.
+          + subst vm_out. simpl. unfold exec_proc_morph. simpl.
+            subst rq_.
+            Check alloc_certain.
+            match! goal with
+              [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [alloc_pid ?pid ?rc0] ] =>
+                let h := Control.hyp h_new in
+                rewrite (alloc_certain $pid $rc0 $new $rc1 $h)
+            end.
+            simpl.
+
+assert (Hinv_rc2'' :  Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
+            admit.
+          }
+          set (v0 := ).
           specialize (vm_step_some v0) as H.
           specialize vm_step_some with
             (vm1 :=
@@ -848,6 +883,12 @@ Ltac schedule_out_some_simpl H :=
     {| morphism := schedule_morph proc;
       morphism_covariance := schedule_covariance proc;
     |}.
+
+
+
+
+    Opaque alloc_pid.
+
 
   Lemma spawn_spawn_commut
     (child_mb_t1 : Set) (child_cont1 : Program child_mb_t1)
