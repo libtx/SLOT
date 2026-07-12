@@ -215,7 +215,16 @@ Section VM.
   Lemma schedule_out_valid_pid vm proc vm' :
     vm ~[schedule_out]~> Some (proc, vm') ->
     proc_valid_pid (ref_ctr vm') proc.
-  Admitted.
+  Proof.
+    intros H.
+    destruct vm as [w rq rc inv].
+    simpl in H.
+    destruct rq as [|_first _rest].
+    - discriminate.
+    - destruct vm' as [w' rq' rc' inv'].
+      destruct H as [Hrq' [Hw' Hrc']]. subst. simpl.
+      now apply pick_forall_elem with (a := proc) (l' := rq') (l := _first :: _rest).
+  Qed.
 
   (** ** Operations with the world *)
 
