@@ -110,6 +110,24 @@ Section defn.
     induction l1; intros l2 Hl2; sauto.
   Qed.
 
+  Lemma pick_app {a b l1 l2} :
+    Pick (a ++ l1) b l2 ->
+    Forall (fun x => x <> b) a ->
+    exists l2',
+      l2 = a ++ l2' /\ Pick l1 b l2'.
+  Proof.
+    intros Hpick Hall.
+    generalize dependent l2.
+    induction a as [|a tail]; intros.
+    - simpl in *. exists l2. sauto.
+    - apply Forall_cons_iff in Hall. destruct Hall as [Ha Htail].
+      simpl in Hpick.
+      apply pick_cons in Hpick; [|assumption].
+      destruct Hpick as [x [Hx Htail_pick]].
+      apply IHtail with (l2 := x) in Htail; [|assumption].
+      sauto.
+  Qed.
+
   Lemma pick_app_rev new l1 a l2 :
     Pick l1 a l2 ->
     Pick (new ++ l1) a (new ++ l2).

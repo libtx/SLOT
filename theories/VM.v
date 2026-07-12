@@ -593,6 +593,8 @@ Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) :
   apply canned_schedule_out_some in $h as $tmp;
   destruct $tmp as [Hvm0_pick [Hvm0_world Hvm0_rc]].*)
 
+Notation "A @ C '::' T" := {| pid := A; proc_mb_t := T; cont := C |} (at level 100).
+
 Section commute.
   Context `{IOH : IOHandler}.
 
@@ -600,8 +602,15 @@ Section commute.
   Let rep_t := h_reply_t IOH.
   Let prog_t := @Program req_t rep_t.
 
-  Lemma spawn_spawn_commute pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2
-    child1 child2 cont1 cont2 :
+  Lemma Permutation_swap2 {A} (a1 b1 a2 b2 : A) l1 l2 :
+    l1 =p= l2 ->
+    (a1 :: b1 :: a2 :: b2 :: l1) =p= (a2 :: b2 :: a1 :: b1 :: l2).
+  Proof.
+    intros Hl.
+    ltac1:(sauto).
+  Qed.
+
+  Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
       (fun vm => Fresh.is_valid_ref pid1 (ref_ctr vm) = true /\
@@ -637,69 +646,69 @@ Section commute.
         intros Habsurd. now inversion Habsurd.
       }
       subst.
-      destruct (pick_two Hvm0_pick H3) as [vm0_out' [vm2_out_rq2' [Hvm2_out' [H Hvm2_out_rq2'_equiv]]]].
-      apply pick_app_rev with (new :=
-                                 [{| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |};
-                                 {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}]) in H.
-      simpl in H.
+      destruct (pick_two Hvm0_pick H3) as [vm0_out' [vm2_out_rq2' [Hvm2_out' [Hpick_0' Hvm2_out_rq2'_equiv]]]].
+      apply pick_app_rev with (new := [{| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |};
+                                       {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}]) in Hpick_0'.
+      (* Run queue: *)
+      set (rq' :=
+             [{| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid1 |} |};
+               {| pid := new_pid1; proc_mb_t := child_mb_t1; cont := child1 |};
+               {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |};
+               {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}]
+               ++ vm2_out_rq2').
+      (* World: *)
+      set (w' := vm0_out_w).
+      (* Run queue invariant: *)
+      destruct (Fresh.swap_make pid1 pid2 new_pid1 new_pid2 vm0_out_rc new_pid1_rc new_pid2_rc Hpids12 Hnew_pid1_rc_valid Hnew_pid2_rc_valid) as [rc2' [rc3' [Hrc' [Hnew_pid1' Hnew_pid2']]]].
+      assert (Hvm_pids_valid : Forall (proc_valid_pid rc3') rq'). {
+        subst rq'.
+        unfold proc_valid_pid in *.
+        constructor. {
+          simpl.
+          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
+          now apply Fresh.make_keeps_valid with (new := new_pid2) (parent := pid2) (cc := vm0_out_rc).
+        }
+        constructor. {
+          eapply Fresh.makes_valid_ref; eauto.
+        }
+        constructor. {
+          simpl.
+          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
+          now apply Fresh.make_keeps_valid with (new := new_pid2) (parent := pid2) (cc := vm0_out_rc).
+        }
+        constructor. {
+          simpl.
+          apply Fresh.make_keeps_valid with (new := new_pid1) (parent := pid1) (cc := rc2') > [|assumption].
+          eapply Fresh.makes_valid_ref; eauto.
+        }
+        simpl.
+        rewrite Hvm2_out_rq2'_equiv.
+        inversion_clear vm2_out_pids_valid.
+        inversion_clear H0.
+        clear -H4 Hrc' Hnew_pid2_valid Hnew_pid2_rc_valid.
+        apply Fresh.make_keeps_valid with (other := pid2) in Hnew_pid2_rc_valid.
+        induction H4.
+        - constructor.
+        - constructor > [|assumption].
+          eapply Fresh.is_valid_equiv; eauto.
+          admit.
+        - admit.
+      }
 
-
-ltac1:(sauto).
+      (* Build it: *)
       exists {|
-          world := vm2_out_w;
-          runq :=
-        |}.
-      simpl in Hvm2_
-      subst
-      simpl in *.
-      simpl in Hvm0_rc. simpl in Hvm0_world.
-      simpl in Hvalid_pid1. simpl in Hvalid_pid2. simpl in Hvm0_pick. subst.
-
-      simpl in Hvm4.
-      destruct (alloc_pid pid1 vm0_out_rc) as [new_pid1 rc0_out Hnew_pid1_valid Hnew_pid1].
-      .
-
-      unfold_vm_step_morph Hvm4.
-
-      apply canned_schedule_out_some in H_out as H_out_.
-      destruct H_out_ as [Hvm4_pick [Hvm4_world Hvm4_rc]].
-      dvm vm4. unfold world in Hvm4_world.
-
-      unfold runq in Hvm4_pick.
-
-      apply canned_schedule_out_some in Hvm0_out as Hvm0_out_.
-      destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
-      apply canned_schedule_out_some in Hvm2_out as Hvm2_out_.
-      destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
-      dvm vm0 vm0_out vm2_out.
-      simpl in *. subst.
-
-      simpl in Hvm0_world. simpl in Hvm2_world. simpl in Hvm0_rc. simpl in Hvm2_rc.
-      subst.
-      unfold exec_proc_morph in Hvm2.
-      simpl in Hvm2. subst vm2.
-      simpl in Hvm2.
-      apply canned_schedule_out_some in Hvm0_out.
-      simpl in Hvm0_out.
-
-      unfold_vm_step_morph Hvm4.
-      dvm vm0 vm0_out vm2 vm2_out.
-      simpl in *.
-
-
-
-      repeat unfold_vm_step_morph.
-      destruct_vm vm0.
-      destruct_vm vm0_out.
-      destruct_vm vm2.
-      destruct_vm vm2_out.
-      destruct_vm vm4.
-      schedule_out_some_simpl Hschedule_out0.
-      schedule_out_some_simpl Hschedule_out.
-      unfold exec_proc_morph in Hvm1.
-      simpl in *. subst.
-      destruct (alloc_pid pid1 vm0_out_rc) as [new_pid1 H].
-      simpl in Hvm1.
+          world := w';
+          runq := rq';
+          ref_ctr := rc3';
+          inv_valid_pids := Hvm_pids_valid;
+        |}. split.
+      2:{ split > [|split].
+          - reflexivity.
+          - now symmetry.
+          - subst rq'.
+            eapply Permutation_swap2; eauto.
+            now symmetry.
+      }
 
 
 Ltac unfold_vm_step_morph :=

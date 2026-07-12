@@ -13,7 +13,8 @@ From Hammer Require Import
 
 From LibTx Require Import
   Classes
-  Storage.Instances.AVL.
+  Storage.Instances.AVL
+  Storage.Properties.
 
 From SLOT Require Import
   Setoids.
@@ -353,5 +354,47 @@ Module Fresh.
       + rewrite Hequiv.
         * reflexivity.
         * exact True. (* ??? *)
+  Qed.
+
+  Lemma swap_make pid1 pid2 new_pid1 new_pid2 rc1 rc2 rc3 :
+    pid1 <> pid2 ->
+    make pid1 rc1 = (new_pid1, rc2) ->
+    make pid2 rc2 = (new_pid2, rc3) ->
+    exists rc2' rc3',
+      rc3' == rc3 /\
+      make pid2 rc1 = (new_pid2, rc2') /\
+      make pid1 rc2' = (new_pid1, rc3').
+  Proof.
+    unfold make.
+    intros Hpid12 Hnew1 Hnew2.
+    remember (get pid1 rc1) as np1.
+    remember (get pid2 rc1) as np2.
+    destruct np1 as [ctr1|];
+      injection Hnew1 as Hnew1 Hrc2; subst rc2;
+      (* Apply distinct: *)
+      lazymatch goal with
+      | [ H : context [get ?p1 (put ?p2 ?ctr2 ?rc)] |- _ ] =>
+          rewrite <-distinct with (k1 := p1) (k2 := p2) (v2 := ctr2) in H;
+          [|assumption || now symmetry]
+      end;
+      destruct np2 as [ctr2|];
+      rewrite <-Heqnp2 in Hnew2;
+      injection Hnew2 as Hnew2 Hrc3;
+      (* Create new states: *)
+      lazymatch goal with
+      | [ H : context [put ?pid2 ?ctr2 (put ?pid1 ?ctr1 ?rc)] |- _] =>
+          exists (put pid2 ctr2 rc);
+          exists (put pid1 ctr1 (put pid2 ctr2 rc));
+          subst;
+          split;
+          [apply put_distict_comm; [assumption || now symmetry] | ]
+      end;
+      split; try easy;
+      match goal with
+      | [ H : ?p1 <> ?p2  |- context [get ?p1 (put ?p2 ?ctr2 ?rc)] ] =>
+          rewrite <-distinct with (k1 := p1) (k2 := p2) (v2 := ctr2); [|assumption]
+      end;
+      rewrite <-Heqnp1 || rewrite <-Heqnp2;
+      reflexivity.
   Qed.
 End Fresh.
