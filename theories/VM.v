@@ -138,6 +138,9 @@ Section VM.
         inv_valid_pids : Forall (proc_valid_pid ref_ctr) runq;
       }.
 
+  Definition vm_eq (a b : VM) : Prop :=
+    world a = world b /\ runq a = runq b /\ ref_ctr a = ref_ctr b.
+
   (* begin hide *)
   #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr; inv_valid_pids>.
   (* end hide *)
@@ -351,6 +354,19 @@ Section VM.
       + apply Fresh.make_keeps_valid with (new := new) (cc := rc) (parent := parent); assumption.
       + assumption.
   Qed.
+
+  Lemma make_keeps_valid_Forall (parent new : Ref) (cc cc' : Fresh.t) l :
+    Forall (fun x => Fresh.is_valid_ref (pid x) cc = true) l ->
+    Fresh.make parent cc = (new, cc') ->
+    Forall (fun x => Fresh.is_valid_ref (pid x) cc' = true) l.
+  Proof.
+    induction l as [|a l]; intros Hl Hcc'.
+    - constructor.
+    - inversion Hl; subst.
+      constructor.
+      + eapply Fresh.make_keeps_valid; eauto.
+      + apply IHl; easy.
+  Qed.
   (* end details *)
 
   Section spawn.
@@ -436,7 +452,7 @@ Section VM.
     - (* io: TODO *)
       exact False.
     - (* spawn *)
-      refine (vm2 = do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _).
+      refine (vm_eq vm2 (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _)).
       specialize (schedule_out_valid_pid vm0 proc vm1) as H.
       now apply H in Hproc.
   Defined.
@@ -493,7 +509,7 @@ Section VM.
         split.
         * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
           unfold exec_proc_morph. rewrite <-Heqcont_.
-          reflexivity.
+          sauto.
         * sauto.
   Qed.
 
@@ -564,14 +580,16 @@ Section canned.
   Qed.
 End canned.
 
+Ltac2 maybe_hyp_to_string (c : constr) (default : string) : string :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.Var c => Ident.to_string c
+  | _ => default
+  end.
+
 Ltac2 unfold_vm_step_morph (id : ident) :=
   lazy_match! Constr.type (Control.hyp id) with
   | vm_step_morph ?vm_start (Some (?proc, ?vm_end)) =>
-      let prefix :=
-        match Constr.Unsafe.kind vm_start with
-        | Constr.Unsafe.Var vm2_id => Ident.to_string vm2_id
-        | _ => ""
-        end in
+      let prefix := maybe_hyp_to_string vm_start "" in
       let vm1 := fresh_id "vm1_" in
       let vm1_out := fresh_id (String.app prefix "_out") in
       let vm3 := fresh_id "vm3_" in
@@ -584,7 +602,7 @@ Ltac2 unfold_vm_step_morph (id : ident) :=
       iinversion $id as [|$vm1 $vm1_out $vm3 $proc $schedule_out $h_vm2 $h_vm1 $h_proc];
       clear $id; Std.rename [(h_vm2, id)];
       subst $vm1; subst $vm3; subst $proc;
-      unfold exec_proc_morph in $id; simpl in $id
+      unfold exec_proc_morph, vm_eq in $id; simpl in $id
   end.
 
 Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
@@ -624,17 +642,118 @@ Section commute.
     (* ltac1:(sauto). works, but slow *)
   Admitted.
 
-  Ltac2 simpl_fresh_ref :=
-    fun () =>
-      match! goal with
-      | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?new ?rc = true ] =>
-          let h := Control.hyp hnew in
-          apply (Fresh.makes_valid_ref $parent $new $rc0 $rc $h)
-      | [ h : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?pid ?rc = true ] =>
-          apply Fresh.make_keeps_valid with (new := $new) (parent := $parent) (cc := $rc0) > [|assumption]
-      end.
+  Ltac2 simpl_fresh_ref () :=
+    unfold proc_valid_pid;
+    match! goal with
+    | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?new ?rc = true ] =>
+        let h := Control.hyp hnew in
+        apply (Fresh.makes_valid_ref $parent $new $rc0 $rc $h)
+    | [ h : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?pid ?rc = true ] =>
+        apply Fresh.make_keeps_valid with (new := $new) (parent := $parent) (cc := $rc0) > [|assumption]
+    end.
 
+  (* Solve goal of type
+     [Forall (fun proc : Process => Fresh.is_valid_ref (pid proc) rc = true) rq] *)
   Ltac2 Notation "simpl_fresh_ref" := simpl_fresh_ref ().
+
+  Ltac2 solve_fresh_ref () :=
+    constructor > [now repeat (simpl_fresh_ref)|].
+
+  Ltac2 Notation "solve_fresh_ref" := solve_fresh_ref ().
+
+  Ltac2 solve_alloc_pid () :=
+    simpl;
+    lazy_match! goal with
+      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [alloc_pid ?pid ?rc0] ] =>
+        let h := Control.hyp h_new in
+        rewrite (alloc_certain $pid $rc0 $new $rc1 $h)
+    end.
+
+  Ltac2 Notation "solve_alloc_pid" := solve_alloc_pid ().
+
+  (* Simplify all available hypotheses of type Forall (.. is_valid_ref.. ) (a :: b :: ..) *)
+  Ltac2 unfold_rc_invarinats () :=
+    repeat (
+        lazy_match! goal with
+        | [ h : Forall (fun x : Process => Fresh.is_valid_ref (pid x) _ = true) (?a :: ?l)  |- _
+          ] =>
+            let h := Control.hyp h in
+            let ha := fresh_id (String.app "H_valid_" (maybe_hyp_to_string a "a")) in
+            let hl := fresh_id (String.app "H_valid_" (maybe_hyp_to_string l "l")) in
+            let hx := Fresh.in_goal @h in
+            inversion_clear $h as [|? ? $ha $hl $hx];
+            simpl in $ha;
+            simpl in $hl
+        end).
+
+  Ltac2 rec solve_rc_invariant2 () :=
+    match! goal with
+    | [ |- Forall _ [] ] =>
+        now constructor
+    | [ |- Fresh.is_valid_ref _ _ = true ] =>
+        repeat (simpl_fresh_ref); assumption
+    | [ |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) (_ ++ _) ] =>
+        apply Forall_app; split; Control.enter solve_rc_invariant2
+    | [ |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) (_ :: _) ] =>
+        apply Forall_cons; Control.enter solve_rc_invariant2
+    | [ hmake : Fresh.make ?parent ?rc1 = (?new, ?rc2)
+        |- Forall (fun x => Fresh.is_valid_ref (pid x) ?rc2 = true) ?l
+      ] =>
+        let hmake := Control.hyp hmake in
+        refine '(make_keeps_valid_Forall $parent $new $rc1 $rc2 $l _ $hmake);
+        Control.enter solve_rc_invariant2
+    | [ _ : Pick ?l ?elem ?l'
+        |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) ?l'
+      ] =>
+        apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem);
+        Control.enter solve_rc_invariant2
+    | [ h : Pick ?l ?elem ?l'
+        |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) ?l
+      ] =>
+        apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem) in $h;
+        Control.enter solve_rc_invariant2
+    | [ |- _ ] =>
+        assumption
+    end.
+
+  Ltac2 solve_rc_invariant () :=
+    unfold proc_valid_pid in *;
+    unfold_rc_invarinats;
+    solve_rc_invariant2 ().
+
+  Ltac2 Notation "solve_rc_invariant" := solve_rc_invariant ().
+
+  Ltac2 vm_step_some (vm_out : constr) :=
+    match! goal with
+    | [ |- vm_step_morph ?vm0 (Some (?proc, ?vm2)) ] =>
+        let suffix := maybe_hyp_to_string proc "proc" in
+        let hproc := fresh_id (String.app "Hinv_" suffix) in
+        assert ($hproc : $vm0 ~[schedule_out]~> Some ($proc, $vm_out)) >
+          [ |
+            let hproc := Control.hyp hproc in
+            refine '(vm_step_some $vm0 $vm_out $vm2 $proc $hproc _)
+          ]
+    end.
+
+  Ltac2 Notation "vm_step_some" vm(constr) := vm_step_some vm.
+
+  Ltac2 solve_vm_step () :=
+    lazy_match! goal with
+    | [ _ : Pick ?rq0 ?proc ?rq1 |-
+          vm_step_morph {| world := ?w; runq := ?rq0; ref_ctr := ?rc |} (Some (?proc, _))] =>
+        let hinv := fresh_id (String.app "HInv_" (maybe_hyp_to_string rc "rc")) in
+        assert ($hinv : Forall (proc_valid_pid $rc) $rq1) >
+          [try assumption |
+            let hinv := Control.hyp hinv in
+            printf "%t" hinv;
+            vm_step_some {| world := $w;
+                            runq := $rq1;
+                            ref_ctr := $rc;
+                            inv_valid_pids := $hinv
+                         |} >
+              [|unfold exec_proc_morph, vm_eq]
+          ]
+    end.
 
   Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     pid1 <> pid2 ->
@@ -651,7 +770,7 @@ Section commute.
     - simpl in Hvm2, Hvm4.
       unfold_vm_step_morph Hvm2.
       unfold_vm_step_morph Hvm4.
-      dvm vm0 vm0_out vm2 vm2_out.
+      dvm vm0 vm0_out vm2 vm2_out vm4.
       cbn in Hvm2. cbn in Hvm4.
       unfold_alloc_pid pid1 vm0_out_rc as new_pid1.
       unfold_alloc_pid pid2 vm2_out_rc as new_pid2.
@@ -660,9 +779,10 @@ Section commute.
       destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
       destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
       simpl in Hvm4, Hvm2_rc, Hvm2_world, Hvm2_pick, Hvm0_rc, Hvm0_world, Hvm0_pick.
+      destruct Hvm2 as [Hvm2_w [Hvm2_rq Hvm2_rc_]].
+      destruct Hvm4 as [Hvm4_w [Hvm4_rq Hvm4_rc_]].
       subst.
       (* Start rebuilding runq *)
-      inversion Hvm2. subst.
       destruct (pick_cons Hvm2_pick) as [vm2_out_rq1 [H1 H2]]. {
         intros Habsurd. now inversion Habsurd.
       }
@@ -688,23 +808,9 @@ Section commute.
       destruct (Fresh.swap_make pid1 pid2 new_pid1 new_pid2 vm0_out_rc new_pid1_rc new_pid2_rc Hpids12 Hnew_pid1_rc_valid Hnew_pid2_rc_valid) as [rc2' [rc3' [Hrc' [Hnew_pid1' Hnew_pid2']]]].
       assert (Hvm_pids_valid : Forall (proc_valid_pid rc3') rq'). {
         subst rq'.
-        unfold proc_valid_pid in *.
-        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
-        constructor. { simpl_fresh_ref. }
-        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
-        constructor. { simpl_fresh_ref. now simpl_fresh_ref. }
-        simpl.
         rewrite Hvm2_out_rq2'_equiv.
-        inversion_clear vm2_out_pids_valid.
-        inversion_clear H0.
-        clear -H4 Hrc' Hnew_pid2_valid Hnew_pid2_rc_valid.
-        induction H4.
-        - constructor.
-        - constructor > [|assumption].
-          apply Fresh.is_valid_equiv with (cc := new_pid2_rc) > [now symmetry|].
-          now simpl_fresh_ref.
+        solve_rc_invariant.
       }
-
       (* Build it: *)
       exists {|
           world := w';
@@ -722,9 +828,11 @@ Section commute.
         simpl.
         set (rq_ := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid2 |} |}
                       :: {| pid := new_pid2; proc_mb_t := child_mb_t2; cont := child2 |}
-                      ::  vm0_out').
+                      ::  vm0_out') in *.
+        assert (Hinv_rc2'' :  Forall (proc_valid_pid vm0_out_rc) vm0_out') by solve_rc_invariant.
         assert (Hinv_rc2' : Forall (proc_valid_pid rc2') rq_). {
-          admit.
+          subst rq_.
+          solve_rc_invariant.
         }
         exists {|
             world := w';
@@ -733,48 +841,15 @@ Section commute.
             inv_valid_pids := Hinv_rc2';
           |}.
         split.
-        - Check vm_step_some.
-          Check schedule_out_some.
-          assert (vm0_out'_valid : Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
-            admit.
-          }
-          set (vm_out := {|
-                          world := w';
-                          runq := vm0_out';
-                          ref_ctr := vm0_out_rc;
-                          inv_valid_pids := vm0_out'_valid
-                        |}).
-          match! goal with
-          | [ |- vm_step_morph ?vm0 (Some (?proc, ?vm2)) ] =>
-              refine '(vm_step_some $vm0 vm_out $vm2 $proc _ _)
-          end.
+        - solve_vm_step ().
           + sauto.
-          + subst vm_out. simpl. unfold exec_proc_morph. simpl.
-            subst rq_.
-            Check alloc_certain.
-            match! goal with
-              [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [alloc_pid ?pid ?rc0] ] =>
-                let h := Control.hyp h_new in
-                rewrite (alloc_certain $pid $rc0 $new $rc1 $h)
-            end.
-            simpl.
-
-assert (Hinv_rc2'' :  Forall (proc_valid_pid vm0_out_rc) vm0_out'). {
-            admit.
-          }
-          set (v0 := ).
-          specialize (vm_step_some v0) as H.
-          specialize vm_step_some with
-            (vm1 :=
-               {|
-                 world := w';
-                 runq := vm0_out';
-                 ref_ctr := vm0_out_rc;
-                 inv_valid_pids := Hinv_rc2''
-               |}) as H.
-          simpl.
-
-
+          + solve_alloc_pid. sauto.
+        - solve_vm_step ().
+          + solve_rc_invariant.
+          + sauto.
+          + solve_alloc_pid. sauto.
+      }
+    -
 
 Ltac unfold_vm_step_morph :=
     lazymatch goal with
