@@ -322,6 +322,22 @@ Module Fresh.
       + discriminate.
   Qed.
 
+  Lemma new2_not_equal p1 p2 rc rc' rc'' n1 n2 :
+    p1 <> p2 ->
+    Fresh.make p1 rc = (n1, rc') ->
+    Fresh.make p2 rc' = (n2, rc'') ->
+    n1 <> n2.
+  Proof.
+    intros Hp12 Hn1_make Hn2_make.
+    unfold make, make0, get_, put_ in *.
+    destruct (get p1 rc).
+    - injection Hn1_make. intros Hrc' Hn1.
+      sauto.
+    - destruct (get p2 rc').
+      + sauto.
+      + sauto.
+  Qed.
+
   Lemma is_valid_neq_proxy a b rc :
     is_valid_ref a rc = true ->
     is_valid_ref b rc = false ->
