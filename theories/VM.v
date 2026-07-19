@@ -28,43 +28,12 @@ From RecordUpdate Require Import
 
 Open Scope positive_scope.
 
-Set Hammer Debug.
-Set Hammer ATPLimit 100.
-Set Hammer GSMode 4.
-
 Opaque put.
 Opaque get.
 
 Infix "=h=" := (@equiv _ h_setoid) (at level 50) : slot_scope.
 
 Open Scope slot_scope.
-
-
-Section alloc_pid.
-  Context (parent : Ref) (rc : Fresh.t).
-
-  Inductive NewValidPid : Type :=
-  | new_valid_pid : forall (new : Ref) (rc' : Fresh.t),
-      Fresh.is_valid_ref new rc' = true ->
-      Fresh.make parent rc = (new, rc') ->
-      NewValidPid.
-
-  Lemma alloc_pid : NewValidPid.
-    remember (Fresh.make parent rc) as fresh.
-    symmetry in Heqfresh.
-    destruct fresh as [new rc'].
-    refine (new_valid_pid new rc' _ _).
-    - apply (Fresh.makes_valid_ref parent new rc rc' Heqfresh).
-    - assumption.
-  Defined.
-
-  Lemma alloc_certain new rc' (H : Fresh.make parent rc = (new, rc')) :
-    alloc_pid = new_valid_pid new rc' (Fresh.makes_valid_ref parent new rc rc' H) H.
-    (* TODO: this is wrong  *)
-  Admitted.
-
-  Opaque alloc_pid.
-End alloc_pid.
 
 Section VM.
   Context `{IOH : IOHandler}.
@@ -116,6 +85,9 @@ Section VM.
         proc_mb_t : Set;
         cont : @Program proc_mb_t;
       }.
+
+  Inductive Event :=
+  | e_p : Process -> Event.
 
   (* begin hide *)
   #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
@@ -402,15 +374,13 @@ Section VM.
       (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
-      Check alloc_pid.
-      destruct (alloc_pid parent rc) as [new rc' Hnewvalid Heqfresh].
+      destruct (Fresh.make_valid parent rc) as [new rc' Hnewvalid Heqfresh].
       specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
       set (addr := mkAddress child_mb_t new).
       set (rq' :=
              {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
              {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
              rq).
-
       assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
         apply (do_spawn_keeps_invariniant addr rq rc rc' new inv_valid parent_valid Hnewvalid Heqfresh inv_valid').
       }
@@ -427,8 +397,8 @@ Section VM.
       destruct vm as [w1 rq1 rc1 inv1].
       destruct vm' as [w1' rq1' rc1' inv1'].
       unfold do_spawn.
-      destruct (alloc_pid parent rc1) as [new_pid rc2 H_1 H_2].
-      destruct (alloc_pid parent rc1') as [new_pid' rc2' H_1' H_2'].
+      destruct (Fresh.make_valid parent rc1) as [new_pid rc2 H_1 H_2].
+      destruct (Fresh.make_valid parent rc1') as [new_pid' rc2' H_1' H_2'].
       simpl.
       simpl in Hvm'. destruct Hvm' as [Hw [Hrc Hrq]].
       specialize (Fresh.make_morph parent rc1 rc1' Hrc) as H.
@@ -607,6 +577,7 @@ Ltac2 unfold_vm_step_morph (id : ident) :=
 
 Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
 
+(* Use equations instead? *)
 Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
   let prefix := Ident.to_string new_ident in
   let new_pid := fresh_id prefix in
@@ -614,7 +585,7 @@ Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
   let valid := fresh_id (String.app "H" (String.app prefix "_valid")) in
   let inv := fresh_id (String.app "H" (String.app (String.app prefix "_rc") "_valid")) in
   let h_alloc_old := fresh_id (String.app "H_alloc_" (Ident.to_string new_pid)) in
-  destruct (alloc_pid $pid $rc) as [$new_pid $new_rc $valid $inv].
+  destruct (Fresh.make_valid $pid $rc) as [$new_pid $new_rc $valid $inv].
 
 Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) := unfold_alloc_pid pid rc new.
 
@@ -664,9 +635,9 @@ Section commute.
   Ltac2 solve_alloc_pid () :=
     simpl;
     lazy_match! goal with
-      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [alloc_pid ?pid ?rc0] ] =>
+      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [Fresh.make_valid ?pid ?rc0] ] =>
         let h := Control.hyp h_new in
-        rewrite (alloc_certain $pid $rc0 $new $rc1 $h)
+        rewrite (Fresh.make_valid_eq $pid $rc0 $new $rc1 $h)
     end.
 
   Ltac2 Notation "solve_alloc_pid" := solve_alloc_pid ().
@@ -775,29 +746,23 @@ Section commute.
                           (@cont1, @cont2); (@cont2, @cont1);
                           (@child_mb_t1, @child_mb_t2); (@child_mb_t2, @child_mb_t1)]
             ];
-      intros [vm2 [Hvm2 Hvm4]];
-      Control.enter
-        (fun _ =>
-           simpl in Hvm2, Hvm4;
-           unfold_vm_step_morph Hvm2;
-           unfold_vm_step_morph Hvm4;
-           dvm vm0 vm0_out vm2 vm2_out vm4;
-           cbn in Hvm2; cbn in Hvm4;
-           lazy_match! goal with
-           | [ _ : context [alloc_pid ?pid1 vm0_out_rc], _ : context [alloc_pid ?pid2 vm2_out_rc] |- _ ] =>
-               unfold_alloc_pid $pid1 vm0_out_rc as new_pid1;
-               unfold_alloc_pid $pid2 vm2_out_rc as new_pid2
-           end;
-           apply canned_schedule_out_some in Hvm0_out as Hvm0_out_;
-           apply canned_schedule_out_some in Hvm2_out as Hvm2_out_;
-           destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]];
-           destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]];
-           simpl in Hvm4, Hvm2_rc, Hvm2_world, Hvm2_pick, Hvm0_rc, Hvm0_world, Hvm0_pick;
-           destruct Hvm2 as [Hvm2_w [Hvm2_rq Hvm2_rc_]];
-           destruct Hvm4 as [Hvm4_w [Hvm4_rq Hvm4_rc_]];
-           subst
-        ).
-    - (* Start rebuilding runq *)
+      intros [vm2 [Hvm2 Hvm4]].
+    - simpl in Hvm2, Hvm4.
+      unfold_vm_step_morph Hvm2.
+      unfold_vm_step_morph Hvm4.
+      dvm vm0 vm0_out vm2 vm2_out vm4.
+      cbn in Hvm2. cbn in Hvm4.
+      unfold_alloc_pid pid1 vm0_out_rc as new_pid1.
+      unfold_alloc_pid pid2 vm2_out_rc as new_pid2.
+      apply canned_schedule_out_some in Hvm0_out as Hvm0_out_.
+      apply canned_schedule_out_some in Hvm2_out as Hvm2_out_.
+      destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
+      destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
+      simpl in Hvm4, Hvm2_rc, Hvm2_world, Hvm2_pick, Hvm0_rc, Hvm0_world, Hvm0_pick.
+      destruct Hvm2 as [Hvm2_w [Hvm2_rq Hvm2_rc_]].
+      destruct Hvm4 as [Hvm4_w [Hvm4_rq Hvm4_rc_]].
+      subst.
+      (* Start rebuilding runq *)
       destruct (pick_cons Hvm2_pick) as [vm2_out_rq1 [H1 H2]]. {
         intros Habsurd. now inversion Habsurd.
       }
@@ -865,6 +830,22 @@ Section commute.
           + solve_alloc_pid. sauto.
       }
     - (* The following is a carbon copy of the above *)
+      simpl in Hvm2, Hvm4.
+      unfold_vm_step_morph Hvm2.
+      unfold_vm_step_morph Hvm4.
+      dvm vm0 vm0_out vm2 vm2_out vm4.
+      cbn in Hvm2. cbn in Hvm4.
+      unfold_alloc_pid pid1 vm0_out_rc as new_pid1.
+      unfold_alloc_pid pid2 vm2_out_rc as new_pid2.
+      apply canned_schedule_out_some in Hvm0_out as Hvm0_out_.
+      apply canned_schedule_out_some in Hvm2_out as Hvm2_out_.
+      destruct Hvm0_out_ as [Hvm0_pick [Hvm0_world Hvm0_rc]].
+      destruct Hvm2_out_ as [Hvm2_pick [Hvm2_world Hvm2_rc]].
+      simpl in Hvm4, Hvm2_rc, Hvm2_world, Hvm2_pick, Hvm0_rc, Hvm0_world, Hvm0_pick.
+      destruct Hvm2 as [Hvm2_w [Hvm2_rq Hvm2_rc_]].
+      destruct Hvm4 as [Hvm4_w [Hvm4_rq Hvm4_rc_]].
+      subst.
+      (* Start rebuilding runq *)
       destruct (pick_cons Hvm2_pick) as [vm2_out_rq1 [H1 H2]]. {
         intros Habsurd. now inversion Habsurd.
       }
