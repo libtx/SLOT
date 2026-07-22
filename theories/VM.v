@@ -73,6 +73,10 @@ Section definitions.
     forall {Mailbox' : Set}
       (child : @Program Mailbox')
       (continuation : @Address Mailbox' -> Program Mailbox),
+      Program Mailbox
+  (** A special instruction that triggers a fault *)
+  | p_fault :
+    forall (node : positive),
       Program Mailbox.
 
   (** *** Process
@@ -449,9 +453,9 @@ Section definitions.
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
   Proof.
     set (proc_ := proc).
-    destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont].
+    destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont|node].
     - (* die *)
-      exact (vm1 ~[lift_w (h_terminate (pid proc))]~> vm2).
+      exact (vm1 ~[lift_w (h_terminate true (pid proc))]~> vm2).
     - (* yield; TODO *)
       exact False.
     - (* io: TODO *)
@@ -460,6 +464,8 @@ Section definitions.
       refine (vm_eq vm2 (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _)).
       specialize (schedule_out_valid_pid vm0 proc vm1) as H.
       now apply H in Hproc.
+    - (* fault *)
+      exact False.
   Defined.
 
   Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
@@ -494,9 +500,9 @@ Section definitions.
 
       unfold exec_proc_morph in Hvm2.
       remember (cont proc) as cont_.
-      destruct cont_ as [| | |child_mb_t child_cont cont].
+      destruct cont_ as [| | |child_mb_t child_cont cont |].
       + (* die *)
-        morph_shift (lift_w (h_terminate (pid proc))) vm1'.
+        morph_shift (lift_w (h_terminate true (pid proc))) vm1'.
         exists (Some (proc, vm2')).
         split.
         *  constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
@@ -516,6 +522,7 @@ Section definitions.
           unfold exec_proc_morph. rewrite <-Heqcont_.
           sauto.
         * sauto.
+      + (* fault : TODO *) contradiction.
   Qed.
 
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
@@ -774,8 +781,20 @@ Section commute.
 
   Ltac2 Notation "vm_step_some" vm(constr) := vm_step_some vm.
 
-  Ltac2 solve_vm_step () :=
-    lazy_match! goal with
+  Lemma vm_step_morph_rq_cons {x proc w1 w2 rq1 rq2 rc1 rc2 inv1 inv2}
+    (H1 : proc_valid_pid rc1 x)
+    (H2 : proc_valid_pid rc2 x) :
+    vm_step_morph {| world := w1; runq := rq1;       ref_ctr := rc1; inv_valid_pids := @Forall_inv_tail _ _ _ _ inv1 |}
+      (Some (proc, {| world := w2; runq := rq2;      ref_ctr := rc2; inv_valid_pids := @Forall_inv_tail _ _ _ _ inv2 |})) ->
+    vm_step_morph {| world := w1; runq := (x :: rq1); ref_ctr := rc1; inv_valid_pids := inv1 |}
+     (Some (proc, {| world := w2; runq := (x :: rq2); ref_ctr := rc2; inv_valid_pids := inv2 |})).
+  Proof.
+    intros H. inversion_clear H as [|? vm1 ? ? Hsched Hexec].
+    (* This will become wrong when halt is in place, if proc is halt and [pid x] is in the halted domain *)
+  Abort.
+
+  Ltac2 rec solve_vm_step () :=
+    match! goal with
     | [ _ : Pick ?rq0 ?proc ?rq1 |-
           vm_step_morph {| world := ?w; runq := ?rq0; ref_ctr := ?rc |} (Some (?proc, _))] =>
         let hinv := fresh_id (String.app "HInv_" (maybe_hyp_to_string rc "rc")) in
@@ -790,6 +809,9 @@ Section commute.
                          |} >
               [|unfold exec_proc_morph, vm_eq]
           ]
+    (* | [ h : Pick _ ?proc _ |- vm_step_morph {| runq := (?x :: _) |} (Some (?proc, {| runq := (?x :: _) |}))] => *)
+    (*     apply pick_cons_rev with (b := $x) in $h; *)
+    (*     solve_vm_step () *)
     end.
 
   Ltac2 swap_make () :=
@@ -1011,7 +1033,7 @@ Section commute.
         subst. apply neq_symm.
         apply (Fresh.make_valid_not_equal pid2 pid1 new_pid _ _ Hpid1_valid Hnew_pid_rc_valid).
       }
-      destruct (h_spawn_terminate_commutativity pid1 new_pid child_mb_t Hnew_pid vm1_out_w vm3_w) as [H H__]. clear H__.
+      destruct (h_spawn_terminate_commutativity true pid1 new_pid child_mb_t Hnew_pid vm1_out_w vm3_w) as [H H__]. clear H__.
       destruct H as [w3' [Hw3' Hw3'_equiv]].
       { constructor 1 with (x := vm2_w). split.
         - assumption.
@@ -1043,15 +1065,6 @@ Section commute.
           -- solve_rc_invariant.
           -- sauto.
           -- solve_alloc_pid. sauto.
-        * simpl. subst rq3'. simpl. solve_vm_step ().
-      + sauto.
-      +  rqsubst rq'. now rewrite Hrq2'_equiv.
-
-
-
-        unfold commute in H.
-      destruct (h_spawn_terminate_commutativity pid1 pid2 child_mb_t Hpid12 vm1_w vm3_w) as [Hw3' Hw__]. clear Hw__.
-      simpl in *. subst.
-      exists ({| world :=
+        * subst rq3'. simpl in *.
   Abort.
 End commute.

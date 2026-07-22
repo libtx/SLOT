@@ -110,6 +110,15 @@ Section defn.
     induction l1; intros l2 Hl2; sauto.
   Qed.
 
+  Lemma pick_cons_rev {l1 l2 a} b :
+    Pick l1 a l2 ->
+    Pick (b :: l1) a (b :: l2).
+  Proof.
+    intros H.
+    unfold Pick in *.
+    now constructor.
+  Qed.
+
   Lemma pick_app {a b l1 l2} :
     Pick (a ++ l1) b l2 ->
     Forall (fun x => x <> b) a ->

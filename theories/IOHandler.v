@@ -64,11 +64,11 @@ Section IOHandler.
         pid1 <> pid2 ->
         h_spawn pid1 mb_t1 (h_spawn pid2 mb_t2 s) == h_spawn pid2 mb_t2 (h_spawn pid1 mb_t1 s);
 
-      h_terminate (pid : Ref) : MFun h_state h_state;
+      h_terminate (normal : bool) (pid : Ref) : MFun h_state h_state;
 
-      h_terminate_commutativity (pid1 pid2 : Ref) : pid1 <> pid1 -> commute (h_terminate pid1) (h_terminate pid2);
+      h_terminate_commutativity (normal1 normal2 : bool) (pid1 pid2 : Ref) : pid1 <> pid1 -> commute (h_terminate normal1 pid1) (h_terminate normal2 pid2);
 
-      h_spawn_terminate_commutativity (pid1 pid2 : Ref) mb_t : pid1 <> pid2 -> commute (h_terminate pid1) (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
+      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t : pid1 <> pid2 -> commute (h_terminate normal pid1) (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
     }.
 End IOHandler.
 
