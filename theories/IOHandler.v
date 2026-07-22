@@ -3,6 +3,8 @@ From Stdlib Require Import
   ZArith
   SetoidClass.
 
+Import ListNotations.
+
 From SLOT Require Import
   Setoids
   TransitionSystem
@@ -31,6 +33,17 @@ Section mailbox.
     {
       mba_pid : Ref
     }.
+
+  Definition node_of {mba_t} (a : @Address mba_t) : option positive :=
+    let fix go prev l :=
+      match l with
+      | [] => prev
+      | (a :: l) => go a l
+      end in
+    match a with
+    | {| mba_pid := [] |} => None
+    | {| mba_pid := (a :: l) |} => Some (go a l)
+    end.
 End mailbox.
 
 Section IOHandler.
@@ -52,6 +65,10 @@ Section IOHandler.
         h_spawn pid1 mb_t1 (h_spawn pid2 mb_t2 s) == h_spawn pid2 mb_t2 (h_spawn pid1 mb_t1 s);
 
       h_terminate (pid : Ref) : MFun h_state h_state;
+
+      h_terminate_commutativity (pid1 pid2 : Ref) : pid1 <> pid1 -> commute (h_terminate pid1) (h_terminate pid2);
+
+      h_spawn_terminate_commutativity (pid1 pid2 : Ref) mb_t : pid1 <> pid2 -> commute (h_terminate pid1) (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
     }.
 End IOHandler.
 

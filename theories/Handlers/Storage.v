@@ -80,6 +80,8 @@ Section storage_handler.
       h_spawn_covariance _ _ _ _ H := H;
       h_spawn_commutativity := ltac:(sauto);
       h_terminate _ := id_mfun;
+      h_terminate_commutativity := ltac:(sauto);
+      h_spawn_terminate_commutativity := ltac:(sauto);
     |}.
 End storage_handler.
 
