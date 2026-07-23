@@ -50,19 +50,6 @@ Section definitions.
   (** Program termintes: *)
   | die :
     Program Mailbox
-  (** Interrupt the computation without producing any side effects.
-
-      This primitive is used to softly introduce the concept of
-      Erlang's "reductions", and to side-step termination checker,
-      making programs non-Turing in a practically useful, as opposed
-      to forced, way.
-
-      In Erlang, reduction counting improves responsiveness of the
-      system, in SLOT it *additionally* gives a structural argument
-      "for free". *)
-  | p_yield :
-    forall (continuation : Program Mailbox),
-      Program Mailbox
   (** Program is doing I/O: *)
   | p_io :
     forall (pending_req : Request)
@@ -78,6 +65,21 @@ Section definitions.
   | p_halt :
     forall (node : positive),
       Program Mailbox.
+
+  (** Note on the (missing) yield primitive:
+
+      Yield can be used to softly introduce the concept of Erlang's
+      "reductions", and to side-step termination checker, making
+      programs non-Turing in a practically useful, as opposed to
+      forced, way.
+
+      In Erlang, reduction counting improves responsiveness of the
+      system, in SLOT it *additionally* gives a structural argument
+      "for free".
+
+      We don't introduce it explicitly to save ourselves time the on
+      commutativity lemmas, but it can be emulated by a NOP I/O
+      handler. *)
 
   (** *** Process
       [Process] is defined via its pid,
@@ -450,22 +452,29 @@ Section definitions.
     Qed.
   End spawn.
 
-  Program Definition do_yield (vm0 vm1 : VM) (proc : Process) (Hproc : Some (proc, vm1) <~[ schedule_out ]~ vm0) : VM :=
+  Section io.
+    Context (vm0 vm1 vm2 : VM)
+      (proc : Process)
+      (Hproc : Some (proc, vm1) <~[ schedule_out ]~ vm0)
+      (req : Request)
+      (cont : Reply req -> Program (proc_mb_t proc)).
+
+    (*
+  Definition do_io :=
     let proc' := {| proc_mb_t := proc_mb_t proc; pid := pid proc; cont := cont proc |} in
     {| world := world vm1; runq := proc' :: runq vm1; ref_ctr := ref_ctr vm1 |}.
   Next Obligation.
     constructor.
     - now apply schedule_out_valid_pid in Hproc.
     - apply (inv_valid_pids vm1).
-  Qed.
+  Qed.*)
+  End io.
 
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
   Proof.
-    destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont|node].
+    destruct (cont proc) as [|req cont|child_mb_t child child_cont|node].
     - (* die *)
       exact (vm1 ~[lift_w (h_terminate true (pid proc))]~> vm2).
-    - (* yield *)
-      exact (vm_eq vm2 (do_yield vm0 vm1 proc Hproc)).
     - (* io: TODO *)
       exact False.
     - (* spawn *)
@@ -511,7 +520,7 @@ Section definitions.
       unfold exec_proc_morph in Hvm1.
       unfold exec_proc_morph in Hvm2.
       remember (cont proc) as cont_.
-      destruct cont_ as [| | |child_mb_t child_cont cont |].
+      destruct cont_ as [ | |child_mb_t child_cont cont |].
       + (* die *)
         morph_shift (lift_w (h_terminate true (pid proc))) vm1'.
         exists (Some (proc, vm3')).
@@ -519,27 +528,6 @@ Section definitions.
         *  constructor 2 with (vm2 := vm3') (Hproc := Hvm1').
            unfold exec_proc_morph. rewrite <-Heqcont_.
            assumption.
-        * sauto.
-      + (* yield *)
-        unfold do_yield, vm_eq in Hvm2. destruct Hvm2 as [Hw2 [Hrq2 Hrc2]].
-        destruct vm1 as [w1 rq1 rc1 inv1].
-        destruct vm1' as [w1' rq1' rc1' inv1'].
-        destruct vm3 as [w3 rq3 rc3 inv3].
-        unfold world, runq, ref_ctr in *. subst.
-        pose (rq3' := {| pid := pid proc; proc_mb_t := proc_mb_t proc; cont := cont proc |} :: rq1').
-        assert (inv3' : Forall (proc_valid_pid rc1') rq3'). {
-          subst rq3'. constructor.
-          - now apply schedule_out_valid_pid in Hvm1'.
-          - assumption.
-        }
-        exists (Some (proc, {| world := w1';
-                         runq := rq3';
-                         ref_ctr := rc1';
-                         inv_valid_pids := inv3'
-                       |})).
-        split.
-        * constructor 2 with (vm1 := {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}) (Hproc := Hvm1').
-          unfold exec_proc_morph, vm_eq. rewrite <-Heqcont_. sauto.
         * sauto.
       + (* io: TODO *) contradiction.
       + (* spawn *)
@@ -859,6 +847,7 @@ Section commute.
         destruct (Fresh.swap_make $pid1 $pid2 $new1 $new2 _ _ _ $hpids $h1 $h2) as [rc2' [rc3' [Hrc' [Hnew_pid1' Hnew_pid2']]]]
     end.
 
+  (* 1/10 *)
   Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
@@ -1047,6 +1036,7 @@ Section commute.
       }
   Qed.
 
+  (* 2/10 *)
   Lemma die_die_commute {pid1 pid2 mb_t1 mb_t2} :
     pid1 <> pid2 ->
     commute (h_terminate true pid1) (h_terminate true pid2) ->
@@ -1104,6 +1094,7 @@ Section commute.
         * now apply Permutation_sym.
   Qed.
 
+  (* 3/10 *)
   Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
