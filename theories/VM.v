@@ -74,8 +74,8 @@ Section definitions.
       (child : @Program Mailbox')
       (continuation : @Address Mailbox' -> Program Mailbox),
       Program Mailbox
-  (** A special instruction that triggers a fault *)
-  | p_fault :
+  (** A special instruction that halts the VM *)
+  | p_halt :
     forall (node : positive),
       Program Mailbox.
 
@@ -472,7 +472,7 @@ Section definitions.
       refine (vm_eq vm2 (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _)).
       specialize (schedule_out_valid_pid vm0 proc vm1) as H.
       now apply H in Hproc.
-    - (* fault *)
+    - (* halt *)
       exact False.
   Defined.
 
@@ -1047,6 +1047,63 @@ Section commute.
       }
   Qed.
 
+  Lemma die_die_commute {pid1 pid2 mb_t1 mb_t2} :
+    pid1 <> pid2 ->
+    commute (h_terminate true pid1) (h_terminate true pid2) ->
+    ts_event_commute
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
+      {| pid := pid2; proc_mb_t := mb_t2; cont := @die req_t rep_t mb_t2 |}.
+  Proof.
+    intros Hpids Hw_comm vm0 vm2.
+    split; intros [vm1 [Hvm1 Hvm2]].
+    - unfold_vm_step_morph Hvm1. simpl in Hvm2.
+      unfold_vm_step_morph Hvm2.
+      unfold_schedule_out Hvm0_out.
+      unfold_schedule_out HHvm2_out.
+      subst.
+      (* World: *)
+      destruct (Hw_comm vm0_out_w vm2_w) as [Hw1 Hw2].
+      destruct Hw1 as [w2' [[w1' [Hw1' Hw2']] Hw1w1']] > [sauto|].
+      (* Run queue *)
+      destruct (pick_two Hvm0_out_pick HHvm2_out_pick) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'equiv]]]].
+      (* The invariant *)
+      assert (inv1' : Forall (proc_valid_pid vm2_rc) rq1') by solve_rc_invariant.
+      assert (inv2' : Forall (proc_valid_pid vm2_rc) rq2') by solve_rc_invariant.
+      (* Build VM *)
+      exists ({| world := w2'; runq := rq2'; ref_ctr := vm2_rc; inv_valid_pids := inv2' |}).
+      split.
+      + exists ({| world := w1'; runq := rq1'; ref_ctr := vm2_rc; inv_valid_pids := inv1' |}). split.
+        * simpl. solve_vm_step (); sauto.
+        * simpl. solve_vm_step (); sauto.
+      + simpl. repeat split.
+        * assumption.
+        * now apply Permutation_sym.
+    - Std.rename [(@pid1, @pid2); (@pid2, @pid1); (@mb_t1, @mb_t2); (@mb_t2, @mb_t1)].
+      (* Carbon copy of the above, except we use Hw2 hypothesis instead of Hw1 *)
+      unfold_vm_step_morph Hvm1. simpl in Hvm2.
+      unfold_vm_step_morph Hvm2.
+      unfold_schedule_out Hvm0_out.
+      unfold_schedule_out HHvm2_out.
+      subst.
+      (* World: *)
+      destruct (Hw_comm vm0_out_w vm2_w) as [Hw1 Hw2].
+      destruct Hw2 as [w2' [[w1' [Hw1' Hw2']] Hw1w1']] > [sauto|].
+      (* Run queue *)
+      destruct (pick_two Hvm0_out_pick HHvm2_out_pick) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'equiv]]]].
+      (* The invariant *)
+      assert (inv1' : Forall (proc_valid_pid vm2_rc) rq1') by solve_rc_invariant.
+      assert (inv2' : Forall (proc_valid_pid vm2_rc) rq2') by solve_rc_invariant.
+      (* Build VM *)
+      exists ({| world := w2'; runq := rq2'; ref_ctr := vm2_rc; inv_valid_pids := inv2' |}).
+      split.
+      + exists ({| world := w1'; runq := rq1'; ref_ctr := vm2_rc; inv_valid_pids := inv1' |}). split.
+        * simpl. solve_vm_step (); sauto.
+        * simpl. solve_vm_step (); sauto.
+      + simpl. repeat split.
+        * assumption.
+        * now apply Permutation_sym.
+  Qed.
+
   Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
@@ -1069,7 +1126,7 @@ Section commute.
         subst. apply neq_symm.
         apply (Fresh.make_valid_not_equal pid2 pid1 new_pid _ _ Hpid1_valid Hnew_pid_rc_valid).
       }
-      destruct (h_spawn_terminate_commutativity true pid1 new_pid child_mb_t Hnew_pid vm1_out_w vm3_w) as [H H__]. clear H__.
+      destruct (Hspawn_die_commute vm1_out_w vm3_w) as [H H__]. clear H__.
       destruct H as [w3' [Hw3' Hw3'_equiv]].
       { constructor 1 with (x := vm2_w). split.
         - assumption.

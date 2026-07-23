@@ -66,9 +66,13 @@ Section IOHandler.
 
       h_terminate (normal : bool) (pid : Ref) : MFun h_state h_state;
 
-      h_terminate_commutativity (normal1 normal2 : bool) (pid1 pid2 : Ref) : pid1 <> pid1 -> commute (h_terminate normal1 pid1) (h_terminate normal2 pid2);
-
-      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t : pid1 <> pid2 -> commute (h_terminate normal pid1) (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
+      (** This property specifies that termination of a process cannot
+      interfere with spawning of any new process: *)
+      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t rc :
+        Fresh.is_valid_ref pid1 rc = true ->
+        Fresh.is_valid_ref pid2 rc = false ->
+        commute (h_terminate normal pid1)
+                (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
     }.
 End IOHandler.
 
