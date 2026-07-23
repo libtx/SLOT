@@ -450,14 +450,22 @@ Section definitions.
     Qed.
   End spawn.
 
+  Program Definition do_yield (vm0 vm1 : VM) (proc : Process) (Hproc : Some (proc, vm1) <~[ schedule_out ]~ vm0) : VM :=
+    let proc' := {| proc_mb_t := proc_mb_t proc; pid := pid proc; cont := cont proc |} in
+    {| world := world vm1; runq := proc' :: runq vm1; ref_ctr := ref_ctr vm1 |}.
+  Next Obligation.
+    constructor.
+    - now apply schedule_out_valid_pid in Hproc.
+    - apply (inv_valid_pids vm1).
+  Qed.
+
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
   Proof.
-    set (proc_ := proc).
     destruct (cont proc) as [|cont|req cont|child_mb_t child child_cont|node].
     - (* die *)
       exact (vm1 ~[lift_w (h_terminate true (pid proc))]~> vm2).
-    - (* yield; TODO *)
-      exact False.
+    - (* yield *)
+      exact (vm_eq vm2 (do_yield vm0 vm1 proc Hproc)).
     - (* io: TODO *)
       exact False.
     - (* spawn *)
@@ -476,16 +484,18 @@ Section definitions.
       exec_proc_morph vm0 vm1 vm2 proc Hproc ->
       vm_step_morph vm0 (Some (proc, vm2)).
 
-  Program Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
-    {| morphism := vm_step_morph;
-       morphism_covariance vm0 vm0' ret Hequiv Hret := _;
-    |}.
-  Next Obligation.
-    inversion Hret as [|H vm1 vm2 proc Hvm1 Hvm2]; subst; clear Hret.
-    - destruct vm0 as [w0 rq0 rc0 inv0].
+  Lemma vm_step_morph_covariance vm0 vm0' vm2 :
+    vm0 == vm0' ->
+    vm_step_morph vm0 vm2 ->
+    exists{vm2' == vm2}, vm_step_morph vm0' vm2'.
+  Proof.
+    intros Hequiv H0.
+    inversion H0 as [|H vm1 ? proc Hvm1 Hvm2]; subst; clear H0.
+    - exists None.
+      destruct vm0 as [w0 rq0 rc0 inv0].
       destruct vm0' as [w0' rq0' rc0' inv0'].
       destruct Hequiv as [Hw [Hrc Hrq]].
-      exists None. split; [|easy].
+      split; [|easy].
       simpl in H.
       destruct rq0.
       + apply Permutation_nil in Hrq. subst.
@@ -498,18 +508,39 @@ Section definitions.
       destruct Hequiv1 as [Hproc'proc Hvm1'vm1].
       simpl in Hproc'proc. rewrite <-Hproc'proc in *. clear Hproc'proc proc'.
 
+      unfold exec_proc_morph in Hvm1.
       unfold exec_proc_morph in Hvm2.
       remember (cont proc) as cont_.
       destruct cont_ as [| | |child_mb_t child_cont cont |].
       + (* die *)
         morph_shift (lift_w (h_terminate true (pid proc))) vm1'.
-        exists (Some (proc, vm2')).
+        exists (Some (proc, vm3')).
         split.
-        *  constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
+        *  constructor 2 with (vm2 := vm3') (Hproc := Hvm1').
            unfold exec_proc_morph. rewrite <-Heqcont_.
            assumption.
         * sauto.
-      + (* yield: TODO *) contradiction.
+      + (* yield *)
+        unfold do_yield, vm_eq in Hvm2. destruct Hvm2 as [Hw2 [Hrq2 Hrc2]].
+        destruct vm1 as [w1 rq1 rc1 inv1].
+        destruct vm1' as [w1' rq1' rc1' inv1'].
+        destruct vm3 as [w3 rq3 rc3 inv3].
+        unfold world, runq, ref_ctr in *. subst.
+        pose (rq3' := {| pid := pid proc; proc_mb_t := proc_mb_t proc; cont := cont proc |} :: rq1').
+        assert (inv3' : Forall (proc_valid_pid rc1') rq3'). {
+          subst rq3'. constructor.
+          - now apply schedule_out_valid_pid in Hvm1'.
+          - assumption.
+        }
+        exists (Some (proc, {| world := w1';
+                         runq := rq3';
+                         ref_ctr := rc1';
+                         inv_valid_pids := inv3'
+                       |})).
+        split.
+        * constructor 2 with (vm1 := {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}) (Hproc := Hvm1').
+          unfold exec_proc_morph, vm_eq. rewrite <-Heqcont_. sauto.
+        * sauto.
       + (* io: TODO *) contradiction.
       + (* spawn *)
         subst.
@@ -524,6 +555,11 @@ Section definitions.
         * sauto.
       + (* fault : TODO *) contradiction.
   Qed.
+
+  Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
+    {| morphism := vm_step_morph;
+       morphism_covariance := vm_step_morph_covariance;
+    |}.
 
   Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
     {|
