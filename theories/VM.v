@@ -253,19 +253,46 @@ Section definitions.
     - assumption.
   Qed.
 
-  Lemma schedule_out_valid_pid_prev vm proc vm' :
+  Lemma schedule_out_valid_pid_prev0 vm proc proc' vm' :
     vm ~[schedule_out]~> Some (proc, vm') ->
-    proc_valid_pid (ref_ctr vm) proc.
+    pid proc = pid proc' ->
+    proc_valid_pid (ref_ctr vm) proc'.
   Proof.
     unfold proc_valid_pid, schedule_out. simpl.
-    intros Hsched.
+    intros Hsched Hpids.
     destruct vm as [w rq rc Hinv].
     destruct vm' as [w' rq' rc' Hinv'].
     destruct rq as [|_first _rest].
     - discriminate.
     - destruct Hsched as [Hpick [Hworld Hrc]].
       simpl.
-      now apply pick_forall_elem with (a := proc) (l' := rq') in Hinv.
+      apply pick_forall_elem with (a := proc) (l' := rq') in Hinv; [|assumption].
+      now rewrite <-Hpids.
+  Qed.
+
+  Lemma schedule_out_valid_pid_prev vm proc vm' :
+    vm ~[schedule_out]~> Some (proc, vm') ->
+    proc_valid_pid (ref_ctr vm) proc.
+  Proof.
+    intros H.
+    now apply schedule_out_valid_pid_prev0 with (proc' := proc) in H.
+  Qed.
+
+  Lemma schedule_out_valid_pid0 vm proc proc' vm' :
+    vm ~[schedule_out]~> Some (proc, vm') ->
+    pid proc = pid proc' ->
+    proc_valid_pid (ref_ctr vm') proc'.
+  Proof.
+    unfold proc_valid_pid.
+    intros H Hpids.
+    destruct vm as [w rq rc inv].
+    simpl in H.
+    destruct rq as [|_first _rest].
+    - discriminate.
+    - destruct vm' as [w' rq' rc' inv'].
+      destruct H as [Hrq' [Hw' Hrc']]. subst. simpl.
+      rewrite <-Hpids.
+      now apply pick_forall_elem with (a := proc) (l' := rq') (l := _first :: _rest).
   Qed.
 
   Lemma schedule_out_valid_pid vm proc vm' :
@@ -273,13 +300,7 @@ Section definitions.
     proc_valid_pid (ref_ctr vm') proc.
   Proof.
     intros H.
-    destruct vm as [w rq rc inv].
-    simpl in H.
-    destruct rq as [|_first _rest].
-    - discriminate.
-    - destruct vm' as [w' rq' rc' inv'].
-      destruct H as [Hrq' [Hw' Hrc']]. subst. simpl.
-      now apply pick_forall_elem with (a := proc) (l' := rq') (l := _first :: _rest).
+    eapply schedule_out_valid_pid0 with (proc' := proc); eauto.
   Qed.
 
   (** ** Operations with the world *)
@@ -453,21 +474,13 @@ Section definitions.
   End spawn.
 
   Section io.
-    Context (vm0 vm1 vm2 : VM)
-      (proc : Process)
-      (Hproc : Some (proc, vm1) <~[ schedule_out ]~ vm0)
-      (req : Request)
-      (cont : Reply req -> Program (proc_mb_t proc)).
-
-    (*
-  Definition do_io :=
-    let proc' := {| proc_mb_t := proc_mb_t proc; pid := pid proc; cont := cont proc |} in
-    {| world := world vm1; runq := proc' :: runq vm1; ref_ctr := ref_ctr vm1 |}.
-  Next Obligation.
-    constructor.
-    - now apply schedule_out_valid_pid in Hproc.
-    - apply (inv_valid_pids vm1).
-  Qed.*)
+    Definition do_io (vm1 vm2 : VM) (pd : Ref) (mb_t : Set) req cnt : Prop :=
+      let (w1, rq1, rc1, inv1) := vm1 in
+      let (w2, rq2, rc2, inv2) := vm2 in
+      exists (rep : Reply req),
+        w1 ~[h_handler pd req]~> (rep, w2) /\
+          rc2 = rc1 /\
+          rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
   End io.
 
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
@@ -475,8 +488,8 @@ Section definitions.
     destruct (cont proc) as [|req cont|child_mb_t child child_cont|node].
     - (* die *)
       exact (vm1 ~[lift_w (h_terminate true (pid proc))]~> vm2).
-    - (* io: TODO *)
-      exact False.
+    - (* io *)
+      exact (do_io vm1 vm2 (pid proc) (proc_mb_t proc) req cont).
     - (* spawn *)
       refine (vm_eq vm2 (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _)).
       specialize (schedule_out_valid_pid vm0 proc vm1) as H.
@@ -529,7 +542,36 @@ Section definitions.
            unfold exec_proc_morph. rewrite <-Heqcont_.
            assumption.
         * sauto.
-      + (* io: TODO *) contradiction.
+      + (* io *)
+        unfold do_io in Hvm2.
+        destruct vm1 as [w1 rq1 rc1 inv1].
+        destruct vm1' as [w1' rq1' rc1' inv1'].
+        destruct vm3 as [w3 rq3 rc3 inv3].
+        destruct Hvm1'vm1 as [Hw1' [Hrq1' Hrc1']].
+        destruct Hvm2 as [rep [Hw3 [Hrq3 Hrc3]]]. subst.
+        remember (rep, w3) as ret.
+        morph_shift (h_handler (pid proc) pending_req) w1'. subst.
+        destruct ret' as [rep' w3'].
+        destruct Hequiv_ret_ret' as [Hrep' Hw3'].
+        pose (proc' := {| pid := pid proc; cont := continuation rep' |}).
+        assert (inv3': Forall (proc_valid_pid rc1') (proc' :: rq1')). {
+          constructor.
+          - now apply schedule_out_valid_pid0 with (proc' := proc') in Hvm1'.
+          - assumption.
+        }
+        exists (Some (proc, {| world := w3';
+                         runq := {| pid := pid proc; cont := continuation rep' |} :: rq1';
+                         ref_ctr := rc1';
+                         inv_valid_pids := inv3'
+                       |})).
+        split.
+        * lazymatch goal with
+          | [ H : vm0' ~[schedule_out]~> Some (proc, ?vm) |- _ ] =>
+              constructor 2 with (vm1 := vm) (Hproc := H)
+          end.
+          unfold exec_proc_morph. rewrite <-Heqcont_.
+          now exists rep'.
+        * sauto.
       + (* spawn *)
         subst.
         specialize (do_spawn_covariance child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1 vm1' Hvm1'vm1
