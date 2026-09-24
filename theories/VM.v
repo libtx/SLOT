@@ -40,7 +40,7 @@ Section definitions.
 
   Let World := @h_state _ _ IOH.
 
-  Let Heqiv_w := @h_setoid _ _ IOH.
+  Let Hequiv_w := @h_setoid _ _ IOH.
 
   (** ** Processes
    *** Programs
@@ -305,8 +305,8 @@ Section definitions.
 
   (** ** Operations with the world *)
 
-  Program Definition lift_w_ret {Ret : Type} `{Heqiv_r : Setoid Ret}
-    (w_morph : @MFunRet Ret World Heqiv_r Heqiv_w) : @MFunRet Ret VM Heqiv_r vm_setoid :=
+  Program Definition lift_w_ret {Ret : Type} `{Hequiv_r : Setoid Ret}
+    (w_morph : @MFunRet Ret World World Hequiv_r Hequiv_w Hequiv_w) : @MFunRet Ret VM VM Hequiv_r vm_setoid vm_setoid :=
     {| morphism vm1 ret :=
         let (ret, vm2) := ret in
         match vm1, vm2 with
@@ -332,7 +332,7 @@ Section definitions.
     - apply Hrc.
   Qed.
 
-  Program Definition lift_w (w_morph : @MFun World World Heqiv_w Heqiv_w) : @MFun VM VM vm_setoid vm_setoid :=
+  Program Definition lift_w (w_morph : @MFun World World Hequiv_w Hequiv_w) : @MFun VM VM vm_setoid vm_setoid :=
     {| morphism vm1 vm2 :=
         match vm1, vm2 with
           {| world := w1; runq := rq1; ref_ctr := rc1 |},
@@ -430,10 +430,11 @@ Section definitions.
 
     (** Allocate a new pid for a process and add it to the VM.
         Update the parent process (which should be scheduled out),
-        and add it to the VM too *)
-    Definition do_spawn
+        and add it to the VM too. Does not change the world. *)
+    Definition alloc_pid
       (vm : VM)
-      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) : VM.
+      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) :
+      Ref * VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
       destruct (Fresh.make_valid parent rc) as [new rc' Hnewvalid Heqfresh].
@@ -446,19 +447,19 @@ Section definitions.
       assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
         apply (do_spawn_keeps_invariniant addr rq rc rc' new inv_valid parent_valid Hnewvalid Heqfresh inv_valid').
       }
-      exact {| world := h_spawn new child_mb_t w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}.
+      exact (new, {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}).
     Defined.
 
-    Lemma do_spawn_covariance
+    Lemma alloc_pid_covariance
       (vm vm' : VM)
       (Hvm' : vm == vm')
       (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
       (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm') = true) :
-      do_spawn vm parent_valid == do_spawn vm' parent_valid'.
+      @equiv _ (pair_setoid' (eq_setoid _) vm_setoid) (alloc_pid vm parent_valid) (alloc_pid vm' parent_valid').
     Proof.
       destruct vm as [w1 rq1 rc1 inv1].
       destruct vm' as [w1' rq1' rc1' inv1'].
-      unfold do_spawn.
+      unfold alloc_pid.
       destruct (Fresh.make_valid parent rc1) as [new_pid rc2 H_1 H_2].
       destruct (Fresh.make_valid parent rc1') as [new_pid' rc2' H_1' H_2'].
       simpl.
@@ -466,10 +467,12 @@ Section definitions.
       specialize (Fresh.make_morph parent rc1 rc1' Hrc) as H.
       rewrite H_2, H_2' in H.
       simpl in H. destruct H as [Hpids Hrc2]. subst.
-      split; [|split].
-      - now apply h_spawn_covariance.
-      - assumption.
-      - now repeat apply perm_skip.
+      split.
+      - reflexivity.
+      - split; [|split].
+        + assumption.
+        + assumption.
+        + now repeat apply perm_skip.
     Qed.
   End spawn.
 
@@ -617,6 +620,7 @@ From SLOT Require Import
 
 Set Default Proof Mode "Ltac2".
 
+
 Ltac2 dvm (vms : ident list) :=
   List.iter
     (fun vm =>
@@ -626,7 +630,10 @@ Ltac2 dvm (vms : ident list) :=
        let rc := fresh_id (String.app prefix "_rc") in
        let inv := fresh_id (String.app prefix "_pids_valid") in
        let vm_ := Control.hyp vm in
-       destruct $vm_ as [$w $rq $rc $inv])
+       match! Constr.type vm_ with
+       | VM =>
+           destruct $vm_ as [$w $rq $rc $inv]
+       end)
     vms.
 
 Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
@@ -708,7 +715,15 @@ Ltac2 rec unfold_vm_step_morph (id : ident) :=
       let hrq := fresh_id (String.app hyp_prefix "_rq") in
       let hrc := fresh_id (String.app hyp_prefix "_rc") in
       let new_hyp := Control.hyp id in
-      destruct $new_hyp as [$hworld [$hrq $hrc]]
+      lazy_match! Constr.type new_hyp with
+      | do_io _ _ _ _ ?req _ =>
+          let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
+          destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
+      | _ /\ _ /\ _ =>
+          destruct $new_hyp as [$hworld [$hrq $hrc]]
+      | ?other =>
+          printf "No match: %t" other
+      end
   end.
 
 Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
@@ -1137,6 +1152,35 @@ Section commute.
   Qed.
 
   (* 3/10 *)
+  Lemma io_io_commute {pid1 pid2 mb_t1 mb_t2 req1 req2 cont1 cont2} :
+    pid1 <> pid2 ->
+    commute_ret (h_handler pid1 req1) (h_handler pid2 req2) ->
+    ts_event_commute
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
+      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req2 cont2 |}.
+  Proof.
+    intros Hpids Hcomm vm0 vm4.
+    split; intros [vm2 [Hvm2 Hvm4]].
+    - unfold_vm_step_morph Hvm2.
+      unfold_vm_step_morph Hvm4.
+      unfold_schedule_out Hvm0_out.
+      unfold_schedule_out HHvm4_out.
+      subst.
+      (* World *)
+      destruct (Hcomm vm0_out_w Hvm4_out_w vm4_w req1_rep req2_rep) as [Hl Hr].
+      destruct (Hl Hvm2_w Hvm4_w) as [w4' [[w2' [Hw2' Hw4']] Hw4'_equiv]].
+      clear Hr.
+      (* Run queue *)
+      pose (proc1' := {| proc_mb_t := mb_t1; pid := pid1; cont := cont1 req1_rep |}).
+      pose (proc2' := {| proc_mb_t := mb_t2; pid := pid2; cont := cont2 req2_rep |}).
+      assert (rq4' : list (@Process req_t rep_t)). {
+
+        destruct (pick_two Hvm0_out_pick HHvm4_out_pick) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'equiv]]]].
+
+
+
+
+  (* 4/10 *)
   Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
@@ -1159,6 +1203,7 @@ Section commute.
         subst. apply neq_symm.
         apply (Fresh.make_valid_not_equal pid2 pid1 new_pid _ _ Hpid1_valid Hnew_pid_rc_valid).
       }
+      specialize (h_spawn_terminate_commutativity true pid1 new_pid child_mb_t vm1_rc) as Hspawn_die_commute.
       destruct (Hspawn_die_commute vm1_out_w vm3_w) as [H H__]. clear H__.
       destruct H as [w3' [Hw3' Hw3'_equiv]].
       { constructor 1 with (x := vm2_w). split.

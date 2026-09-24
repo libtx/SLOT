@@ -52,17 +52,14 @@ Section IOHandler.
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
-      h_handler (pid : Ref) (req : Request) : MFunRet (Reply req) h_state;
+      h_handler (pid : Ref) (req : Request) : MFunRet (Reply req) h_state h_state;
       h_initial : h_state;
 
-      h_spawn (pid : Ref) (mailbox_t : Set) : h_state -> h_state;
-      h_spawn_covariance : forall pid mailbox_t s s',
-        s == s' ->
-        h_spawn pid mailbox_t s == h_spawn pid mailbox_t s';
+      h_spawn (pid : Ref) (mailbox_t : Set) : MFun h_state h_state;
 
-      h_spawn_commutativity : forall pid1 pid2 mb_t1 mb_t2 s,
+      h_spawn_commutativity : forall pid1 pid2 mb_t1 mb_t2,
         pid1 <> pid2 ->
-        h_spawn pid1 mb_t1 (h_spawn pid2 mb_t2 s) == h_spawn pid2 mb_t2 (h_spawn pid1 mb_t1 s);
+        commute (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
 
       h_terminate (normal : bool) (pid : Ref) : MFun h_state h_state;
 
@@ -71,8 +68,7 @@ Section IOHandler.
       h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t rc :
         Fresh.is_valid_ref pid1 rc = true ->
         Fresh.is_valid_ref pid2 rc = false ->
-        commute (h_terminate normal pid1)
-                (pure (h_spawn pid2 mb_t) (h_spawn_covariance pid2 mb_t));
+        commute (h_terminate normal pid1) (h_spawn pid2 mb_t);
     }.
 End IOHandler.
 
