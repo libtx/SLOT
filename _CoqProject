@@ -2,6 +2,7 @@
 theories/Setoids.v
 theories/RestrictedPermutation.v
 theories/Multifunction.v
+theories/Tactics.v
 theories/TokenMachine.v
 theories/TransitionSystem.v
 theories/Queue.v
