@@ -69,6 +69,20 @@ Section permutation.
     {| equiv a b := Permutation a b |}.
 End permutation.
 
+Section sigma.
+  Context {T : Type} `{Setoid T} {prop : T -> Prop}.
+
+  Check sig.
+
+  Global Program Instance setoid_sigma : Setoid {t : T | prop t} | 10 :=
+    {| equiv (a b : sig prop) :=
+        let (a, _) := a in
+        let (b, _) := b in
+        equiv a b
+    |}.
+  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
+End sigma.
+
 Declare Scope slot_scope.
 Infix "=p=" := (@equiv _ (setoid_permutation _)) (at level 50) : slot_scope.
 Infix "=s=" := (@equiv _ s_eq_setoid) (at level 50) : slot_scope.

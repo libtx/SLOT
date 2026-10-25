@@ -483,10 +483,43 @@ Section definitions.
       (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm0) = true) : Prop :=
       let (new_pid, vm1) := alloc_pid vm0 parent_valid in
       let new_addr : @Address child_mb_t := {| mba_pid := new_pid |} in
-      let w1 := world vm1 in
+      let w1 := world vm0 in
       exists2 w2,
         w1 ~[h_spawn new_pid child_mb_t]~> w2 & vm = vm1<|world := w2|>.
 
+    Let ValidVM : Type := {vm : VM | Fresh.is_valid_ref parent (ref_ctr vm) = true}.
+
+    #[refine]
+    Definition spawn : MFun ValidVM VM :=
+      {| morphism (vm0 : ValidVM) (vm : VM) :=
+          let (vm0, Hparent_valid) := vm0 in
+          do_spawn vm0 vm Hparent_valid
+      |}.
+    Proof.
+      intros vm0 vm0' vm Hvm0.
+      destruct vm0 as [vm0 Hparent]. destruct vm0' as [vm0' Hparent'].
+      intros Hvm.
+      unfold equiv,setoid_sigma in Hvm0.
+      unfold do_spawn in *.
+      remember (alloc_pid vm0 Hparent) as Hnew_pid.
+      destruct Hnew_pid as [new_pid vm1].
+      specialize (alloc_pid_covariance vm0 vm0' Hvm0 Hparent Hparent') as Hvm1'.
+      destruct Hvm as [w2 Hw2 Hvm2].
+      apply morphism_covariance with (x' := (world vm0')) in Hw2.
+      2:{ sauto. }
+      destruct Hw2 as [w2' [Hw2' Hw2w2']].
+      destruct (alloc_pid vm0' Hparent') as [new_pid' vm1'].
+      exists (vm1'<| world := w2' |>).
+      assert (new_pid = new_pid') as Hpids.
+      { simpl in Hvm1'.
+        rewrite <-HeqHnew_pid in Hvm1'.
+        sauto.
+      }
+      subst.
+      split.
+      - now constructor 1 with (x := w2').
+      - sauto.
+    Qed.
   End spawn.
 
   Section io.
