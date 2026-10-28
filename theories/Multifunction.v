@@ -462,19 +462,46 @@ Qed.
  It is equivalent to pure function of type [State -> Ret * State].
 *)
 Section MFunRet.
-  Context (Ret State : Type) `{HRet : Setoid Ret} `{HState : Setoid State}.
+  Context (Ret A B : Type) `{HRet : Setoid Ret} `{Hset_A : Setoid A} `{Hset_B : Setoid B}.
 
-  Definition MFunRet := @MFun State (Ret * State)
-                          HState (@pair_setoid _ _ HRet HState).
+  Definition MFunRet := @MFun A (Ret * B) Hset_A (@pair_setoid _ _ HRet Hset_B).
 End MFunRet.
+
+(** ** Pass return value of an MFunRet to a pure function returning an MFun *)
+Section MFunRet_pass_result.
+  Context (Ret A B C : Type) `{Hset_A : Setoid A} `{Hset_B : Setoid B} `{Hset_C : Setoid C}.
+  Context (f : @MFunRet Ret A B (eq_setoid _) Hset_A Hset_B) (g : Ret -> MFun B C).
+
+  Inductive MFunRet_pass_result (a : A) (c : C) : Prop :=
+  | FMunRet_pass_result_ :
+    forall ret b,
+      a ~[f]~> (ret, b) ->
+      b ~[g ret]~> c ->
+      MFunRet_pass_result a c.
+
+  Program Definition mfun_ret_pass_result :
+    @MFun A C Hset_A Hset_C :=
+    {| morphism := MFunRet_pass_result |}.
+  Next Obligation.
+    inversion_clear H0 as [ret b Hb Hy].
+    apply morphism_covariance with (x' := x') in Hb; [|assumption].
+    destruct Hb as [[ret' b'] [Hb' [Hret Heqb']]].
+    simpl in Hret. subst.
+    apply morphism_covariance with (x' := b') in Hy; [|assumption].
+    destruct Hy as [y' [Hy' Heqy']].
+    exists y'. split.
+    - sauto.
+    - assumption.
+  Qed.
+End MFunRet_pass_result.
 
 Definition commute_ret {State Ret1 Ret2}
   `{Hss : Setoid State}
   `{Hsr1 : Setoid Ret1}
   `{Hsr2 : Setoid Ret2}
-  (f : MFunRet Ret1 State)
-  (g : MFunRet Ret2 State) :=
-  forall s1 s2 s3 ret_f ret_g,
+  (f : MFunRet Ret1 State State)
+  (g : MFunRet Ret2 State State) :=
+  forall s1 s2 s3 (ret_f : Ret1) (ret_g : Ret2),
     (s1 ~[f]~> (ret_f, s2) ->
      s2 ~[g]~> (ret_g, s3) ->
      exists{s3' == s3}, exists s2', s1  ~[g]~> (ret_g, s2') /\

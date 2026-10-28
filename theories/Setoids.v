@@ -46,8 +46,6 @@ End option.
 Section sum.
   Context {A B : Type} `{HA : Setoid A} `{HB : Setoid B}.
 
-  Search Setoid.
-
   Global Program Instance setoid_sum : Setoid (A + B) :=
     {| equiv (a b : A + B) :=
         match a, b with
@@ -68,6 +66,18 @@ Section permutation.
   Global Program Instance setoid_permutation : Setoid (list T) | 10 :=
     {| equiv a b := Permutation a b |}.
 End permutation.
+
+Section sigma.
+  Context {T : Type} `{Setoid T} {prop : T -> Prop}.
+
+  Global Program Instance setoid_sigma : Setoid {t : T | prop t} | 10 :=
+    {| equiv (a b : sig prop) :=
+        let (a, _) := a in
+        let (b, _) := b in
+        equiv a b
+    |}.
+  Solve All Obligations with sauto unfold:Reflexive,Symmetric,Transitive.
+End sigma.
 
 Declare Scope slot_scope.
 Infix "=p=" := (@equiv _ (setoid_permutation _)) (at level 50) : slot_scope.

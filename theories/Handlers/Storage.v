@@ -19,7 +19,11 @@ Module EqDec := EquivDec.
 Section storage_handler.
   Context {Key Val Container : Type} `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
 
-  Program Definition storage_get (k : Key) : @MFunRet (option Val) Container (eq_setoid _) stor.s_eq_setoid :=
+  Let container_setoid := @stor.s_eq_setoid Key Val Container Hstor.
+
+  Let mfun_t Ret := @MFunRet Ret Container Container (eq_setoid Ret) container_setoid container_setoid.
+
+  Program Definition storage_get (k : Key) : mfun_t (option Val) :=
     {| morphism s x :=
          x = (stor.get k s, s)
     |}.
@@ -27,7 +31,7 @@ Section storage_handler.
     sauto unfold: exists_equiv,stor.get.
   Qed.
 
-  Program Definition storage_put (k : Key) (v : Val) : MFunRet True Container :=
+  Program Definition storage_put (k : Key) (v : Val) : mfun_t True :=
     {| morphism s x :=
          x = (I, stor.put k v s)
     |}.
@@ -39,7 +43,7 @@ Section storage_handler.
       + now rewrite H.
   Qed.
 
-  Program Definition storage_delete (k : Key) : MFunRet True Container :=
+  Program Definition storage_delete (k : Key) : mfun_t True :=
     {| morphism s x :=
         x = (I, stor.delete k s)
     |}.
@@ -63,7 +67,7 @@ Section storage_handler.
     | delete k => True
     end.
 
-  Definition storage_mfun (req : StorageReq) : MFunRet (StorageRet req) Container :=
+  Definition storage_mfun (req : StorageReq) : mfun_t (StorageRet req) :=
     match req with
     | get k => storage_get k
     | put k v => storage_put k v
@@ -73,15 +77,13 @@ Section storage_handler.
   Instance storageHandler : @IOHandler StorageReq StorageRet :=
     {|
       h_state := Container;
-      h_setoid := stor.s_eq_setoid;
+      h_setoid := container_setoid;
       h_handler _ req := storage_mfun req;
       h_initial := stor.new;
-      h_spawn _ _ := id;
-      h_spawn_covariance _ _ _ _ H := H;
+      h_spawn _ _ := id_mfun;
       h_spawn_commutativity := ltac:(sauto);
-      h_terminate _ := id_mfun;
-      h_terminate_commutativity := ltac:(sauto);
-      h_spawn_terminate_commutativity := ltac:(sauto);
+      h_terminate _ _ := id_mfun;
+      (* h_spawn_terminate_commutativity := ltac:(sauto); *)
     |}.
 End storage_handler.
 

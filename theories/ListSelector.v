@@ -149,7 +149,7 @@ Section defn.
       assumption.
   Qed.
 
-  Program Definition pick_mfun : @MFunRet A (list A) Hsetoid (setoid_permutation _) :=
+  Program Definition pick_mfun : @MFunRet A (list A) (list A) Hsetoid (setoid_permutation _) (setoid_permutation _) :=
     {| morphism l ret :=
         let (a, l') := ret in
         Pick l a l'
