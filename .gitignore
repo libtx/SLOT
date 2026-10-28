@@ -21,6 +21,7 @@
 *.vos
 CoqMakefile.conf
 CoqMakefile
+.CoqMakefile.d
 .coq-native/
 .csdp.cache
 .lia.cache
