@@ -519,7 +519,7 @@ Section definitions.
       split.
       - now constructor 1 with (x := w2').
       - sauto.
-    Qed.
+    Defined.
 
     (** [do_spawn] is covariant in its arguments: spawning on one of two
         equivalent VMs can be mirrored on the other. *)
@@ -564,18 +564,24 @@ Section definitions.
           rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
   End io.
 
-  Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop.
+  #[refine]
+  Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop :=
+    let pid := pid proc in
+    let proc_mb_t := proc_mb_t proc in
+    match cont proc with
+    | die _ =>
+        let world_morph := h_terminate true pid in
+        vm1 ~[lift_w world_morph]~> vm2
+    | p_io _ req cont =>
+        do_io vm1 vm2 pid proc_mb_t req cont
+    | @p_spawn _ child_mb_t child_cont parent_cont =>
+        _ ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
+    | _ =>
+        False
+    end.
   Proof.
-    destruct (cont proc) as [|req cont|child_mb_t child child_cont|node].
-    - (* die *)
-      exact (vm1 ~[lift_w (h_terminate true (pid proc))]~> vm2).
-    - (* io *)
-      exact (do_io vm1 vm2 (pid proc) (proc_mb_t proc) req cont).
-    - (* spawn *)
-      exact (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 vm2
-               (schedule_out_valid_pid vm0 proc vm1 Hproc)).
-    - (* halt *)
-      exact False.
+    exists vm1.
+    now apply (schedule_out_valid_pid vm0 proc vm1).
   Defined.
 
   Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
@@ -653,11 +659,14 @@ Section definitions.
           now exists rep'.
         * sauto.
       + (* spawn *)
-        specialize (do_spawn_covariance child_mb_t child_cont (pid proc) (proc_mb_t proc) cont
-                      vm1 vm1' vm3 Hvm1'vm1
-                      (schedule_out_valid_pid vm0 proc vm1 Hvm1)
-                      (schedule_out_valid_pid vm0' proc vm1' Hvm1')
-                      Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
+        destruct (morphism_covariance
+                      (spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont)
+                      (exist (fun vm : VM => Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true)
+                             vm1 (schedule_out_valid_pid vm0 proc vm1 Hvm1))
+                      (exist (fun vm : VM => Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true)
+                             vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1'))
+                      vm3
+                      Hvm1'vm1 Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
         exists (Some (proc, vm3')).
         split.
         * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
@@ -757,6 +766,58 @@ Ltac2 maybe_hyp_to_string (c : constr) (default : string) : string :=
   | _ => default
   end.
 
+(* Destruct the [exec_proc_morph] conclusion that the hypothesis
+   [id] (already unfolded down to the level of do_io / lift_w /
+   do_spawn / spawn) is left with. *)
+Ltac2 rec unfold_exec_proc_morph (id : ident) :=
+  let hyp_prefix := Ident.to_string id in
+  let hworld := fresh_id (String.app hyp_prefix "_w") in
+  let hrq := fresh_id (String.app hyp_prefix "_rq") in
+  let hrc := fresh_id (String.app hyp_prefix "_rc") in
+  let new_hyp := Control.hyp id in
+  lazy_match! Constr.type new_hyp with
+  | do_io _ _ _ _ ?req _ =>
+      let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
+      destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
+  | _ /\ _ /\ _ =>
+      destruct $new_hyp as [$hworld [$hrq $hrc]]
+  | @morphism _ _ _ _ (spawn _ _ _ _ _) _ _ =>
+      (* The spawn step of [exec_proc_morph] is stated via the [spawn]
+         MFun on the sigma type of VMs with a valid parent pid; unfold
+         it back into [do_spawn] and retry. *)
+      unfold spawn in $id;
+      cbn in $id;
+      unfold_exec_proc_morph id
+  | do_spawn ?child_mb_t' ?child' ?parent' ?parent_mb_t' ?parent_cont' ?vm0' ?vm_end' ?valid' =>
+      (* [do_spawn] unfolds to an existential over the new world and
+         an equation for the resulting VM.  Destruct the fresh
+         reference allocation first, then the existential. *)
+      let new_pid := fresh_id "new_pid" in
+      let new_rc := fresh_id "new_pid_rc" in
+      let hvalid := fresh_id "Hnew_pid_rc_valid" in
+      let hmake := fresh_id "Hmake_pid" in
+      let w2 := fresh_id (String.app hyp_prefix "_spawn_w") in
+      let heq_vm := fresh_id (String.app hyp_prefix "_eq_vm") in
+      unfold do_spawn, alloc_pid in $id;
+      cbn in $id;
+      (* The scrutinee of the [alloc_pid] case analysis is
+         [Fresh.make_valid parent rc] with [rc] already reduced by
+         [cbn]; extract it from the hypothesis so that [destruct]
+         substitutes it exactly (building the term from [ref_ctr]
+         of the record would only be convertible, not syntactic,
+         and the case analysis would not reduce). *)
+      match! Constr.type (Control.hyp id) with
+      | context [Fresh.make_valid ?parent_mw ?rc_mw] =>
+          destruct (Fresh.make_valid $parent_mw $rc_mw) as [$new_pid $new_rc $hvalid $hmake]
+      end;
+      (* [Control.hyp] must be re-captured: the destruct above
+         re-introduces the hypothesis. *)
+      let new_hyp := Control.hyp id in
+      destruct $new_hyp as [$w2 $hworld $heq_vm]
+  | ?other =>
+      printf "No match: %t" other
+  end.
+
 Ltac2 rec unfold_vm_step_morph (id : ident) :=
   lazy_match! Constr.type (Control.hyp id) with
   | ?vm0 ~[ ts_mfun ?step ]~> ?vm1 =>
@@ -788,46 +849,7 @@ Ltac2 rec unfold_vm_step_morph (id : ident) :=
       | _ => ()
       end;
       dvm $vm1_out;
-      let hyp_prefix := Ident.to_string id in
-      let hworld := fresh_id (String.app hyp_prefix "_w") in
-      let hrq := fresh_id (String.app hyp_prefix "_rq") in
-      let hrc := fresh_id (String.app hyp_prefix "_rc") in
-      let new_hyp := Control.hyp id in
-      lazy_match! Constr.type new_hyp with
-      | do_io _ _ _ _ ?req _ =>
-          let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
-          destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
-      | _ /\ _ /\ _ =>
-          destruct $new_hyp as [$hworld [$hrq $hrc]]
-      | do_spawn ?child_mb_t' ?child' ?parent' ?parent_mb_t' ?parent_cont' ?vm0' ?vm_end' ?valid' =>
-          (* [do_spawn] unfolds to an existential over the new world and
-             an equation for the resulting VM.  Destruct the fresh
-             reference allocation first, then the existential. *)
-          let new_pid := fresh_id "new_pid" in
-          let new_rc := fresh_id "new_pid_rc" in
-          let hvalid := fresh_id "Hnew_pid_rc_valid" in
-          let hmake := fresh_id "Hmake_pid" in
-          let w2 := fresh_id (String.app hyp_prefix "_spawn_w") in
-          let heq_vm := fresh_id (String.app hyp_prefix "_eq_vm") in
-          unfold do_spawn, alloc_pid in $id;
-          cbn in $id;
-          (* The scrutinee of the [alloc_pid] case analysis is
-             [Fresh.make_valid parent rc] with [rc] already reduced by
-             [cbn]; extract it from the hypothesis so that [destruct]
-             substitutes it exactly (building the term from [ref_ctr]
-             of the record would only be convertible, not syntactic,
-             and the case analysis would not reduce). *)
-          match! Constr.type (Control.hyp id) with
-          | context [Fresh.make_valid ?parent_mw ?rc_mw] =>
-              destruct (Fresh.make_valid $parent_mw $rc_mw) as [$new_pid $new_rc $hvalid $hmake]
-          end;
-          (* [Control.hyp] must be re-captured: the destruct above
-             re-introduces the hypothesis. *)
-          let new_hyp := Control.hyp id in
-          destruct $new_hyp as [$w2 $hworld $heq_vm]
-      | ?other =>
-          printf "No match: %t" other
-      end
+      unfold_exec_proc_morph id
   end.
 
 Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
