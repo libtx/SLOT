@@ -48,7 +48,16 @@ Section defn.
     do_send_msg Tmbox Tmsg ref q msg a a' ->
     exists b',
       do_send_msg Tmbox Tmsg ref q msg b b' /\ a' == b'.
-  Admitted.
+  Proof.
+    intros Hab Hsend.
+    revert Hab.
+    induction Hsend.
+    intros H.
+    exists (put pid {| mb_t := T; mb_q := push msg mbox |} b).
+    split.
+    - apply do_send_msg_.
+    - now rewrite H.
+  Qed.
 
   Section send.
     Context {T : Set} (msg : @Message T) (to : @Address T).
