@@ -493,7 +493,8 @@ Section definitions.
     Definition spawn : MFun ValidVM VM :=
       {| morphism (vm0 : ValidVM) (vm : VM) :=
           let (vm0, Hparent_valid) := vm0 in
-          do_spawn vm0 vm Hparent_valid
+          do_spawn vm0 vm Hparent_valid;
+        morphism_covariance := _;
       |}.
     Proof.
       intros vm0 vm0' vm Hvm0.
@@ -520,38 +521,6 @@ Section definitions.
       - now constructor 1 with (x := w2').
       - sauto.
     Defined.
-
-    (** [do_spawn] is covariant in its arguments: spawning on one of two
-        equivalent VMs can be mirrored on the other. *)
-    Lemma do_spawn_covariance
-      (vm0 vm0' vm : VM)
-      (Hvm : vm0 == vm0')
-      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm0) = true)
-      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm0') = true) :
-      do_spawn vm0 vm parent_valid ->
-      exists{vm' == vm}, do_spawn vm0' vm' parent_valid'.
-    Proof.
-      intros Hdo.
-      unfold do_spawn in *.
-      remember (alloc_pid vm0 parent_valid) as Hnew_pid.
-      destruct Hnew_pid as [new_pid vm1].
-      specialize (alloc_pid_covariance vm0 vm0' Hvm parent_valid parent_valid') as Hvm1'.
-      destruct Hdo as [w2 Hw2 Hvm2].
-      apply morphism_covariance with (x' := (world vm0')) in Hw2.
-      2:{ sauto. }
-      destruct Hw2 as [w2' [Hw2' Hw2w2']].
-      destruct (alloc_pid vm0' parent_valid') as [new_pid' vm1'].
-      exists (vm1'<| world := w2' |>).
-      assert (new_pid = new_pid') as Hpids.
-      { simpl in Hvm1'.
-        rewrite <-HeqHnew_pid in Hvm1'.
-        sauto.
-      }
-      subst.
-      split.
-      - now constructor 1 with (x := w2').
-      - sauto.
-    Qed.
   End spawn.
 
   Section io.

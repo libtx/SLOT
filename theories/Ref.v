@@ -453,8 +453,6 @@ Module Fresh.
     now rewrite make_equation_1, <- make0_equation_2, H.
   Qed.
 
-  Check makes_valid_ref.
-
   Lemma make_valid_eq parent cc new cc' (H : make parent cc = (new, cc')) :
     make_valid parent cc = new_valid_ref parent cc new cc' (makes_valid_ref parent new cc cc' H) H.
   Proof.
