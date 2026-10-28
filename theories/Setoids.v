@@ -46,8 +46,6 @@ End option.
 Section sum.
   Context {A B : Type} `{HA : Setoid A} `{HB : Setoid B}.
 
-  Search Setoid.
-
   Global Program Instance setoid_sum : Setoid (A + B) :=
     {| equiv (a b : A + B) :=
         match a, b with
@@ -71,8 +69,6 @@ End permutation.
 
 Section sigma.
   Context {T : Type} `{Setoid T} {prop : T -> Prop}.
-
-  Check sig.
 
   Global Program Instance setoid_sigma : Setoid {t : T | prop t} | 10 :=
     {| equiv (a b : sig prop) :=
