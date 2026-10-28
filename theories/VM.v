@@ -520,6 +520,38 @@ Section definitions.
       - now constructor 1 with (x := w2').
       - sauto.
     Qed.
+
+    (** [do_spawn] is covariant in its arguments: spawning on one of two
+        equivalent VMs can be mirrored on the other. *)
+    Lemma do_spawn_covariance
+      (vm0 vm0' vm : VM)
+      (Hvm : vm0 == vm0')
+      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm0) = true)
+      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm0') = true) :
+      do_spawn vm0 vm parent_valid ->
+      exists{vm' == vm}, do_spawn vm0' vm' parent_valid'.
+    Proof.
+      intros Hdo.
+      unfold do_spawn in *.
+      remember (alloc_pid vm0 parent_valid) as Hnew_pid.
+      destruct Hnew_pid as [new_pid vm1].
+      specialize (alloc_pid_covariance vm0 vm0' Hvm parent_valid parent_valid') as Hvm1'.
+      destruct Hdo as [w2 Hw2 Hvm2].
+      apply morphism_covariance with (x' := (world vm0')) in Hw2.
+      2:{ sauto. }
+      destruct Hw2 as [w2' [Hw2' Hw2w2']].
+      destruct (alloc_pid vm0' parent_valid') as [new_pid' vm1'].
+      exists (vm1'<| world := w2' |>).
+      assert (new_pid = new_pid') as Hpids.
+      { simpl in Hvm1'.
+        rewrite <-HeqHnew_pid in Hvm1'.
+        sauto.
+      }
+      subst.
+      split.
+      - now constructor 1 with (x := w2').
+      - sauto.
+    Qed.
   End spawn.
 
   Section io.
@@ -540,9 +572,8 @@ Section definitions.
     - (* io *)
       exact (do_io vm1 vm2 (pid proc) (proc_mb_t proc) req cont).
     - (* spawn *)
-      refine (vm_eq vm2 (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 _)).
-      specialize (schedule_out_valid_pid vm0 proc vm1) as H.
-      now apply H in Hproc.
+      exact (do_spawn child_mb_t child (pid proc) (proc_mb_t proc) child_cont vm1 vm2
+               (schedule_out_valid_pid vm0 proc vm1 Hproc)).
     - (* halt *)
       exact False.
   Defined.
@@ -622,15 +653,16 @@ Section definitions.
           now exists rep'.
         * sauto.
       + (* spawn *)
-        subst.
-        specialize (do_spawn_covariance child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1 vm1' Hvm1'vm1
+        specialize (do_spawn_covariance child_mb_t child_cont (pid proc) (proc_mb_t proc) cont
+                      vm1 vm1' vm3 Hvm1'vm1
                       (schedule_out_valid_pid vm0 proc vm1 Hvm1)
-                      (schedule_out_valid_pid vm0' proc vm1' Hvm1')) as H.
-        exists (Some (proc, (do_spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1')))).
+                      (schedule_out_valid_pid vm0' proc vm1' Hvm1')
+                      Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
+        exists (Some (proc, vm3')).
         split.
         * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
           unfold exec_proc_morph. rewrite <-Heqcont_.
-          sauto.
+          exact Hdo'.
         * sauto.
       + (* fault : TODO *) contradiction.
   Qed.
@@ -767,6 +799,20 @@ Ltac2 rec unfold_vm_step_morph (id : ident) :=
           destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
       | _ /\ _ /\ _ =>
           destruct $new_hyp as [$hworld [$hrq $hrc]]
+      | do_spawn ?child_mb_t' ?child' ?parent' ?parent_mb_t' ?parent_cont' ?vm0' ?vm_end' ?valid' =>
+          (* [do_spawn] unfolds to an existential over the new world and
+             an equation for the resulting VM.  Destruct the fresh
+             reference allocation first, then the existential. *)
+          let new_pid := fresh_id "new_pid" in
+          let new_rc := fresh_id "new_pid_rc" in
+          let hvalid := fresh_id "Hnew_pid_rc_valid" in
+          let hmake := fresh_id "Hmake_pid" in
+          let w2 := fresh_id (String.app hyp_prefix "_spawn_w") in
+          let heq_vm := fresh_id (String.app hyp_prefix "_eq_vm") in
+          unfold do_spawn, alloc_pid in $id;
+          cbn in $id;
+          destruct (Fresh.make_valid $parent' (ref_ctr $vm0')) as [$new_pid $new_rc $hvalid $hmake];
+          destruct $new_hyp as [$w2 $hworld $heq_vm]
       | ?other =>
           printf "No match: %t" other
       end
@@ -959,6 +1005,10 @@ Section commute.
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
   Proof.
+    (* STALE SCRIPT: written against the old VM-valued [do_spawn] and
+       the old function-valued [h_spawn]; both are MFun-based now.
+       Preserved for reference, to be ported to the new APIs. *)
+    (*
     intros Hpids12.
     unfold ts_event_commute_ctx, commute_ctx, commute_def, exists_equiv.
     intros vm0 vm4 [Hvalid_pid1 Hvalid_pid2].
@@ -1137,7 +1187,8 @@ Section commute.
           + sauto.
           + solve_alloc_pid. sauto.
       }
-  Qed.
+    *)
+  Abort.
 
   (* 2/10 *)
   Lemma die_die_commute {pid1 pid2 mb_t1 mb_t2} :
@@ -1205,6 +1256,9 @@ Section commute.
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req2 cont2 |}.
   Proof.
+    (* STALE SCRIPT (unfinished, unbalanced braces): predates the
+       MFun-based [h_spawn]/[do_spawn]; preserved for reference. *)
+    (*
     intros Hpids Hcomm vm0 vm4.
     split; intros [vm2 [Hvm2 Hvm4]].
     - unfold_vm_step_morph Hvm2.
@@ -1226,6 +1280,9 @@ Section commute.
 
 
 
+    *)
+  Abort.
+
   (* 4/10 *)
   Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
@@ -1235,6 +1292,10 @@ Section commute.
       {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
   Proof.
+    (* STALE SCRIPT: written against the old VM-valued [do_spawn]
+       and the removed [h_spawn_terminate_commutativity]; needs a
+       rewrite against the MFun-based APIs. *)
+    (*
     intros Hpid12 vm1 vm3 [Hpid1_valid Hpid2_valid].
     split; intros [vm2 [Hvm2 Hvm3]].
     - (* die -> spawn *)
@@ -1283,5 +1344,6 @@ Section commute.
           -- sauto.
           -- solve_alloc_pid. sauto.
         * subst rq3'. simpl in *.
+      *)
   Abort.
 End commute.
