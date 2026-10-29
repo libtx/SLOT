@@ -322,6 +322,24 @@ Module Fresh.
       + discriminate.
   Qed.
 
+  (** The freshly allocated ref is NOT valid in the old counter [cc]:
+      it only becomes valid after [make] bumps the parent's counter. *)
+  Lemma make_invalid_ref (parent new : Ref) (cc cc' : t) :
+    make parent cc = (new, cc') ->
+    is_valid_ref new cc = false.
+  Proof.
+    unfold make, is_valid_ref, get_.
+    intros Hnew.
+    destruct (get parent cc) as [ctr|] eqn:Hget.
+    - inversion Hnew; subst.
+      unfold Ref in Hget.
+      rewrite Hget. cbn.
+      now apply Pos.ltb_irrefl.
+    - inversion Hnew; subst.
+      unfold Ref in Hget.
+      now rewrite Hget.
+  Qed.
+
   Lemma new2_not_equal p1 p2 rc rc' rc'' n1 n2 :
     p1 <> p2 ->
     Fresh.make p1 rc = (n1, rc') ->
