@@ -132,12 +132,14 @@ Section IOHandler.
             s ~[h_terminate normal pid rc valid]~> s2 ->
             exists{s2' == s2}, s' ~[h_terminate normal pid rc' valid']~> s2';
 
-      (* (** This property specifies that termination of a process cannot *)
-      (* interfere with spawning of any new process: *) *)
-      (* h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t rc1 rc2 : *)
-      (*   is_valid_pid pid1 rc1 -> *)
-      (*   is_invalid_pid pid2 rc2 -> *)
-      (*   commute (h_terminate normal pid1 rc1 _) (h_spawn pid2 rc2 _ mb_t); *)
+      (** This property specifies that termination of a process cannot
+          interfere with spawning of any new process.  Note that the
+          two pids are necessarily distinct: one is valid in [rc]
+          while the other is not. *)
+      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref)
+        (mb_t : Set) (rc : Fresh.t)
+        (valid1 : is_valid_pid pid1 rc) (fresh2 : is_invalid_pid pid2 rc) :
+        commute (h_terminate normal pid1 rc valid1) (h_spawn pid2 rc fresh2 mb_t);
     }.
 End IOHandler.
 
