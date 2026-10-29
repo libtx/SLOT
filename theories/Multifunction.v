@@ -28,7 +28,7 @@ End exists_equiv.
 
 Notation "'exists{' A == B } , C" :=
   (exists_equiv (fun A => C) B)
-  (at level 300, A name, B name, C at level 300, right associativity) : type_scope.
+  (at level 200, A name, B name, C at level 300, right associativity) : type_scope.
 
 Hint Unfold exists_equiv : slot.
 

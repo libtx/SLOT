@@ -221,12 +221,12 @@ Section defn.
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
-      h_handler := fun _ _ _ req => mailbox_step req;
+      h_perform_io _ _ _ req := mailbox_step req;
       h_initial := new;
       h_spawn := mailbox_spawn;
       h_spawn_commutativity := mailbox_spawn_commute;
       h_terminate := delete_mailbox;
-      h_handler_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_perform_io_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_terminate_commutativity := mailbox_spawn_terminate_commute;

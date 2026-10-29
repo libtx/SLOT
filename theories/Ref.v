@@ -258,17 +258,18 @@ Module Fresh.
   Lemma makes_valid_ref (parent new : Ref) (cc cc' : t) :
     make parent cc = (new, cc') ->
     is_valid_ref new cc' = true.
-  Proof with try easy; lia.
+  Proof.
+    Ltac slv := try easy; lia.
     unfold make, is_valid_ref, get_.
     intros Hnew.
     destruct (get parent cc).
     - inversion Hnew.
       rewrite keep.
       assert (H : p <= p + 1) by lia.
-      destruct (Pos.ltb_spec0 p (p + 1))...
+      destruct (Pos.ltb_spec0 p (p + 1)); slv.
     - inversion Hnew.
       rewrite keep.
-      destruct (Pos.leb_spec0 1 2)...
+      destruct (Pos.leb_spec0 1 2); slv.
   Qed.
 
   Lemma make_keeps_valid (parent other new : Ref) (cc cc' : t) :
