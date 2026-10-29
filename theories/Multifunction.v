@@ -115,35 +115,38 @@ Section equiv.
       a ~[f]~> b <-> a ~[g]~> b.
 End equiv.
 
-Section le.
+Section simulation.
   Context {Dom Cod} `{HDom : Setoid Dom} `{HCod : Setoid Cod}.
 
-  (** [mfun_le f g] (recorded as [f <= g]): [g] mirrors [f] on
-      equivalent arguments: whenever [f] runs from [x] to [y] and [x]
-      is equivalent to [x'], [g] reaches from [x'] some [y']
-      equivalent to [y]:
+  (** [simulated_by f g]: [g] simulates [f] up to setoid equality:
+      whenever [f] runs from [x] to [y] and [x] is equivalent to
+      [x'], [g] reaches from [x'] some [y'] equivalent to [y]:
 
         x == x' -> x ~[f]~> y -> exists{y' == y}, x' ~[g]~> y'
 
-      In particular, [mfun_le f f] is exactly [morphism_covariance f]. *)
-  Definition mfun_le (f g : @MFun Dom Cod HDom HCod) : Prop :=
+      This is the simulation half of a bisimulation between the two
+      transition relations, with [==] as the (bi)simulation relation;
+      since [==] is symmetric, [simulated_by f f] (which is exactly
+      [morphism_covariance f]) states that [==] is a bisimulation for
+      [f]. *)
+  Definition simulated_by (f g : @MFun Dom Cod HDom HCod) : Prop :=
     forall x x' y,
       x == x' ->
       x ~[f]~> y ->
       exists{y' == y}, x' ~[g]~> y'.
 
-  Lemma mfun_le_refl (f : @MFun Dom Cod HDom HCod) :
-    mfun_le f f.
+  Lemma simulated_by_refl (f : @MFun Dom Cod HDom HCod) :
+    simulated_by f f.
   Proof.
     exact (morphism_covariance f).
   Qed.
 
-  (** A witness of [mfun_le f g] given that [f] and [g] have the same
+  (** A witness of [simulated_by f g] given that [f] and [g] have the same
       runs, needed when the two morphisms are built from different
       (but pointwise equal) parameters. *)
-  Lemma mfun_le_conv (f g : @MFun Dom Cod HDom HCod) :
+  Lemma simulated_by_conv (f g : @MFun Dom Cod HDom HCod) :
     (forall x y, x ~[f]~> y <-> x ~[g]~> y) ->
-    mfun_le f g.
+    simulated_by f g.
   Proof.
     intros Hfg x x' y Hxx' Hf.
     destruct (morphism_covariance f x x' y Hxx' Hf) as [y' [Hy' Heq]].
@@ -152,7 +155,7 @@ Section le.
     - now apply (proj1 (Hfg x' y')).
     - exact Heq.
   Qed.
-End le.
+End simulation.
 
 Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.

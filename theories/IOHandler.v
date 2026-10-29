@@ -101,6 +101,22 @@ Section IOHandler.
   Context {Ctx : Type} `{HCtx : VMContext Ctx}.
   Context {Request : Type} {Reply : Request -> Type}.
 
+  (** A context packaged with a proof that [pid] is valid in it: the
+      parameter space of [h_perform_io] and [h_terminate]. *)
+  Definition ValidCtx (pid : Pid) : Type :=
+    {ctx : Ctx & is_valid_pid pid ctx}.
+
+  (** A context packaged with a proof that [pid] is not yet valid in
+      it: the parameter space of [h_spawn]. *)
+  Definition FreshCtx (pid : Pid) : Type :=
+    {ctx : Ctx & is_invalid_pid pid ctx}.
+
+  (** Two context packages are [same_ctx] when their contexts are
+      setoid-equal; the carried proofs are not compared. *)
+  Definition same_ctx {P : Ctx -> Prop} :
+      forall c c' : {ctx : Ctx & P ctx}, Prop :=
+    fun c c' => projT1 c == projT1 c' : Prop.
+
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
@@ -141,26 +157,23 @@ Section IOHandler.
 
       h_perform_io_ctx_covariance :
         forall (pid : Pid) (req : Request),
-          Proper ((fun c c' : {ctx : Ctx & is_valid_pid pid ctx} =>
-                      projT1 c == projT1 c' : Prop) ==> mfun_le)
-                  (fun c => h_perform_io pid (projT1 c) (projT2 c) req);
+          Proper (same_ctx ==> simulated_by)
+                  (fun c : ValidCtx pid => h_perform_io pid (projT1 c) (projT2 c) req);
 
       h_spawn_ctx_covariance :
         forall (pid : Pid) (mb_t : Set),
-          Proper ((fun c c' : {ctx : Ctx & is_invalid_pid pid ctx} =>
-                      projT1 c == projT1 c' : Prop) ==> mfun_le)
-                  (fun c => h_spawn pid (projT1 c) (projT2 c) mb_t);
+          Proper (same_ctx ==> simulated_by)
+                  (fun c : FreshCtx pid => h_spawn pid (projT1 c) (projT2 c) mb_t);
 
       (** [h_terminate], parameterized by a context together with its
           validity proof, is a proper morphism from contexts to
           multifunctions: replacing the context (and its proof) with a
-          setoid-equal one mirrors every run with a run from an
+          setoid-equal one simulates every run with a run from an
           equivalent state to an equivalent result. *)
       h_terminate_ctx_covariance :
         forall (normal : bool) (pid : Pid),
-          Proper ((fun c c' : {ctx : Ctx & is_valid_pid pid ctx} =>
-                      projT1 c == projT1 c' : Prop) ==> mfun_le)
-                  (fun c => h_terminate normal pid (projT1 c) (projT2 c));
+          Proper (same_ctx ==> simulated_by)
+                  (fun c : ValidCtx pid => h_terminate normal pid (projT1 c) (projT2 c));
 
       (** This property specifies that termination of a process cannot
           interfere with spawning of any new process.  The two pids
