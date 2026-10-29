@@ -92,7 +92,7 @@ Section storage_handler.
       h_handler_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      (* h_spawn_terminate_commutativity := ltac:(sauto); *)
+      h_spawn_terminate_commutativity := ltac:(sauto);
     |}.
 End storage_handler.
 
