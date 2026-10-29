@@ -11,8 +11,19 @@ From SLOT Require Import
   Ref
   Queue.
 
+Import Ref.FMap.
+
 From Hammer Require Import
   Tactics.
+
+(** A pid is valid (its reference was already allocated) in the
+    reference counter collection [cc]. *)
+Definition is_valid_pid (pid : Ref) (cc : Fresh.t) : Prop :=
+  Fresh.is_valid_ref pid cc = true.
+
+(** A pid is not yet allocated in [cc]. *)
+Definition is_invalid_pid (pid : Ref) (cc : Fresh.t) : Prop :=
+  Fresh.is_valid_ref pid cc = false.
 
 Section mailbox.
   Inductive Message {AppMessage} :=
@@ -52,23 +63,83 @@ Section IOHandler.
   Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
-      h_handler (pid : Ref) (req : Request) : MFunRet (Reply req) h_state h_state;
+
+      (** [h_perform_io] is only applied to pids that are valid in the
+          reference counter collection [rc] of the world it runs in: *)
+      h_perform_io (pid : Ref) (rc : Fresh.t) (pid_valid : is_valid_pid pid rc)
+        (req : Request) : MFunRet (Reply req) h_state h_state;
       h_initial : h_state;
 
-      h_spawn (pid : Ref) (mailbox_t : Set) : MFun h_state h_state;
+      (** [h_spawn] creates a mailbox for a pid that is NOT yet valid
+          in [rc]: [rc] is the pre-allocation pid collection, and the
+          fresh pid becomes valid only after the spawn. *)
+      h_spawn (pid : Ref) (rc : Fresh.t) (pid_fresh : is_invalid_pid pid rc)
+        (mailbox_t : Set) : MFun h_state h_state;
 
-      h_spawn_commutativity : forall pid1 pid2 mb_t1 mb_t2,
+      h_spawn_commutativity : forall (pid1 pid2 : Ref) (mb_t1 mb_t2 : Set)
+                                     (rc1 : Fresh.t) (fresh1 : is_invalid_pid pid1 rc1)
+                                     (rc2 : Fresh.t) (fresh2 : is_invalid_pid pid2 rc2),
         pid1 <> pid2 ->
-        commute (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
+        forall s0 s1 s2,
+          s0 ~[h_spawn pid1 rc1 fresh1 mb_t1]~> s1 ->
+          s1 ~[h_spawn pid2 rc2 fresh2 mb_t2]~> s2 ->
+          forall (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2')
+                 (rc1' : Fresh.t) (fresh1' : is_invalid_pid pid1 rc1'),
+            exists{s2' == s2}, exists s1',
+              s0 ~[h_spawn pid2 rc2' fresh2' mb_t2]~> s1' /\
+              s1' ~[h_spawn pid1 rc1' fresh1' mb_t1]~> s2';
 
-      h_terminate (normal : bool) (pid : Ref) : MFun h_state h_state;
+      h_terminate (normal : bool) (pid : Ref) (rc : Fresh.t)
+        (pid_valid : is_valid_pid pid rc) : MFun h_state h_state;
 
-      (* (** This property specifies that termination of a process cannot *)
-      (* interfere with spawning of any new process: *) *)
-      (* h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref) mb_t rc : *)
-      (*   Fresh.is_valid_ref pid1 rc = true -> *)
-      (*   Fresh.is_valid_ref pid2 rc = false -> *)
-      (*   commute (h_terminate normal pid1) (h_spawn pid2 mb_t); *)
+      (** The world-level effects must not depend on the choice of the
+          reference-counter collection: collections that are
+          setoid-equal (they agree on all [get]s) must lead to
+          setoid-equal results.  These laws make it possible to relate
+          the effects performed from setoid-equal VM states, whose
+          reference counters may differ syntactically. *)
+
+      h_perform_io_rc_covariance :
+        forall (pid : Ref) (req : Request)
+               (rc rc' : Fresh.t)
+               (valid : is_valid_pid pid rc)
+               (valid' : is_valid_pid pid rc'),
+          rc == rc' ->
+          forall s s' (ret : Reply req * h_state),
+            s == s' ->
+            s ~[h_perform_io pid rc valid req]~> ret ->
+            exists{ret' == ret}, s' ~[h_perform_io pid rc' valid' req]~> ret';
+
+      h_spawn_rc_covariance :
+        forall (pid : Ref) (mb_t : Set)
+               (rc rc' : Fresh.t)
+               (fresh : is_invalid_pid pid rc)
+               (fresh' : is_invalid_pid pid rc'),
+          rc == rc' ->
+          forall s s' s2,
+            s == s' ->
+            s ~[h_spawn pid rc fresh mb_t]~> s2 ->
+            exists{s2' == s2}, s' ~[h_spawn pid rc' fresh' mb_t]~> s2';
+
+      h_terminate_rc_covariance :
+        forall (normal : bool) (pid : Ref)
+               (rc rc' : Fresh.t)
+               (valid : is_valid_pid pid rc)
+               (valid' : is_valid_pid pid rc'),
+          rc == rc' ->
+          forall s s' s2,
+            s == s' ->
+            s ~[h_terminate normal pid rc valid]~> s2 ->
+            exists{s2' == s2}, s' ~[h_terminate normal pid rc' valid']~> s2';
+
+      (** This property specifies that termination of a process cannot
+          interfere with spawning of any new process.  Note that the
+          two pids are necessarily distinct: one is valid in [rc]
+          while the other is not. *)
+      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref)
+        (mb_t : Set) (rc : Fresh.t)
+        (valid1 : is_valid_pid pid1 rc) (fresh2 : is_invalid_pid pid2 rc) :
+        commute (h_terminate normal pid1 rc valid1) (h_spawn pid2 rc fresh2 mb_t);
     }.
 End IOHandler.
 

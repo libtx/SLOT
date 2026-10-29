@@ -258,17 +258,18 @@ Module Fresh.
   Lemma makes_valid_ref (parent new : Ref) (cc cc' : t) :
     make parent cc = (new, cc') ->
     is_valid_ref new cc' = true.
-  Proof with try easy; lia.
+  Proof.
+    Ltac slv := try easy; lia.
     unfold make, is_valid_ref, get_.
     intros Hnew.
     destruct (get parent cc).
     - inversion Hnew.
       rewrite keep.
       assert (H : p <= p + 1) by lia.
-      destruct (Pos.ltb_spec0 p (p + 1))...
+      destruct (Pos.ltb_spec0 p (p + 1)); slv.
     - inversion Hnew.
       rewrite keep.
-      destruct (Pos.leb_spec0 1 2)...
+      destruct (Pos.leb_spec0 1 2); slv.
   Qed.
 
   Lemma make_keeps_valid (parent other new : Ref) (cc cc' : t) :
@@ -320,6 +321,24 @@ Module Fresh.
         subst.
         destruct (Pos.ltb_spec0 oc oc); lia.
       + discriminate.
+  Qed.
+
+  (** The freshly allocated ref is NOT valid in the old counter [cc]:
+      it only becomes valid after [make] bumps the parent's counter. *)
+  Lemma make_invalid_ref (parent new : Ref) (cc cc' : t) :
+    make parent cc = (new, cc') ->
+    is_valid_ref new cc = false.
+  Proof.
+    unfold make, is_valid_ref, get_.
+    intros Hnew.
+    destruct (get parent cc) as [ctr|] eqn:Hget.
+    - inversion Hnew; subst.
+      unfold Ref in Hget.
+      rewrite Hget. cbn.
+      now apply Pos.ltb_irrefl.
+    - inversion Hnew; subst.
+      unfold Ref in Hget.
+      now rewrite Hget.
   Qed.
 
   Lemma new2_not_equal p1 p2 rc rc' rc'' n1 n2 :
