@@ -9,6 +9,9 @@ Require Import
   Ref
   IOHandler.
 
+From SLOT Require Import
+  VM.
+
 From LibTx Require Import
   Storage.
 
@@ -224,15 +227,19 @@ Section defn.
       + apply delete_put_comm. exact Hne.
   Qed.
 
-  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet:=
+  Instance mailboxHandler_basics : @IOHandler_basics Ctx _ MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
       h_perform_io _ _ _ req := mailbox_step req;
       h_initial := new;
       h_spawn := mailbox_spawn;
-      h_spawn_commutativity := mailbox_spawn_commute;
       h_terminate := delete_mailbox;
+    |}.
+
+  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet mailboxHandler_basics:=
+    {|
+      h_spawn_commutativity := mailbox_spawn_commute;
       h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
                                      destruct c as [ctx v]; destruct c' as [ctx' v'];
                                      cbn; apply simulated_by_refl);

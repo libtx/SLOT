@@ -11,6 +11,9 @@ Require Import
   Multifunction
   IOHandler.
 
+From SLOT Require Import
+  VM.
+
 From Hammer Require Import
   Tactics.
 
@@ -82,16 +85,26 @@ Section storage_handler.
     mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Instance storageHandler :
-    @IOHandler Ctx _ StorageReq StorageRet :=
+  Instance storageHandler_basics :
+    @IOHandler_basics Ctx _ StorageReq StorageRet :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
       h_perform_io := storage_h_perform_io;
       h_initial := stor.new;
       h_spawn := fun _ _ _ _ => id_mfun;
-      h_spawn_commutativity := ltac:(sauto);
       h_terminate := fun _ _ _ _ => id_mfun;
+    |}.
+
+  Instance storageHandler :
+    @IOHandler Ctx _ StorageReq StorageRet storageHandler_basics :=
+    {|
+      h_spawn_commutativity := ltac:(intros pid1 pid2 mb_t1 mb_t2
+                                         ctx1 ctx2 ctx1' ctx2' f1 f1' f2 f2' Hne x y;
+                                     split; intros [z [H1 H2]];
+                                     (exists y; split;
+                                      [ exists z; split; assumption
+                                      | reflexivity ]));
       h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
                                      destruct c as [ctx v]; destruct c' as [ctx' v'];
                                      cbn; apply simulated_by_refl);
@@ -101,8 +114,15 @@ Section storage_handler.
       h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
                                    destruct c as [ctx v]; destruct c' as [ctx' v'];
                                    cbn; apply simulated_by_refl);
-      h_spawn_terminate_commutativity := ltac:(sauto);
+      h_spawn_terminate_commutativity :=
+        ltac:(intros normal pid1 pid2 mb_t ctx1 ctx2 ctx1' ctx2'
+                    v1 v1' f2 f2' Hne x y;
+              split; intros [z [H1 H2]];
+              (exists y; split;
+               [ exists z; split; assumption
+               | reflexivity ]));
     |}.
 End storage_handler.
 
-Global Arguments storageHandler {_ _} (_ _ _).
+Global Arguments storageHandler_basics {_ _} (_ _ _).
+Global Arguments storageHandler {_ _} {_ _} (_).

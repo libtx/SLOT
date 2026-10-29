@@ -60,13 +60,88 @@ Next Obligation.
   - now rewrite Hequiv.
 Qed.
 
+(** ** The laws of an I/O handler
+
+    [IOHandler Basics] extends an [IOHandler_basics] implementation
+    with its laws.  The class is defined here, in the VM module,
+    rather than next to [IOHandler_basics]: the laws are consumed
+    where the commutativity of VM steps is proved, at which point the
+    VM-level [spawn], I/O and termination operations are already
+    defined (see the split-off [IOHandler_basics] for the operations
+    themselves). *)
+
+(** ** The laws
+
+    [IOHandler Basics] extends an [IOHandler_basics] implementation
+    with its laws.  The laws talk about the operations of [Basics];
+    keeping them in a separate class lets the two halves be
+    instantiated at different places. *)
+
+Class IOHandler
+  {Ctx : Type} `{HCtx : VMContext Ctx}
+  {Request : Type} {Reply : Request -> Type}
+  (Basics : @IOHandler_basics Ctx HCtx Request Reply) := {
+      h_spawn_commutativity : forall (pid1 pid2 : Pid) (mb_t1 mb_t2 : Set)
+                                     (ctx1 ctx2 ctx1' ctx2' : Ctx)
+                                     (fresh1 : is_invalid_pid pid1 ctx1)
+                                     (fresh1' : is_invalid_pid pid1 ctx1')
+                                     (fresh2 : is_invalid_pid pid2 ctx2)
+                                     (fresh2' : is_invalid_pid pid2 ctx2'),
+        pid1 <> pid2 ->
+        quasi_commute (@h_spawn Ctx HCtx Request Reply Basics pid1 ctx1 fresh1 mb_t1) (@h_spawn Ctx HCtx Request Reply Basics pid2 ctx2 fresh2 mb_t2)
+                    (@h_spawn Ctx HCtx Request Reply Basics pid1 ctx1' fresh1' mb_t1) (@h_spawn Ctx HCtx Request Reply Basics pid2 ctx2' fresh2' mb_t2);
+
+      (** The world-level effects must not depend on the choice of the
+          context: setoid-equal contexts must lead to setoid-equal
+          results.  These laws make it possible to relate the effects
+          performed from setoid-equal VM states, whose contexts may
+          differ syntactically. *)
+
+      h_perform_io_ctx_covariance :
+        forall (pid : Pid) (req : Request),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_valid_in pid => @h_perform_io Ctx HCtx Request Reply Basics pid (projT1 c) (projT2 c) req);
+
+      h_spawn_ctx_covariance :
+        forall (pid : Pid) (mb_t : Set),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_fresh_in pid => @h_spawn Ctx HCtx Request Reply Basics pid (projT1 c) (projT2 c) mb_t);
+
+      (** [h_terminate], parameterized by a context together with its
+          validity proof, is a proper morphism from contexts to
+          multifunctions: replacing the context (and its proof) with a
+          setoid-equal one simulates every run with a run from an
+          equivalent state to an equivalent result. *)
+      h_terminate_ctx_covariance :
+        forall (normal : bool) (pid : Pid),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_valid_in pid => @h_terminate Ctx HCtx Request Reply Basics normal pid (projT1 c) (projT2 c));
+
+      (** This property specifies that termination of a process cannot
+          interfere with spawning of any new process.  The two pids
+          must be distinct; the effects themselves do not depend on
+          the choice of the contexts witnessing validity/freshness
+          (cf. [h_spawn_commutativity]). *)
+      h_spawn_terminate_commutativity :
+        forall (normal : bool) (pid1 pid2 : Pid) (mb_t : Set)
+               (ctx1 ctx2 ctx1' ctx2' : Ctx)
+               (valid1 : is_valid_pid pid1 ctx1)
+               (valid1' : is_valid_pid pid1 ctx1')
+               (fresh2 : is_invalid_pid pid2 ctx2)
+               (fresh2' : is_invalid_pid pid2 ctx2'),
+          pid1 <> pid2 ->
+          quasi_commute (@h_terminate Ctx HCtx Request Reply Basics normal pid1 ctx1 valid1) (h_spawn pid2 ctx2 fresh2 mb_t)
+                      (@h_terminate Ctx HCtx Request Reply Basics normal pid1 ctx1' valid1') (h_spawn pid2 ctx2' fresh2' mb_t);
+    }.
+
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Fresh.t _ Request Reply}.
+          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}
+          `{IOH : @IOHandler Fresh.t _ Request Reply IOH_b}.
 
-  Let World := @h_state _ _ _ _ IOH.
+  Let World := @h_state _ _ _ _ IOH_b.
 
-  Let Hequiv_w := @h_setoid _ _ _ _ IOH.
+  Let Hequiv_w := @h_setoid _ _ _ _ IOH_b.
 
   (** ** Processes
    *** Programs
@@ -592,7 +667,7 @@ Section definitions.
       simpl in Hvm12. destruct Hvm12 as [Hw12 [Hrc12 Hrq12]].
       destruct Hvm as [w2 Hw2 Hvm2].
       (* Bridge the world-side effect to the other counter collection: *)
-      destruct (@h_spawn_ctx_covariance Fresh.t _ Request Reply IOH
+      destruct (@h_spawn_ctx_covariance Fresh.t _ Request Reply IOH_b IOH
                   new_pid child_mb_t
                   (existT _ rc0 (Fresh.make_invalid_ref parent new_pid rc0 rc1 Hmake))
                   (existT _ rc0' (Fresh.make_invalid_ref parent new_pid rc0' rc1' Hmake'))
@@ -811,7 +886,8 @@ Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
 
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IO : @IOHandler Fresh.t _ Request Reply}.
+          `{IO_b : @IOHandler_basics Fresh.t _ Request Reply}
+          `{IO : @IOHandler Fresh.t _ Request Reply IO_b}.
 
   Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
     intros vm1 vm2 H.
@@ -821,7 +897,8 @@ End tests.
 
 Section canned.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Fresh.t _ Request Reply}.
+          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}
+          `{IOH : @IOHandler Fresh.t _ Request Reply IOH_b}.
 
   Lemma canned_schedule_out_some proc vm0 vm1 :
     Some (proc, vm1) <~[schedule_out]~ vm0 ->
@@ -980,10 +1057,11 @@ Notation "'P<' T > A @ C " := {| pid := A; proc_mb_t := T; cont := C |} (at leve
 
 Section commute.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Fresh.t _ Request Reply}.
+          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}
+          `{IOH : @IOHandler Fresh.t _ Request Reply IOH_b}.
 
-  Let req_t := h_request_t IOH.
-  Let rep_t := h_reply_t IOH.
+  Let req_t := h_request_t IOH_b.
+  Let rep_t := h_reply_t IOH_b.
   Let prog_t := @Program req_t rep_t.
 
   Ltac2 simpl_fresh_ref () :=
@@ -1190,7 +1268,7 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH
+    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH_b IOH
                         new_pid new_pid0 child_mb_t1 child_mb_t2
                         vm0_rc new_pid_rc rc2' vm0_rc
                         (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
@@ -1333,7 +1411,7 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH
+    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH_b IOH
                         new_pid new_pid0 child_mb_t1 child_mb_t2
                         vm0_rc new_pid_rc rc2' vm0_rc
                         (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
@@ -1828,7 +1906,7 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (proj1 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH
+          destruct (proj1 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH_b IOH
                               true pid1 new_pid child_mb_t
                               $rc1 $rc2 new_pid_rc vm2_rc
                               $v1
@@ -1951,7 +2029,7 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (proj2 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH
+          destruct (proj2 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH_b IOH
                               true pid1 new_pid child_mb_t
                               $rc1 $rc2 vm0_rc vm0_rc
                               $v1 Hpid1_valid
