@@ -593,9 +593,9 @@ Section definitions.
       destruct Hvm as [w2 Hw2 Hvm2].
       (* Bridge the world-side effect to the other counter collection: *)
       destruct (@h_spawn_ctx_covariance Fresh.t _ Request Reply IOH
-                  new_pid child_mb_t rc0 rc0'
-                  (Fresh.make_invalid_ref parent new_pid rc0 rc1 Hmake)
-                  (Fresh.make_invalid_ref parent new_pid rc0' rc1' Hmake')
+                  new_pid child_mb_t
+                  (existT _ rc0 (Fresh.make_invalid_ref parent new_pid rc0 rc1 Hmake))
+                  (existT _ rc0' (Fresh.make_invalid_ref parent new_pid rc0' rc1' Hmake'))
                   Hrc0 w0 w0' w2 Hw0 Hw2)
         as [w2' [Hw2' Hw2w2']].
       exists {| world := w2';
@@ -693,11 +693,11 @@ Section definitions.
         cbn in Hvm1'vm1. destruct Hvm1'vm1 as [Hw1 [Hrc1 Hrq1]].
         cbn in Hvm2. destruct Hvm2 as [Hterm [Hrq13 Hrc13]].
         cbn in Hterm.
-        destruct (h_terminate_ctx_covariance true (pid proc) rc1 rc1'
-                    (schedule_out_valid_pid vm0 proc
-                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1)
-                    (schedule_out_valid_pid vm0' proc
-                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1')
+        destruct (h_terminate_ctx_covariance true (pid proc)
+                    (existT _ rc1 (schedule_out_valid_pid vm0 proc
+                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1))
+                    (existT _ rc1' (schedule_out_valid_pid vm0' proc
+                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1'))
                     Hrc1 w1 w1' w3 Hw1 Hterm)
           as [w3' [Hterm' Hw3'w3]].
         exists (Some (proc, {| world := w3'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |})).
@@ -714,11 +714,11 @@ Section definitions.
         cbn in Hvm1'vm1. destruct Hvm1'vm1 as [Hw1 [Hrc1 Hrq1]].
         destruct Hvm2 as [rep [Hhandler [Hrq3 Hrc3]]].
         cbn in Hhandler.
-        destruct (h_perform_io_ctx_covariance (pid proc) pending_req rc1 rc1'
-                    (schedule_out_valid_pid vm0 proc
-                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1)
-                    (schedule_out_valid_pid vm0' proc
-                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1')
+        destruct (h_perform_io_ctx_covariance (pid proc) pending_req
+                    (existT _ rc1 (schedule_out_valid_pid vm0 proc
+                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1))
+                    (existT _ rc1' (schedule_out_valid_pid vm0' proc
+                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1'))
                     Hrc1 w1 w1' (rep, w3) Hw1 Hhandler)
           as [[rep' w3'] [Hhandler' Hret'eq]].
         assert (inv3' : Forall (proc_valid_pid rc1')

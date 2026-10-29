@@ -238,9 +238,15 @@ Section defn.
       h_spawn := mailbox_spawn;
       h_spawn_commutativity := mailbox_spawn_commute;
       h_terminate := delete_mailbox;
-      h_perform_io_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_spawn_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_terminate_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
+                                     destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                     cbn; apply mfun_le_refl);
+      h_spawn_ctx_covariance := ltac:(intros pid mb_t c c' Hc;
+                                 destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                 cbn; apply mfun_le_refl);
+      h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
+                                   destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                   cbn; apply mfun_le_refl);
       h_spawn_terminate_commutativity := mailbox_spawn_terminate_commute;
     |}.
 End defn.

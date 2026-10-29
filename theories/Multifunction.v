@@ -115,6 +115,45 @@ Section equiv.
       a ~[f]~> b <-> a ~[g]~> b.
 End equiv.
 
+Section le.
+  Context {Dom Cod} `{HDom : Setoid Dom} `{HCod : Setoid Cod}.
+
+  (** [mfun_le f g] (recorded as [f <= g]): [g] mirrors [f] on
+      equivalent arguments: whenever [f] runs from [x] to [y] and [x]
+      is equivalent to [x'], [g] reaches from [x'] some [y']
+      equivalent to [y]:
+
+        x == x' -> x ~[f]~> y -> exists{y' == y}, x' ~[g]~> y'
+
+      In particular, [mfun_le f f] is exactly [morphism_covariance f]. *)
+  Definition mfun_le (f g : @MFun Dom Cod HDom HCod) : Prop :=
+    forall x x' y,
+      x == x' ->
+      x ~[f]~> y ->
+      exists{y' == y}, x' ~[g]~> y'.
+
+  Lemma mfun_le_refl (f : @MFun Dom Cod HDom HCod) :
+    mfun_le f f.
+  Proof.
+    exact (morphism_covariance f).
+  Qed.
+
+  (** A witness of [mfun_le f g] given that [f] and [g] have the same
+      runs, needed when the two morphisms are built from different
+      (but pointwise equal) parameters. *)
+  Lemma mfun_le_conv (f g : @MFun Dom Cod HDom HCod) :
+    (forall x y, x ~[f]~> y <-> x ~[g]~> y) ->
+    mfun_le f g.
+  Proof.
+    intros Hfg x x' y Hxx' Hf.
+    destruct (morphism_covariance f x x' y Hxx' Hf) as [y' [Hy' Heq]].
+    exists y'.
+    split.
+    - now apply (proj1 (Hfg x' y')).
+    - exact Heq.
+  Qed.
+End le.
+
 Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.

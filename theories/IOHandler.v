@@ -140,37 +140,27 @@ Section IOHandler.
           differ syntactically. *)
 
       h_perform_io_ctx_covariance :
-        forall (pid : Pid) (req : Request)
-               (ctx ctx' : Ctx)
-               (valid : is_valid_pid pid ctx)
-               (valid' : is_valid_pid pid ctx'),
-          ctx == ctx' ->
-          forall s s' (ret : Reply req * h_state),
-            s == s' ->
-            s ~[h_perform_io pid ctx valid req]~> ret ->
-            exists{ret' == ret}, s' ~[h_perform_io pid ctx' valid' req]~> ret';
+        forall (pid : Pid) (req : Request),
+          Proper ((fun c c' : {ctx : Ctx & is_valid_pid pid ctx} =>
+                      projT1 c == projT1 c' : Prop) ==> mfun_le)
+                  (fun c => h_perform_io pid (projT1 c) (projT2 c) req);
 
       h_spawn_ctx_covariance :
-        forall (pid : Pid) (mb_t : Set)
-               (ctx ctx' : Ctx)
-               (fresh : is_invalid_pid pid ctx)
-               (fresh' : is_invalid_pid pid ctx'),
-          ctx == ctx' ->
-          forall s s' s2,
-            s == s' ->
-            s ~[h_spawn pid ctx fresh mb_t]~> s2 ->
-            exists{s2' == s2}, s' ~[h_spawn pid ctx' fresh' mb_t]~> s2';
+        forall (pid : Pid) (mb_t : Set),
+          Proper ((fun c c' : {ctx : Ctx & is_invalid_pid pid ctx} =>
+                      projT1 c == projT1 c' : Prop) ==> mfun_le)
+                  (fun c => h_spawn pid (projT1 c) (projT2 c) mb_t);
 
+      (** [h_terminate], parameterized by a context together with its
+          validity proof, is a proper morphism from contexts to
+          multifunctions: replacing the context (and its proof) with a
+          setoid-equal one mirrors every run with a run from an
+          equivalent state to an equivalent result. *)
       h_terminate_ctx_covariance :
-        forall (normal : bool) (pid : Pid)
-               (ctx ctx' : Ctx)
-               (valid : is_valid_pid pid ctx)
-               (valid' : is_valid_pid pid ctx'),
-          ctx == ctx' ->
-          forall s s' s2,
-            s == s' ->
-            s ~[h_terminate normal pid ctx valid]~> s2 ->
-            exists{s2' == s2}, s' ~[h_terminate normal pid ctx' valid']~> s2';
+        forall (normal : bool) (pid : Pid),
+          Proper ((fun c c' : {ctx : Ctx & is_valid_pid pid ctx} =>
+                      projT1 c == projT1 c' : Prop) ==> mfun_le)
+                  (fun c => h_terminate normal pid (projT1 c) (projT2 c));
 
       (** This property specifies that termination of a process cannot
           interfere with spawning of any new process.  The two pids

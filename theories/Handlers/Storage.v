@@ -92,9 +92,15 @@ Section storage_handler.
       h_spawn := fun _ _ _ _ => id_mfun;
       h_spawn_commutativity := ltac:(sauto);
       h_terminate := fun _ _ _ _ => id_mfun;
-      h_perform_io_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_spawn_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_terminate_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
+                                     destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                     cbn; apply mfun_le_refl);
+      h_spawn_ctx_covariance := ltac:(intros pid mb_t c c' Hc;
+                                 destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                 cbn; apply mfun_le_refl);
+      h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
+                                   destruct c as [ctx v]; destruct c' as [ctx' v'];
+                                   cbn; apply mfun_le_refl);
       h_spawn_terminate_commutativity := ltac:(sauto);
     |}.
 End storage_handler.
