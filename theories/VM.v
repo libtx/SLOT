@@ -44,10 +44,10 @@ Proof.
   exact _.
 Defined.
 
-(** The reference-counter collection is the canonical [Context]:
+(** The reference-counter collection is the canonical [VMContext]:
     a pid is valid there iff [Fresh.is_valid_ref] says so.  The proper
     morphism laws follow from [Fresh.is_valid_ref_mor]. *)
-#[export] Instance Fresh_ctx : Context Fresh.t :=
+#[export] Instance Fresh_ctx : VMContext Fresh.t :=
   {|
     is_valid_pid := fun pid cc => Fresh.is_valid_ref pid cc = true;
     is_invalid_pid := fun pid cc => Fresh.is_valid_ref pid cc = false;

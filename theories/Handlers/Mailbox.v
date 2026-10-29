@@ -16,7 +16,7 @@ From Hammer Require Import
   Tactics.
 
 Section defn.
-  Context {Ctx : Type} `{Hctx : @Context Ctx}.
+  Context {Ctx : Type} `{Hctx : @VMContext Ctx}.
 
   (** Handler state *)
   Let t := Ref.FMap.M.t Mailbox.

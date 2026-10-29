@@ -19,7 +19,7 @@ Module EqDec := EquivDec.
 
 Section storage_handler.
   Context
-    {Ctx : Type} `{Hctx : Context Ctx}
+    {Ctx : Type} `{Hctx : VMContext Ctx}
     {Key Val Container : Type}
     `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
 
