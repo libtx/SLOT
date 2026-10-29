@@ -394,13 +394,13 @@ Section definitions.
     exact H.
   Qed.
 
-  Lemma h_handler_morph_pi (pid : Ref) (rc : Fresh.t) req
+  Lemma h_perform_io_morph_pi (pid : Ref) (rc : Fresh.t) req
     (V V' : is_valid_pid pid rc) (w : World) (ret : Reply req * World) :
-    w ~[h_handler pid rc V req]~> ret ->
-    w ~[h_handler pid rc V' req]~> ret.
+    w ~[h_perform_io pid rc V req]~> ret ->
+    w ~[h_perform_io pid rc V' req]~> ret.
   Proof.
     intros H.
-    assert (Hf : h_handler pid rc V req = h_handler pid rc V' req).
+    assert (Hf : h_perform_io pid rc V req = h_perform_io pid rc V' req).
     { f_equal. apply ProofIrrelevance.proof_irrelevance. }
     rewrite Hf in H.
     exact H.
@@ -595,7 +595,7 @@ Section definitions.
       let (w1, rq1, rc1, inv1) := vm1 in
       let (w2, rq2, rc2, inv2) := vm2 in
       exists (rep : Reply req),
-        w1 ~[h_handler pd (ref_ctr vm1) pd_valid req]~> (rep, w2) /\
+        w1 ~[h_perform_io pd (ref_ctr vm1) pd_valid req]~> (rep, w2) /\
           rc2 = rc1 /\
           rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
   End io.
@@ -684,7 +684,7 @@ Section definitions.
         cbn in Hvm1'vm1. destruct Hvm1'vm1 as [Hw1 [Hrc1 Hrq1]].
         destruct Hvm2 as [rep [Hhandler [Hrq3 Hrc3]]].
         cbn in Hhandler.
-        destruct (h_handler_rc_covariance (pid proc) pending_req rc1 rc1'
+        destruct (h_perform_io_rc_covariance (pid proc) pending_req rc1 rc1'
                     (schedule_out_valid_pid vm0 proc
                        {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1)
                     (schedule_out_valid_pid vm0' proc
@@ -1503,7 +1503,7 @@ Section commute.
     pid1 <> pid2 ->
     (forall rc (v1 : is_valid_pid pid1 rc)
                (v2 : is_valid_pid pid2 rc),
-       commute_ret (h_handler pid1 rc v1 req1) (h_handler pid2 rc v2 req2)) ->
+       commute_ret (h_perform_io pid1 rc v1 req1) (h_perform_io pid2 rc v2 req2)) ->
     ts_event_commute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req2 cont2 |}.
@@ -1535,8 +1535,8 @@ Section commute.
       as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'equiv]]]].
     (* Worlds and replies: the two handlers commute. *)
     lazy_match! goal with
-    | [ h1 : context [ h_handler pid1 ?rc1 ?v1 req1 ],
-        h2 : context [ h_handler pid2 ?rc2 ?v2 req2 ] |- _ ] =>
+    | [ h1 : context [ h_perform_io pid1 ?rc1 ?v1 req1 ],
+        h2 : context [ h_perform_io pid2 ?rc2 ?v2 req2 ] |- _ ] =>
         destruct (Hcomm vm0_rc $v1 $v2 vm0_w vm2_w vm4_w req1_rep req2_rep) as [Hl Hr]
     end.
     specialize (Hl Hvm1_w Hvm2_w).
@@ -1587,7 +1587,7 @@ Section commute.
         split > [exact Hpick_proc2 | split > [reflexivity | reflexivity]] ].
     unfold exec_proc_morph. cbn. unfold do_io. cbn.
     exists req2_rep.
-    split > [ (ltac1:(eapply h_handler_morph_pi; exact Hg_first)) | split ].
+    split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hg_first)) | split ].
     reflexivity.
     reflexivity.
     assert (Hpick_proc1' :
@@ -1610,7 +1610,7 @@ Section commute.
     reflexivity.
     unfold exec_proc_morph. cbn. unfold do_io. cbn.
     exists req1_rep.
-    split > [ (ltac1:(eapply h_handler_morph_pi; exact Hf_second)) | split ].
+    split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hf_second)) | split ].
     reflexivity.
     reflexivity.
     assert (Hperm :
@@ -1656,8 +1656,8 @@ Section commute.
       as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'equiv]]]].
     (* Worlds and replies: the two handlers commute. *)
     lazy_match! goal with
-    | [ h1 : context [ h_handler pid2 ?rc1 ?v1 req2 ],
-        h2 : context [ h_handler pid1 ?rc2 ?v2 req1 ] |- _ ] =>
+    | [ h1 : context [ h_perform_io pid2 ?rc1 ?v1 req2 ],
+        h2 : context [ h_perform_io pid1 ?rc2 ?v2 req1 ] |- _ ] =>
         destruct (Hcomm vm0_rc $v1 $v2 vm0_w vm2_w vm4_w req2_rep req1_rep) as [Hl Hr]
     end.
     specialize (Hr Hvm1_w Hvm2_w).
@@ -1708,7 +1708,7 @@ Section commute.
         split > [exact Hpick_proc2 | split > [reflexivity | reflexivity]] ].
     unfold exec_proc_morph. cbn. unfold do_io. cbn.
     exists req2_rep.
-    split > [ (ltac1:(eapply h_handler_morph_pi; exact Hg_first)) | split ].
+    split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hg_first)) | split ].
     reflexivity.
     reflexivity.
     assert (Hpick_proc1' :
@@ -1731,7 +1731,7 @@ Section commute.
     reflexivity.
     unfold exec_proc_morph. cbn. unfold do_io. cbn.
     exists req1_rep.
-    split > [ (ltac1:(eapply h_handler_morph_pi; exact Hf_second)) | split ].
+    split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hf_second)) | split ].
     reflexivity.
     reflexivity.
     assert (Hperm :

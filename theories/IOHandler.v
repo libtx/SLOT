@@ -64,9 +64,9 @@ Section IOHandler.
       h_state : Type;
       h_setoid : Setoid h_state;
 
-      (** [h_handler] is only applied to pids that are valid in the
+      (** [h_perform_io] is only applied to pids that are valid in the
           reference counter collection [rc] of the world it runs in: *)
-      h_handler (pid : Ref) (rc : Fresh.t) (pid_valid : is_valid_pid pid rc)
+      h_perform_io (pid : Ref) (rc : Fresh.t) (pid_valid : is_valid_pid pid rc)
         (req : Request) : MFunRet (Reply req) h_state h_state;
       h_initial : h_state;
 
@@ -99,7 +99,7 @@ Section IOHandler.
           the effects performed from setoid-equal VM states, whose
           reference counters may differ syntactically. *)
 
-      h_handler_rc_covariance :
+      h_perform_io_rc_covariance :
         forall (pid : Ref) (req : Request)
                (rc rc' : Fresh.t)
                (valid : is_valid_pid pid rc)
@@ -107,8 +107,8 @@ Section IOHandler.
           rc == rc' ->
           forall s s' (ret : Reply req * h_state),
             s == s' ->
-            s ~[h_handler pid rc valid req]~> ret ->
-            exists{ret' == ret}, s' ~[h_handler pid rc' valid' req]~> ret';
+            s ~[h_perform_io pid rc valid req]~> ret ->
+            exists{ret' == ret}, s' ~[h_perform_io pid rc' valid' req]~> ret';
 
       h_spawn_rc_covariance :
         forall (pid : Ref) (mb_t : Set)

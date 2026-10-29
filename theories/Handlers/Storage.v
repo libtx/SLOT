@@ -75,7 +75,7 @@ Section storage_handler.
     | delete k => storage_delete k
     end.
 
-  Definition storage_h_handler (pid : Ref) (rc : Fresh.t)
+  Definition storage_h_perform_io (pid : Ref) (rc : Fresh.t)
     (pid_valid : is_valid_pid pid rc) (req : StorageReq) :
     mfun_t (StorageRet req) :=
     storage_mfun req.
@@ -84,12 +84,12 @@ Section storage_handler.
     {|
       h_state := Container;
       h_setoid := container_setoid;
-      h_handler := storage_h_handler;
+      h_perform_io := storage_h_perform_io;
       h_initial := stor.new;
       h_spawn := fun _ _ _ _ => id_mfun;
       h_spawn_commutativity := ltac:(sauto);
       h_terminate := fun _ _ _ _ => id_mfun;
-      h_handler_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_perform_io_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_terminate_commutativity := ltac:(sauto);
