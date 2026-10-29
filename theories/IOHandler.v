@@ -133,13 +133,32 @@ Section IOHandler.
             exists{s2' == s2}, s' ~[h_terminate normal pid rc' valid']~> s2';
 
       (** This property specifies that termination of a process cannot
-          interfere with spawning of any new process.  Note that the
-          two pids are necessarily distinct: one is valid in [rc]
-          while the other is not. *)
-      h_spawn_terminate_commutativity (normal : bool) (pid1 pid2 : Ref)
-        (mb_t : Set) (rc : Fresh.t)
-        (valid1 : is_valid_pid pid1 rc) (fresh2 : is_invalid_pid pid2 rc) :
-        commute (h_terminate normal pid1 rc valid1) (h_spawn pid2 rc fresh2 mb_t);
+          interfere with spawning of any new process.  The two pids
+          must be distinct; the effects themselves do not depend on
+          the choice of the reference-counter collections witnessing
+          validity/freshness (cf. [h_spawn_commutativity]). *)
+      h_spawn_terminate_commutativity :
+        forall (normal : bool) (pid1 pid2 : Ref) (mb_t : Set)
+               (rc1 : Fresh.t) (valid1 : is_valid_pid pid1 rc1)
+               (rc2 : Fresh.t) (fresh2 : is_invalid_pid pid2 rc2),
+          pid1 <> pid2 ->
+          (forall s0 s1 s2,
+             s0 ~[h_terminate normal pid1 rc1 valid1]~> s1 ->
+             s1 ~[h_spawn pid2 rc2 fresh2 mb_t]~> s2 ->
+             forall (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2')
+                    (rc1' : Fresh.t) (valid1' : is_valid_pid pid1 rc1'),
+               exists{s2' == s2}, exists s1',
+                 s0 ~[h_spawn pid2 rc2' fresh2' mb_t]~> s1' /\
+                 s1' ~[h_terminate normal pid1 rc1' valid1']~> s2')
+          /\
+          (forall s0 s1 s2,
+             s0 ~[h_spawn pid2 rc2 fresh2 mb_t]~> s1 ->
+             s1 ~[h_terminate normal pid1 rc1 valid1]~> s2 ->
+             forall (rc1' : Fresh.t) (valid1' : is_valid_pid pid1 rc1')
+                    (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2'),
+               exists{s2' == s2}, exists s1',
+                 s0 ~[h_terminate normal pid1 rc1' valid1']~> s1' /\
+                 s1' ~[h_spawn pid2 rc2' fresh2' mb_t]~> s2');
     }.
 End IOHandler.
 

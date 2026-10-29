@@ -180,36 +180,46 @@ Section defn.
   Qed.
 
   Lemma mailbox_spawn_terminate_commute :
-    forall (normal : bool) (pid1 pid2 : Ref) (mb_t : Set) (rc : Fresh.t)
-           (valid1 : is_valid_pid pid1 rc) (fresh2 : is_invalid_pid pid2 rc),
-      commute (delete_mailbox normal pid1 rc valid1)
-              (mailbox_spawn pid2 rc fresh2 mb_t).
+    forall (normal : bool) (pid1 pid2 : Ref) (mb_t : Set)
+           (rc1 : Fresh.t) (valid1 : is_valid_pid pid1 rc1)
+           (rc2 : Fresh.t) (fresh2 : is_invalid_pid pid2 rc2),
+      pid1 <> pid2 ->
+      (forall s0 s1 s2,
+         s0 ~[delete_mailbox normal pid1 rc1 valid1]~> s1 ->
+         s1 ~[mailbox_spawn pid2 rc2 fresh2 mb_t]~> s2 ->
+         forall (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2')
+                (rc1' : Fresh.t) (valid1' : is_valid_pid pid1 rc1'),
+           exists{s2' == s2}, exists s1',
+             s0 ~[mailbox_spawn pid2 rc2' fresh2' mb_t]~> s1' /\
+             s1' ~[delete_mailbox normal pid1 rc1' valid1']~> s2')
+      /\
+      (forall s0 s1 s2,
+         s0 ~[mailbox_spawn pid2 rc2 fresh2 mb_t]~> s1 ->
+         s1 ~[delete_mailbox normal pid1 rc1 valid1]~> s2 ->
+         forall (rc1' : Fresh.t) (valid1' : is_valid_pid pid1 rc1')
+                (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2'),
+           exists{s2' == s2}, exists s1',
+             s0 ~[delete_mailbox normal pid1 rc1' valid1']~> s1' /\
+             s1' ~[mailbox_spawn pid2 rc2' fresh2' mb_t]~> s2').
   Proof.
-    intros normal pid1 pid2 mb_t rc valid1 fresh2.
-    assert (Hne : pid1 <> pid2)
-      by (apply (Fresh.is_valid_neq_proxy pid1 pid2 rc); assumption).
-    unfold commute, commute_def, exists_equiv.
-    intros s0 s2.
+    intros normal pid1 pid2 mb_t rc1 v1 rc2 f2 Hne.
+    unfold commute_def, exists_equiv.
     split.
-    - (* terminate, then spawn *)
-      intros Hrun.
-      destruct Hrun as [s1 [H1 H2]].
-      rewrite delete_mailbox_morph in H1.
-      unfold mailbox_spawn, pure in H2.
-      cbn in H2.
-      subst.
+    - intros s0 s1 s2 Hd1 Hs1 rc2' f2' rc1' v1'.
+      rewrite delete_mailbox_morph in Hd1.
+      unfold mailbox_spawn, pure in Hs1.
+      cbn in Hs1.
+      subst s1 s2.
       exists (delete pid1 (put pid2 {| mb_t := mb_t; mb_q := empty |} s0)).
       split.
       + exists (put pid2 {| mb_t := mb_t; mb_q := empty |} s0).
         split; reflexivity.
       + symmetry. apply delete_put_comm. exact Hne.
-    - (* spawn, then terminate *)
-      intros Hrun.
-      destruct Hrun as [s1 [H1 H2]].
-      unfold mailbox_spawn, pure in H1.
-      cbn in H1.
-      rewrite delete_mailbox_morph in H2.
-      subst.
+    - intros s0 s1 s2 Hs1 Hd1 rc1' v1' rc2' f2'.
+      unfold mailbox_spawn, pure in Hs1.
+      cbn in Hs1.
+      rewrite delete_mailbox_morph in Hd1.
+      subst s1 s2.
       exists (put pid2 {| mb_t := mb_t; mb_q := empty |} (delete pid1 s0)).
       split.
       + exists (delete pid1 s0).
