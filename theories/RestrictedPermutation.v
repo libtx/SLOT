@@ -76,5 +76,6 @@ Section defn.
   Qed.
 End defn.
 
+Create HintDb slot.
 #[export] Hint Constructors RestrictedPermutation : slot.
 #[export] Hint Resolve perm_refl perm_empty_r perm_empty_l : slot.

@@ -11,8 +11,8 @@ Section defn.
   Context {T : Type}.
 
   Record Queue :=
-    { front :: list T;
-      back :: list T;
+    { front : list T;
+      back : list T;
     }.
 
   Definition empty : Queue :=
@@ -52,10 +52,11 @@ Section defn.
   Global Program Instance queueSetoid : Setoid Queue :=
     { equiv := queue_equiv;
     }.
-  Next Obligation with try sauto unfold:queue_equiv,to_list.
+  Next Obligation.
+    Ltac slv := sauto unfold:queue_equiv,to_list.
     split.
-    - idtac...
-    - idtac...
-    - intros a b c Hab Hbc...
+    - slv.
+    - slv.
+    - intros a b c Hab Hbc. slv.
   Qed.
 End defn.
