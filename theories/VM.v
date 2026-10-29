@@ -1822,7 +1822,7 @@ Section commute.
          counter (rc1' := new_pid_rc). *)
       lazy_match! goal with
       | [ _hd : context [ h_terminate true pid1 ?rc1 ?v1 ],
-          _hs : context [ h_spawn new_pid ?rc2 ?fr ?mb ] |- _ ] =>
+          _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
           destruct (@h_spawn_terminate_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH true pid1 new_pid child_mb_t
@@ -1942,7 +1942,7 @@ Section commute.
          counter for the die and reuses the spawn witness. *)
       lazy_match! goal with
       | [ _hd : context [ h_terminate true pid1 ?rc1 ?v1 ],
-          _hs : context [ h_spawn new_pid ?rc2 ?fr ?mb ] |- _ ] =>
+          _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
           destruct (@h_spawn_terminate_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH true pid1 new_pid child_mb_t
