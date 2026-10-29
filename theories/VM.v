@@ -96,7 +96,7 @@ Section definitions.
   #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
   (* end hide *)
 
-  Definition proc_valid_pid ref_ctr proc := Fresh.is_valid_ref (pid proc) ref_ctr = true.
+  Definition proc_valid_pid ref_ctr proc := is_valid_pid (pid proc) ref_ctr.
 
   (** ** VM
       [VM] record defines state of the entire VM.
@@ -162,9 +162,9 @@ Section definitions.
     }.
 
   Lemma make_keeps_valid_Forall (parent new : Ref) (cc cc' : Fresh.t) l :
-    Forall (fun x => Fresh.is_valid_ref (pid x) cc = true) l ->
+    Forall (fun x => is_valid_pid (pid x) cc) l ->
     Fresh.make parent cc = (new, cc') ->
-    Forall (fun x => Fresh.is_valid_ref (pid x) cc' = true) l.
+    Forall (fun x => is_valid_pid (pid x) cc') l.
   Proof.
     induction l as [|a l]; intros Hl Hcc'.
     - constructor.
@@ -383,7 +383,7 @@ Section definitions.
   (** The world-level effects do not depend on the particular proof of
       pid validity: two such proofs are equal by proof irrelevance. *)
   Lemma h_terminate_morph_pi (pid : Ref) (rc : Fresh.t)
-    (V V' : Fresh.is_valid_ref pid rc = true) (w w' : World) :
+    (V V' : is_valid_pid pid rc) (w w' : World) :
     w ~[h_terminate true pid rc V]~> w' ->
     w ~[h_terminate true pid rc V']~> w'.
   Proof.
@@ -395,7 +395,7 @@ Section definitions.
   Qed.
 
   Lemma h_handler_morph_pi (pid : Ref) (rc : Fresh.t) req
-    (V V' : Fresh.is_valid_ref pid rc = true) (w : World) (ret : Reply req * World) :
+    (V V' : is_valid_pid pid rc) (w : World) (ret : Reply req * World) :
     w ~[h_handler pid rc V req]~> ret ->
     w ~[h_handler pid rc V' req]~> ret.
   Proof.
@@ -417,7 +417,7 @@ Section definitions.
     (new : Ref)
     (rc' : Fresh.t)
     (Heqfresh : Fresh.make parent rc = (new, rc'))
-    (Hnewvalid : Fresh.is_valid_ref new rc' = true) :
+    (Hnewvalid : is_valid_pid new rc') :
     Forall (proc_valid_pid rc') rq.
   Proof.
     induction inv_valid as [|proc l Hproc Hl IH].
@@ -440,8 +440,8 @@ Section definitions.
       (rc rc' : Fresh.t)
       (new : Ref)
       (inv_valid : Forall (proc_valid_pid rc) rq)
-      (parent_valid : Fresh.is_valid_ref parent rc = true)
-      (Hnewvalid : Fresh.is_valid_ref new rc' = true)
+      (parent_valid : is_valid_pid parent rc)
+      (Hnewvalid : is_valid_pid new rc')
       (Heqfresh : Fresh.make parent rc = (new, rc'))
       (inv_valid' : Forall (proc_valid_pid rc') rq) :
       Forall (proc_valid_pid rc')
@@ -458,7 +458,7 @@ Section definitions.
         and add it to the VM too. Does not change the world. *)
     Definition alloc_pid
       (vm : VM)
-      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true) :
+      (parent_valid : is_valid_pid parent (ref_ctr vm)) :
       Ref * VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
@@ -478,8 +478,8 @@ Section definitions.
     Lemma alloc_pid_covariance
       (vm vm' : VM)
       (Hvm' : vm == vm')
-      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm) = true)
-      (parent_valid' : Fresh.is_valid_ref parent (ref_ctr vm') = true) :
+      (parent_valid : is_valid_pid parent (ref_ctr vm))
+      (parent_valid' : is_valid_pid parent (ref_ctr vm')) :
       @equiv _ (pair_setoid' (eq_setoid _) vm_setoid) (alloc_pid vm parent_valid) (alloc_pid vm' parent_valid').
     Proof.
       destruct vm as [w1 rq1 rc1 inv1].
@@ -511,7 +511,7 @@ Section definitions.
         that the terms stay canonical. *)
     Definition do_spawn
       (vm0 vm : VM)
-      (parent_valid : Fresh.is_valid_ref parent (ref_ctr vm0) = true) : Prop :=
+      (parent_valid : is_valid_pid parent (ref_ctr vm0)) : Prop :=
       match Fresh.make_valid parent (ref_ctr vm0) with
       | Fresh.new_valid_ref _ _ new_pid rc' Hnewvalid Hmake =>
           let vm1 :=
@@ -536,7 +536,7 @@ Section definitions.
             vm = vm1<|world := w2|>
       end.
 
-    Let ValidVM : Type := {vm : VM | Fresh.is_valid_ref parent (ref_ctr vm) = true}.
+    Let ValidVM : Type := {vm : VM | is_valid_pid parent (ref_ctr vm)}.
 
     #[refine]
     Definition spawn : MFun ValidVM VM :=
@@ -591,7 +591,7 @@ Section definitions.
 
   Section io.
     Definition do_io (vm1 vm2 : VM) (pd : Ref) (mb_t : Set) req cnt
-      (pd_valid : Fresh.is_valid_ref pd (ref_ctr vm1) = true) : Prop :=
+      (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
       let (w1, rq1, rc1, inv1) := vm1 in
       let (w2, rq2, rc2, inv2) := vm2 in
       exists (rep : Reply req),
@@ -715,9 +715,9 @@ Section definitions.
       + (* spawn *)
         destruct (morphism_covariance
                       (spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont)
-                      (exist (fun vm : VM => Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true)
+                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
                              vm1 (schedule_out_valid_pid vm0 proc vm1 Hvm1))
-                      (exist (fun vm : VM => Fresh.is_valid_ref (pid proc) (ref_ctr vm) = true)
+                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
                              vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1'))
                       vm3
                       Hvm1'vm1 Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
@@ -957,15 +957,15 @@ Section commute.
   Ltac2 simpl_fresh_ref () :=
     unfold proc_valid_pid;
     match! goal with
-    | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?new ?rc = true ] =>
+    | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- is_valid_pid ?new ?rc ] =>
         let h := Control.hyp hnew in
         apply (Fresh.makes_valid_ref $parent $new $rc0 $rc $h)
-    | [ h : Fresh.make ?parent ?rc0 = (?new, ?rc) |- Fresh.is_valid_ref ?pid ?rc = true ] =>
+    | [ h : Fresh.make ?parent ?rc0 = (?new, ?rc) |- is_valid_pid ?pid ?rc ] =>
         apply Fresh.make_keeps_valid with (new := $new) (parent := $parent) (cc := $rc0) > [|assumption]
     end.
 
   (* Solve goal of type
-     [Forall (fun proc : Process => Fresh.is_valid_ref (pid proc) rc = true) rq] *)
+     [Forall (fun proc : Process => is_valid_pid (pid proc) rc) rq] *)
   Ltac2 Notation "simpl_fresh_ref" := simpl_fresh_ref ().
 
   Ltac2 solve_fresh_ref () :=
@@ -987,7 +987,7 @@ Section commute.
   Ltac2 unfold_rc_invarinats () :=
     repeat (
         lazy_match! goal with
-        | [ h : Forall (fun x : Process => Fresh.is_valid_ref (pid x) _ = true) (?a :: ?l)  |- _
+        | [ h : Forall (fun x : Process => is_valid_pid (pid x) _) (?a :: ?l)  |- _
           ] =>
             let h := Control.hyp h in
             let ha := fresh_id (String.app "H_valid_" (maybe_hyp_to_string a "a")) in
@@ -1002,25 +1002,25 @@ Section commute.
     match! goal with
     | [ |- Forall _ [] ] =>
         now constructor
-    | [ |- Fresh.is_valid_ref _ _ = true ] =>
+    | [ |- is_valid_pid _ _ ] =>
         repeat (simpl_fresh_ref); assumption
-    | [ |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) (_ ++ _) ] =>
+    | [ |- Forall (fun x => is_valid_pid (pid x) _) (_ ++ _) ] =>
         apply Forall_app; split; Control.enter solve_rc_invariant2
-    | [ |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) (_ :: _) ] =>
+    | [ |- Forall (fun x => is_valid_pid (pid x) _) (_ :: _) ] =>
         apply Forall_cons; Control.enter solve_rc_invariant2
     | [ hmake : Fresh.make ?parent ?rc1 = (?new, ?rc2)
-        |- Forall (fun x => Fresh.is_valid_ref (pid x) ?rc2 = true) ?l
+        |- Forall (fun x => is_valid_pid (pid x) ?rc2) ?l
       ] =>
         let hmake := Control.hyp hmake in
         refine '(make_keeps_valid_Forall $parent $new $rc1 $rc2 $l _ $hmake);
         Control.enter solve_rc_invariant2
     | [ _ : Pick ?l ?elem ?l'
-        |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) ?l'
+        |- Forall (fun x => is_valid_pid (pid x) _) ?l'
       ] =>
         apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem);
         Control.enter solve_rc_invariant2
     | [ h : Pick ?l ?elem ?l'
-        |- Forall (fun x => Fresh.is_valid_ref (pid x) _ = true) ?l
+        |- Forall (fun x => is_valid_pid (pid x) _) ?l
       ] =>
         apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem) in $h;
         Control.enter solve_rc_invariant2
@@ -1096,8 +1096,8 @@ Section commute.
   Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
-      (fun vm => Fresh.is_valid_ref pid1 (ref_ctr vm) = true /\
-              Fresh.is_valid_ref pid2 (ref_ctr vm) = true)
+      (fun vm => is_valid_pid pid1 (ref_ctr vm) /\
+              is_valid_pid pid2 (ref_ctr vm))
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
   Proof.
@@ -1173,19 +1173,19 @@ Section commute.
     { eapply make_keeps_valid_Forall >
         [ (eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1])
         | exact Hnew_pid1' ]. }
-    assert (INV_pid1_rc3' : Fresh.is_valid_ref pid1 rc3' = true).
+    assert (INV_pid1_rc3' : is_valid_pid pid1 rc3').
     { eapply Fresh.make_keeps_valid >
         [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid1 | exact Hnew_pid1'])
         | exact Hnew_pid2' ]. }
-    assert (INV_pid2_rc3' : Fresh.is_valid_ref pid2 rc3' = true).
+    assert (INV_pid2_rc3' : is_valid_pid pid2 rc3').
     { eapply Fresh.make_keeps_valid >
         [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
         | exact Hnew_pid2' ]. }
-    assert (INV_new0_rc3' : Fresh.is_valid_ref new_pid0 rc3' = true).
+    assert (INV_new0_rc3' : is_valid_pid new_pid0 rc3').
     { eapply Fresh.make_keeps_valid >
         [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
         | exact Hnew_pid2' ]. }
-    assert (INV_new_rc3' : Fresh.is_valid_ref new_pid rc3' = true).
+    assert (INV_new_rc3' : is_valid_pid new_pid rc3').
     { exact (Fresh.makes_valid_ref pid1 new_pid rc2' rc3' Hnew_pid2'). }
     assert (INV_FIN : Forall (proc_valid_pid rc3')
       ({| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
@@ -1313,19 +1313,19 @@ Section commute.
     { eapply make_keeps_valid_Forall >
         [ (eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1])
         | exact Hnew_pid1' ]. }
-    assert (INV_pid1_rc3' : Fresh.is_valid_ref pid1 rc3' = true).
+    assert (INV_pid1_rc3' : is_valid_pid pid1 rc3').
     { eapply Fresh.make_keeps_valid >
         [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid1 | exact Hnew_pid1'])
         | exact Hnew_pid2' ]. }
-    assert (INV_pid2_rc3' : Fresh.is_valid_ref pid2 rc3' = true).
+    assert (INV_pid2_rc3' : is_valid_pid pid2 rc3').
     { eapply Fresh.make_keeps_valid >
         [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
         | exact Hnew_pid2' ]. }
-    assert (INV_new0_rc3' : Fresh.is_valid_ref new_pid0 rc3' = true).
+    assert (INV_new0_rc3' : is_valid_pid new_pid0 rc3').
     { eapply Fresh.make_keeps_valid >
         [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
         | exact Hnew_pid2' ]. }
-    assert (INV_new_rc3' : Fresh.is_valid_ref new_pid rc3' = true).
+    assert (INV_new_rc3' : is_valid_pid new_pid rc3').
     { exact (Fresh.makes_valid_ref pid1 new_pid rc2' rc3' Hnew_pid2'). }
     assert (INV_FIN : Forall (proc_valid_pid rc3')
       ({| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
@@ -1401,8 +1401,8 @@ Section commute.
   (* 2/10 *)
   Lemma die_die_commute {pid1 pid2 mb_t1 mb_t2} :
     pid1 <> pid2 ->
-    (forall rc (v1 : Fresh.is_valid_ref pid1 rc = true)
-               (v2 : Fresh.is_valid_ref pid2 rc = true),
+    (forall rc (v1 : is_valid_pid pid1 rc)
+               (v2 : is_valid_pid pid2 rc),
        commute (h_terminate true pid1 rc v1) (h_terminate true pid2 rc v2)) ->
     ts_event_commute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
@@ -1501,8 +1501,8 @@ Section commute.
   (* 3/10 *)
   Lemma io_io_commute {pid1 pid2 mb_t1 mb_t2 req1 req2 cont1 cont2} :
     pid1 <> pid2 ->
-    (forall rc (v1 : Fresh.is_valid_ref pid1 rc = true)
-               (v2 : Fresh.is_valid_ref pid2 rc = true),
+    (forall rc (v1 : is_valid_pid pid1 rc)
+               (v2 : is_valid_pid pid2 rc),
        commute_ret (h_handler pid1 rc v1 req1) (h_handler pid2 rc v2 req2)) ->
     ts_event_commute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
@@ -1555,7 +1555,7 @@ Section commute.
         | exact INV_RQ2']. }
     assert (INV_RQ3' : Forall (proc_valid_pid vm0_rc) rq3').
     { eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1]. }
-    assert (Hval1 : Fresh.is_valid_ref pid1 vm0_rc = true).
+    assert (Hval1 : is_valid_pid pid1 vm0_rc).
     { exact (pick_forall_elem (proc_valid_pid vm0_rc) vm0_rq
                {| pid := pid1; proc_mb_t := mb_t1; cont := p_io mb_t1 req1 cont1 |} vm0_out_rq
                vm0_pids_valid Hvm0_out_pick). }
@@ -1676,7 +1676,7 @@ Section commute.
         | exact INV_RQ2']. }
     assert (INV_RQ3' : Forall (proc_valid_pid vm0_rc) rq3').
     { eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1]. }
-    assert (Hval1 : Fresh.is_valid_ref pid1 vm0_rc = true).
+    assert (Hval1 : is_valid_pid pid1 vm0_rc).
     { exact (pick_forall_elem (proc_valid_pid vm0_rc) vm0_rq
                {| pid := pid1; proc_mb_t := mb_t1; cont := p_io mb_t1 req1 cont1 |} vm0_out_rq
                vm0_pids_valid Hvm0_out_pick). }
@@ -1752,8 +1752,8 @@ Section commute.
   Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
-      (fun vm => Fresh.is_valid_ref pid1 (ref_ctr vm) = true /\
-              Fresh.is_valid_ref pid2 (ref_ctr vm) = true)
+      (fun vm => is_valid_pid pid1 (ref_ctr vm) /\
+              is_valid_pid pid2 (ref_ctr vm))
       {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
   Proof.

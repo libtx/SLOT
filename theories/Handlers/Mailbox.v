@@ -104,7 +104,7 @@ Section defn.
     end.
 
   Definition delete_mailbox (_normal : bool) (pid : Ref) (_rc : Fresh.t)
-    (_pid_valid : Fresh.is_valid_ref pid _rc = true) : MFun t t.
+    (_pid_valid : is_valid_pid pid _rc) : MFun t t.
     set (f := @delete _ Mailbox _ _ pid).
     refine (pure f _).
     - intros s s' H.
@@ -114,7 +114,7 @@ Section defn.
   Opaque put.
 
   Program Definition mailbox_spawn (pid : Ref) (_rc : Fresh.t)
-    (_pid_fresh : Fresh.is_valid_ref pid _rc = false) (mb_t : Set) : MFun t t :=
+    (_pid_fresh : is_invalid_pid pid _rc) (mb_t : Set) : MFun t t :=
     pure (put pid {| mb_t := mb_t; mb_q := empty |}) _.
   Next Obligation.
     now rewrite H.
@@ -122,14 +122,14 @@ Section defn.
 
   Lemma mailbox_spawn_commute :
     forall pid1 pid2 mb_t1 mb_t2
-           (rc1 : Fresh.t) (fresh1 : Fresh.is_valid_ref pid1 rc1 = false)
-           (rc2 : Fresh.t) (fresh2 : Fresh.is_valid_ref pid2 rc2 = false),
+           (rc1 : Fresh.t) (fresh1 : is_invalid_pid pid1 rc1)
+           (rc2 : Fresh.t) (fresh2 : is_invalid_pid pid2 rc2),
       pid1 <> pid2 ->
       forall s0 s1 s2,
         s0 ~[mailbox_spawn pid1 rc1 fresh1 mb_t1]~> s1 ->
         s1 ~[mailbox_spawn pid2 rc2 fresh2 mb_t2]~> s2 ->
-        forall (rc2' : Fresh.t) (fresh2' : Fresh.is_valid_ref pid2 rc2' = false)
-               (rc1' : Fresh.t) (fresh1' : Fresh.is_valid_ref pid1 rc1' = false),
+        forall (rc2' : Fresh.t) (fresh2' : is_invalid_pid pid2 rc2')
+               (rc1' : Fresh.t) (fresh1' : is_invalid_pid pid1 rc1'),
         exists{s2' == s2}, exists s1',
           s0 ~[mailbox_spawn pid2 rc2' fresh2' mb_t2]~> s1' /\
           s1' ~[mailbox_spawn pid1 rc1' fresh1' mb_t1]~> s2'.
