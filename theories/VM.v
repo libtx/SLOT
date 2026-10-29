@@ -113,7 +113,7 @@ Section definitions.
       and continuation, which is [Program]. *)
   Record Process :=
     mkProcess
-      { pid : Ref;
+      { pid : Pid;
         proc_mb_t : Set;
         cont : @Program proc_mb_t;
       }.
@@ -188,7 +188,7 @@ Section definitions.
       canon_rel_total := vmte_canon_rel_total;
     }.
 
-  Lemma make_keeps_valid_Forall (parent new : Ref) (cc cc' : Fresh.t) l :
+  Lemma make_keeps_valid_Forall (parent new : Pid) (cc cc' : Fresh.t) l :
     Forall (fun x => is_valid_pid (pid x) cc) l ->
     Fresh.make parent cc = (new, cc') ->
     Forall (fun x => is_valid_pid (pid x) cc') l.
@@ -385,7 +385,8 @@ Section definitions.
 
   Lemma lift_w_commute f g :
     commute f g ->
-    commute (lift_w f) (lift_w g).  Proof.
+    commute (lift_w f) (lift_w g).
+  Proof.
     intros Hcommute.
     intros [w1 rq1 rc1] [w3 rq3 rc3];
       split;
@@ -409,7 +410,7 @@ Section definitions.
 
   (** The world-level effects do not depend on the particular proof of
       pid validity: two such proofs are equal by proof irrelevance. *)
-  Lemma h_terminate_morph_pi (pid : Ref) (rc : Fresh.t)
+  Lemma h_terminate_morph_pi (pid : Pid) (rc : Fresh.t)
     (V V' : is_valid_pid pid rc) (w w' : World) :
     w ~[h_terminate true pid rc V]~> w' ->
     w ~[h_terminate true pid rc V']~> w'.
@@ -421,7 +422,7 @@ Section definitions.
     exact H.
   Qed.
 
-  Lemma h_perform_io_morph_pi (pid : Ref) (rc : Fresh.t) req
+  Lemma h_perform_io_morph_pi (pid : Pid) (rc : Fresh.t) req
     (V V' : is_valid_pid pid rc) (w : World) (ret : Reply req * World) :
     w ~[h_perform_io pid rc V req]~> ret ->
     w ~[h_perform_io pid rc V' req]~> ret.
@@ -437,11 +438,11 @@ Section definitions.
 
   (* begin details *)
   Lemma schedule_in_new_inv
-    (parent : Ref)
+    (parent : Pid)
     (rq : list Process)
     (rc : Fresh.t)
     (inv_valid : Forall (proc_valid_pid rc) rq)
-    (new : Ref)
+    (new : Pid)
     (rc' : Fresh.t)
     (Heqfresh : Fresh.make parent rc = (new, rc'))
     (Hnewvalid : is_valid_pid new rc') :
@@ -458,14 +459,14 @@ Section definitions.
   Section spawn.
     Context
       (child_mb_t : Set) (child_cont : Program child_mb_t)
-      (parent : Ref) (parent_mb_t : Set)
+      (parent : Pid) (parent_mb_t : Set)
       (parent_cont : @Address child_mb_t -> Program parent_mb_t).
 
     Lemma do_spawn_keeps_invariniant
       addr
       (rq : list Process)
       (rc rc' : Fresh.t)
-      (new : Ref)
+      (new : Pid)
       (inv_valid : Forall (proc_valid_pid rc) rq)
       (parent_valid : is_valid_pid parent rc)
       (Hnewvalid : is_valid_pid new rc')
@@ -486,7 +487,7 @@ Section definitions.
     Definition alloc_pid
       (vm : VM)
       (parent_valid : is_valid_pid parent (ref_ctr vm)) :
-      Ref * VM.
+      Pid * VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
       destruct (Fresh.make_valid parent rc) as [new rc' Hnewvalid Heqfresh].
@@ -619,7 +620,7 @@ Section definitions.
   End spawn.
 
   Section io.
-    Definition do_io (vm1 vm2 : VM) (pd : Ref) (mb_t : Set) req cnt
+    Definition do_io (vm1 vm2 : VM) (pd : Pid) (mb_t : Set) req cnt
       (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
       let (w1, rq1, rc1, inv1) := vm1 in
       let (w2, rq2, rc2, inv2) := vm2 in

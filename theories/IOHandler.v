@@ -22,11 +22,13 @@ From Hammer Require Import
     morphisms: they respect equality of contexts, so validity of a pid
     can be transported along setoid-equal contexts. *)
 
+Definition Pid := Ref.
+
 Section ctx.
   Class VMContext (T : Type) := {
       ctx_setoid :: Setoid T;
 
-      is_valid_pidb : Ref -> T -> bool;
+      is_valid_pidb : Pid -> T -> bool;
 
       is_valid_pidb_proper :
         forall pid, Proper (equiv ==> eq) (is_valid_pidb pid);
@@ -34,13 +36,13 @@ Section ctx.
 
   Context `{Hctx : VMContext}.
 
-  Definition is_valid_pid (pid : Ref) (ctx : T) : Prop :=
+  Definition is_valid_pid (pid : Pid) (ctx : T) : Prop :=
     is_valid_pidb pid ctx = true.
 
-  Definition is_invalid_pid (pid : Ref) (ctx : T) : Prop :=
+  Definition is_invalid_pid (pid : Pid) (ctx : T) : Prop :=
     is_valid_pidb pid ctx = false.
 
-  Add Parametric Morphism (pid : Ref) : (is_valid_pid pid) with
+  Add Parametric Morphism (pid : Pid) : (is_valid_pid pid) with
     signature equiv ==> iff as is_valid_pid_proper.
   Proof.
     intros ctx ctx' Hequiv.
@@ -51,7 +53,7 @@ Section ctx.
     - now rewrite H'.
   Qed.
 
-  Add Parametric Morphism (pid : Ref) : (is_invalid_pid pid) with
+  Add Parametric Morphism (pid : Pid) : (is_invalid_pid pid) with
     signature equiv ==> iff as is_invalid_pid_proper.
   Proof.
     intros ctx ctx' Hequiv.
@@ -105,17 +107,17 @@ Section IOHandler.
 
       (** [h_perform_io] is only applied to pids that are valid in
           the context [ctx] of the world it runs in: *)
-      h_perform_io (pid : Ref) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx)
+      h_perform_io (pid : Pid) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx)
         (req : Request) : MFunRet (Reply req) h_state h_state;
       h_initial : h_state;
 
       (** [h_spawn] creates a mailbox for a pid that is NOT yet valid
           in [ctx]: [ctx] is the pre-allocation pid collection, and
           the fresh pid becomes valid only after the spawn. *)
-      h_spawn (pid : Ref) (ctx : Ctx) (pid_fresh : is_invalid_pid pid ctx)
+      h_spawn (pid : Pid) (ctx : Ctx) (pid_fresh : is_invalid_pid pid ctx)
         (mailbox_t : Set) : MFun h_state h_state;
 
-      h_spawn_commutativity : forall (pid1 pid2 : Ref) (mb_t1 mb_t2 : Set)
+      h_spawn_commutativity : forall (pid1 pid2 : Pid) (mb_t1 mb_t2 : Set)
                                      (ctx1 : Ctx) (fresh1 : is_invalid_pid pid1 ctx1)
                                      (ctx2 : Ctx) (fresh2 : is_invalid_pid pid2 ctx2),
         pid1 <> pid2 ->
@@ -128,7 +130,7 @@ Section IOHandler.
               s0 ~[h_spawn pid2 ctx2' fresh2' mb_t2]~> s1' /\
               s1' ~[h_spawn pid1 ctx1' fresh1' mb_t1]~> s2';
 
-      h_terminate (normal : bool) (pid : Ref) (ctx : Ctx)
+      h_terminate (normal : bool) (pid : Pid) (ctx : Ctx)
         (pid_valid : is_valid_pid pid ctx) : MFun h_state h_state;
 
       (** The world-level effects must not depend on the choice of the
@@ -138,7 +140,7 @@ Section IOHandler.
           differ syntactically. *)
 
       h_perform_io_ctx_covariance :
-        forall (pid : Ref) (req : Request)
+        forall (pid : Pid) (req : Request)
                (ctx ctx' : Ctx)
                (valid : is_valid_pid pid ctx)
                (valid' : is_valid_pid pid ctx'),
@@ -149,7 +151,7 @@ Section IOHandler.
             exists{ret' == ret}, s' ~[h_perform_io pid ctx' valid' req]~> ret';
 
       h_spawn_ctx_covariance :
-        forall (pid : Ref) (mb_t : Set)
+        forall (pid : Pid) (mb_t : Set)
                (ctx ctx' : Ctx)
                (fresh : is_invalid_pid pid ctx)
                (fresh' : is_invalid_pid pid ctx'),
@@ -160,7 +162,7 @@ Section IOHandler.
             exists{s2' == s2}, s' ~[h_spawn pid ctx' fresh' mb_t]~> s2';
 
       h_terminate_ctx_covariance :
-        forall (normal : bool) (pid : Ref)
+        forall (normal : bool) (pid : Pid)
                (ctx ctx' : Ctx)
                (valid : is_valid_pid pid ctx)
                (valid' : is_valid_pid pid ctx'),
@@ -176,7 +178,7 @@ Section IOHandler.
           the choice of the contexts witnessing validity/freshness
           (cf. [h_spawn_commutativity]). *)
       h_spawn_terminate_commutativity :
-        forall (normal : bool) (pid1 pid2 : Ref) (mb_t : Set)
+        forall (normal : bool) (pid1 pid2 : Pid) (mb_t : Set)
                (ctx1 : Ctx) (valid1 : is_valid_pid pid1 ctx1)
                (ctx2 : Ctx) (fresh2 : is_invalid_pid pid2 ctx2),
           pid1 <> pid2 ->

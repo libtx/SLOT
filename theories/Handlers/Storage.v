@@ -9,8 +9,7 @@ From Stdlib Require Import
 Require Import
   Setoids
   Multifunction
-  IOHandler
-  Ref.
+  IOHandler.
 
 From Hammer Require Import
   Tactics.
@@ -79,7 +78,7 @@ Section storage_handler.
     end.
 
   Definition storage_h_perform_io
-    (pid : Ref) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx) (req : StorageReq) :
+    (pid : Pid) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx) (req : StorageReq) :
     mfun_t (StorageRet req) :=
     storage_mfun req.
 
