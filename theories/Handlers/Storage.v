@@ -76,7 +76,7 @@ Section storage_handler.
     end.
 
   Definition storage_h_handler (pid : Ref) (rc : Fresh.t)
-    (pid_valid : Fresh.is_valid_ref pid rc = true) (req : StorageReq) :
+    (pid_valid : is_valid_pid pid rc) (req : StorageReq) :
     mfun_t (StorageRet req) :=
     storage_mfun req.
 
