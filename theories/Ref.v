@@ -383,6 +383,19 @@ Module Fresh.
     - now rewrite <-Hequiv.
   Qed.
 
+  (** [is_valid_ref] is a morphism w.r.t. [s_eq]: setoid-equal
+      collections return the same verdict for every pid. *)
+  Lemma is_valid_ref_mor ref cc cc' :
+    cc == cc' ->
+    is_valid_ref ref cc = is_valid_ref ref cc'.
+  Proof.
+    unfold is_valid_ref.
+    intros Hequiv.
+    destruct ref.
+    - easy.
+    - now rewrite <-Hequiv.
+  Qed.
+
   Add Parametric Morphism (parent : Ref) :
     (make parent) with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid)) as make_morph.
   Proof.
