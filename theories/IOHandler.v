@@ -22,7 +22,7 @@ From Hammer Require Import
     morphisms: they respect equality of contexts, so validity of a pid
     can be transported along setoid-equal contexts. *)
 
-Definition Pid := Ref.
+Definition Pid : Set := Ref.
 
 Section ctx.
   Class VMContext (T : Type) := {
