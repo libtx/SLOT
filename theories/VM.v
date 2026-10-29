@@ -47,21 +47,18 @@ Defined.
 (** The reference-counter collection is the canonical [VMContext]:
     a pid is valid there iff [Fresh.is_valid_ref] says so.  The proper
     morphism laws follow from [Fresh.is_valid_ref_mor]. *)
-#[export] Instance Fresh_ctx : VMContext Fresh.t :=
+#[export] Program Instance Fresh_ctx : VMContext Fresh.t :=
   {|
-    is_valid_pid := fun pid cc => Fresh.is_valid_ref pid cc = true;
-    is_invalid_pid := fun pid cc => Fresh.is_valid_ref pid cc = false;
-    is_valid_pid_proper := fun pid cc cc' Heq =>
-      conj (fun H => eq_ind _ (fun v => v = true) H _
-                     (Fresh.is_valid_ref_mor pid cc cc' Heq))
-           (fun H => eq_ind _ (fun v => v = true) H _
-                     (eq_sym (Fresh.is_valid_ref_mor pid cc cc' Heq)));
-    is_invalid_pid_proper := fun pid cc cc' Heq =>
-      conj (fun H => eq_ind _ (fun v => v = false) H _
-                     (Fresh.is_valid_ref_mor pid cc cc' Heq))
-           (fun H => eq_ind _ (fun v => v = false) H _
-                     (eq_sym (Fresh.is_valid_ref_mor pid cc cc' Heq)));
+    ctx_setoid := s_eq_setoid;
+    is_valid_pidb := fun pid cc => Fresh.is_valid_ref pid cc;
   |}.
+Next Obligation.
+  intros s s' Hequiv.
+  unfold Fresh.is_valid_ref.
+  destruct pid.
+  - easy.
+  - now rewrite Hequiv.
+Qed.
 
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}

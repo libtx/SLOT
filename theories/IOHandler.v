@@ -21,19 +21,47 @@ From Hammer Require Import
     tests, [is_valid_pid] and [is_invalid_pid], which are proper
     morphisms: they respect equality of contexts, so validity of a pid
     can be transported along setoid-equal contexts. *)
-Class VMContext (T : Type) := {
-    ctx_setoid :: Setoid T;
 
-    is_valid_pid : Ref -> T -> Prop;
+Section ctx.
+  Class VMContext (T : Type) := {
+      ctx_setoid :: Setoid T;
 
-    is_invalid_pid : Ref -> T -> Prop;
+      is_valid_pidb : Ref -> T -> bool;
 
-    is_valid_pid_proper :
-      forall pid, Proper (equiv ==> iff) (is_valid_pid pid);
+      is_valid_pidb_proper :
+        forall pid, Proper (equiv ==> eq) (is_valid_pidb pid);
+    }.
 
-    is_invalid_pid_proper :
-      forall pid, Proper (equiv ==> iff) (is_invalid_pid pid);
-  }.
+  Context `{Hctx : VMContext}.
+
+  Definition is_valid_pid (pid : Ref) (ctx : T) : Prop :=
+    is_valid_pidb pid ctx = true.
+
+  Definition is_invalid_pid (pid : Ref) (ctx : T) : Prop :=
+    is_valid_pidb pid ctx = false.
+
+  Add Parametric Morphism (pid : Ref) : (is_valid_pid pid) with
+    signature equiv ==> iff as is_valid_pid_proper.
+  Proof.
+    intros ctx ctx' Hequiv.
+    unfold is_valid_pid.
+    split; intros H;
+      specialize (is_valid_pidb_proper pid ctx ctx' Hequiv) as H'.
+    - now rewrite <-H'.
+    - now rewrite H'.
+  Qed.
+
+  Add Parametric Morphism (pid : Ref) : (is_invalid_pid pid) with
+    signature equiv ==> iff as is_invalid_pid_proper.
+  Proof.
+    intros ctx ctx' Hequiv.
+    unfold is_invalid_pid.
+    split; intros H;
+      specialize (is_valid_pidb_proper pid ctx ctx' Hequiv) as H'.
+    - now rewrite <-H'.
+    - now rewrite H'.
+  Qed.
+End ctx.
 
 Section mailbox.
   Inductive Message {AppMessage} :=
