@@ -221,7 +221,7 @@ Section defn.
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
-      h_perform_io := fun _ _ _ req => mailbox_step req;
+      h_perform_io _ _ _ req := mailbox_step req;
       h_initial := new;
       h_spawn := mailbox_spawn;
       h_spawn_commutativity := mailbox_spawn_commute;
