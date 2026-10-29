@@ -18,7 +18,10 @@ From Hammer Require Import
 Module EqDec := EquivDec.
 
 Section storage_handler.
-  Context {Key Val Container : Type} `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
+  Context
+    {Ctx : Type} `{Hctx : Context Ctx}
+    {Key Val Container : Type}
+    `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
 
   Let container_setoid := @stor.s_eq_setoid Key Val Container Hstor.
 
@@ -75,13 +78,13 @@ Section storage_handler.
     | delete k => storage_delete k
     end.
 
-  Definition storage_h_perform_io {Ctx : Type} `{Setoid Ctx} `{Context Ctx}
+  Definition storage_h_perform_io
     (pid : Ref) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx) (req : StorageReq) :
     mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Instance storageHandler {Ctx : Type} `{Setoid Ctx} `{Context Ctx} :
-    @IOHandler StorageReq StorageRet Ctx _ _ :=
+  Instance storageHandler :
+    @IOHandler Ctx _ StorageReq StorageRet :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
@@ -97,4 +100,4 @@ Section storage_handler.
     |}.
 End storage_handler.
 
-Global Arguments storageHandler {_ _} {_ _ _} (_ _).
+Global Arguments storageHandler {_ _} (_ _ _).

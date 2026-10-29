@@ -16,7 +16,7 @@ From Hammer Require Import
   Tactics.
 
 Section defn.
-  Context {Ctx : Type} `{Hctxeq : Setoid Ctx} `{Hctx : @Context Ctx Hctxeq}.
+  Context {Ctx : Type} `{Hctx : @Context Ctx}.
 
   (** Handler state *)
   Let t := Ref.FMap.M.t Mailbox.
@@ -229,7 +229,7 @@ Section defn.
       + apply delete_put_comm. exact Hne.
   Qed.
 
-  Instance mailboxHandler : @IOHandler MBReq MBRet Ctx _ _ :=
+  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet:=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;

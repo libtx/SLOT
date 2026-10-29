@@ -63,14 +63,13 @@ Defined.
                      (eq_sym (Fresh.is_valid_ref_mor pid cc cc' Heq)));
   |}.
 
-
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Request Reply Fresh.t Fresh_setoid Fresh_ctx}.
+          `{IOH : @IOHandler Fresh.t _ Request Reply}.
 
-  Let World := @h_state _ _ _ _ _ IOH.
+  Let World := @h_state _ _ _ _ IOH.
 
-  Let Hequiv_w := @h_setoid _ _ _ _ _ IOH.
+  Let Hequiv_w := @h_setoid _ _ _ _ IOH.
 
   (** ** Processes
    *** Programs
@@ -595,7 +594,7 @@ Section definitions.
       simpl in Hvm12. destruct Hvm12 as [Hw12 [Hrc12 Hrq12]].
       destruct Hvm as [w2 Hw2 Hvm2].
       (* Bridge the world-side effect to the other counter collection: *)
-      destruct (@h_spawn_ctx_covariance Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH
+      destruct (@h_spawn_ctx_covariance Fresh.t _ Request Reply IOH
                   new_pid child_mb_t rc0 rc0'
                   (Fresh.make_invalid_ref parent new_pid rc0 rc1 Hmake)
                   (Fresh.make_invalid_ref parent new_pid rc0' rc1' Hmake')
@@ -814,7 +813,7 @@ Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
 
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IO : @IOHandler Request Reply Fresh.t Fresh_setoid Fresh_ctx}.
+          `{IO : @IOHandler Fresh.t _ Request Reply}.
 
   Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
     intros vm1 vm2 H.
@@ -824,7 +823,7 @@ End tests.
 
 Section canned.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Request Reply Fresh.t Fresh_setoid Fresh_ctx}.
+          `{IOH : @IOHandler Fresh.t _ Request Reply}.
 
   Lemma canned_schedule_out_some proc vm0 vm1 :
     Some (proc, vm1) <~[schedule_out]~ vm0 ->
@@ -983,7 +982,7 @@ Notation "'P<' T > A @ C " := {| pid := A; proc_mb_t := T; cont := C |} (at leve
 
 Section commute.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Request Reply Fresh.t Fresh_setoid Fresh_ctx}.
+          `{IOH : @IOHandler Fresh.t _ Request Reply}.
 
   Let req_t := h_request_t IOH.
   Let rep_t := h_reply_t IOH.
@@ -1193,7 +1192,7 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (@h_spawn_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH new_pid new_pid0 child_mb_t1 child_mb_t2
+    destruct (@h_spawn_commutativity Fresh.t _ Request Reply IOH new_pid new_pid0 child_mb_t1 child_mb_t2
                 vm0_rc (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
                 new_pid_rc (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
                 Hnp vm0_w Hvm1_spawn_w Hvm2_spawn_w Hvm1_w Hvm2_w
@@ -1333,7 +1332,7 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (@h_spawn_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH new_pid new_pid0 child_mb_t1 child_mb_t2
+    destruct (@h_spawn_commutativity Fresh.t _ Request Reply IOH new_pid new_pid0 child_mb_t1 child_mb_t2
                 vm0_rc (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
                 new_pid_rc (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
                 Hnp vm0_w Hvm1_spawn_w Hvm2_spawn_w Hvm1_w Hvm2_w
@@ -1825,7 +1824,7 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (@h_spawn_terminate_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH true pid1 new_pid child_mb_t
+          destruct (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH true pid1 new_pid child_mb_t
                       $rc1 $v1 $rc2 $fr Hne) as [Hdir1 Hdir2];
           destruct (Hdir1 vm0_w vm2_w Hvm2_spawn_w $hd $hs
                       vm2_rc (Fresh.make_invalid_ref pid2 new_pid vm2_rc new_pid_rc Hmake_pid)
@@ -1945,7 +1944,7 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (@h_spawn_terminate_commutativity Request Reply Fresh.t Fresh_setoid Fresh_ctx IOH true pid1 new_pid child_mb_t
+          destruct (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH true pid1 new_pid child_mb_t
                       $rc1 $v1 $rc2 $fr Hne) as [Hdir1 Hdir2];
           destruct (Hdir2 vm0_w Hvm1_spawn_w vm4_w $hs $hd
                       vm0_rc Hpid1_valid

@@ -21,7 +21,9 @@ From Hammer Require Import
     tests, [is_valid_pid] and [is_invalid_pid], which are proper
     morphisms: they respect equality of contexts, so validity of a pid
     can be transported along setoid-equal contexts. *)
-Class Context (T : Type) `{Setoid T} := {
+Class Context (T : Type) := {
+    ctx_setoid :: Setoid T;
+
     is_valid_pid : Ref -> T -> Prop;
 
     is_invalid_pid : Ref -> T -> Prop;
@@ -66,8 +68,8 @@ Section mailbox.
 End mailbox.
 
 Section IOHandler.
+  Context {Ctx : Type} `{HCtx : Context Ctx}.
   Context {Request : Type} {Reply : Request -> Type}.
-  Context {Ctx : Type} `{Setoid Ctx} `{Context Ctx}.
 
   Class IOHandler := {
       h_state : Type;
