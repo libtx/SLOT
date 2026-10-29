@@ -103,7 +103,8 @@ Section defn.
     | send to msg => send_ msg to
     end.
 
-  Definition delete_mailbox (_normal : bool) (pid : Ref) : MFun t t.
+  Definition delete_mailbox (_normal : bool) (pid : Ref) (_rc : Fresh.t)
+    (_pid_valid : Fresh.is_valid_ref pid _rc = true) : MFun t t.
     set (f := @delete _ Mailbox _ _ pid).
     refine (pure f _).
     - intros s s' H.
@@ -112,40 +113,50 @@ Section defn.
 
   Opaque put.
 
-  Program Definition mailbox_spawn (pid : Ref) (mb_t : Set) : MFun t t :=
+  Program Definition mailbox_spawn (pid : Ref) (_rc : Fresh.t)
+    (_pid_fresh : Fresh.is_valid_ref pid _rc = false) (mb_t : Set) : MFun t t :=
     pure (put pid {| mb_t := mb_t; mb_q := empty |}) _.
   Next Obligation.
     now rewrite H.
   Qed.
 
   Lemma mailbox_spawn_commute :
-    forall pid1 pid2 mb_t1 mb_t2,
+    forall pid1 pid2 mb_t1 mb_t2
+           (rc1 : Fresh.t) (fresh1 : Fresh.is_valid_ref pid1 rc1 = false)
+           (rc2 : Fresh.t) (fresh2 : Fresh.is_valid_ref pid2 rc2 = false),
       pid1 <> pid2 ->
-      commute (mailbox_spawn pid1 mb_t1) (mailbox_spawn pid2 mb_t2).
+      forall s0 s1 s2,
+        s0 ~[mailbox_spawn pid1 rc1 fresh1 mb_t1]~> s1 ->
+        s1 ~[mailbox_spawn pid2 rc2 fresh2 mb_t2]~> s2 ->
+        forall (rc2' : Fresh.t) (fresh2' : Fresh.is_valid_ref pid2 rc2' = false)
+               (rc1' : Fresh.t) (fresh1' : Fresh.is_valid_ref pid1 rc1' = false),
+        exists{s2' == s2}, exists s1',
+          s0 ~[mailbox_spawn pid2 rc2' fresh2' mb_t2]~> s1' /\
+          s1' ~[mailbox_spawn pid1 rc1' fresh1' mb_t1]~> s2'.
   Proof.
-    intros pid1 pid2 mb_t1 mb_t2 Hpids s0 s2.
-    unfold mailbox_spawn, pure.
-    split; simpl; intros [s1 [Hs1 Hs2]].
-    - exists (put pid1 {| mb_t := mb_t1; mb_q := empty |} (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0)).
-      split.
-      + exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0).
-        sauto.
-      + subst. now apply put_distict_comm.
-    - exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} (put pid1 {| mb_t := mb_t1; mb_q := empty |} s0)).
-      split.
-      + exists (put pid1 {| mb_t := mb_t1; mb_q := empty |} s0).
-        sauto.
-      + subst. now apply put_distict_comm.
+    intros pid1 pid2 mb_t1 mb_t2 rc1 f1 rc2 f2 Hpids s0 s1 s2 H1 H2 rc2' f2' rc1' f1'.
+    unfold mailbox_spawn, pure in *.
+    cbn in H1, H2.
+    subst s1. subst s2.
+    exists (put pid1 {| mb_t := mb_t1; mb_q := empty |}
+              (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0)).
+    split.
+    - exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0).
+      split; reflexivity.
+    - now apply put_distict_comm.
   Qed.
 
   Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
-      h_handler _ req := mailbox_step req;
+      h_handler := fun _ _ _ req => mailbox_step req;
       h_initial := new;
       h_spawn := mailbox_spawn;
       h_spawn_commutativity := mailbox_spawn_commute;
       h_terminate := delete_mailbox;
+      h_handler_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
     |}.
 End defn.
