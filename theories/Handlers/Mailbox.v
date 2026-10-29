@@ -133,28 +133,35 @@ Section defn.
 
   Lemma mailbox_spawn_commute :
     forall pid1 pid2 mb_t1 mb_t2
-           (rc1 : Ctx) (fresh1 : is_invalid_pid pid1 rc1)
-           (rc2 : Ctx) (fresh2 : is_invalid_pid pid2 rc2),
+           (rc1 rc2 rc1' rc2' : Ctx)
+           (fresh1 : is_invalid_pid pid1 rc1)
+           (fresh1' : is_invalid_pid pid1 rc1')
+           (fresh2 : is_invalid_pid pid2 rc2)
+           (fresh2' : is_invalid_pid pid2 rc2'),
       pid1 <> pid2 ->
-      forall s0 s1 s2,
-        s0 ~[mailbox_spawn pid1 rc1 fresh1 mb_t1]~> s1 ->
-        s1 ~[mailbox_spawn pid2 rc2 fresh2 mb_t2]~> s2 ->
-        forall (rc2' : Ctx) (fresh2' : is_invalid_pid pid2 rc2')
-               (rc1' : Ctx) (fresh1' : is_invalid_pid pid1 rc1'),
-        exists{s2' == s2}, exists s1',
-          s0 ~[mailbox_spawn pid2 rc2' fresh2' mb_t2]~> s1' /\
-          s1' ~[mailbox_spawn pid1 rc1' fresh1' mb_t1]~> s2'.
+      quasi_commute (mailbox_spawn pid1 rc1 fresh1 mb_t1) (mailbox_spawn pid2 rc2 fresh2 mb_t2)
+                  (mailbox_spawn pid1 rc1' fresh1' mb_t1) (mailbox_spawn pid2 rc2' fresh2' mb_t2).
   Proof.
-    intros pid1 pid2 mb_t1 mb_t2 rc1 f1 rc2 f2 Hpids s0 s1 s2 H1 H2 rc2' f2' rc1' f1'.
-    unfold mailbox_spawn, pure in *.
-    cbn in H1, H2.
-    subst s1. subst s2.
-    exists (put pid1 {| mb_t := mb_t1; mb_q := empty |}
-              (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0)).
+    intros pid1 pid2 mb_t1 mb_t2 rc1 rc2 rc1' rc2' f1 f1' f2 f2' Hpids s0 s2.
     split.
-    - exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0).
-      split; reflexivity.
-    - now apply put_distict_comm.
+    - intros [s1 [H1 H2]].
+      unfold mailbox_spawn, pure in H1, H2. cbn in H1, H2.
+      subst s1. subst s2.
+      exists (put pid1 {| mb_t := mb_t1; mb_q := empty |}
+                (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0)).
+      split.
+      * exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} s0).
+        split; reflexivity.
+      * now apply put_distict_comm.
+    - intros [s1 [H2 H1]].
+      unfold mailbox_spawn, pure in H1, H2. cbn in H1, H2.
+      subst s1. subst s2.
+      exists (put pid2 {| mb_t := mb_t2; mb_q := empty |}
+                (put pid1 {| mb_t := mb_t1; mb_q := empty |} s0)).
+      split.
+      * exists (put pid1 {| mb_t := mb_t1; mb_q := empty |} s0).
+        split; reflexivity.
+      * apply put_distict_comm. now apply not_eq_sym.
   Qed.
 
   Lemma delete_put_comm (s : t) (v : Mailbox) k1 k2 :
@@ -183,31 +190,19 @@ Section defn.
 
   Lemma mailbox_spawn_terminate_commute :
     forall (normal : bool) (pid1 pid2 : Ref) (mb_t : Set)
-           (rc1 : Ctx) (valid1 : is_valid_pid pid1 rc1)
-           (rc2 : Ctx) (fresh2 : is_invalid_pid pid2 rc2),
+           (rc1 rc2 rc1' rc2' : Ctx)
+           (valid1 : is_valid_pid pid1 rc1)
+           (valid1' : is_valid_pid pid1 rc1')
+           (fresh2 : is_invalid_pid pid2 rc2)
+           (fresh2' : is_invalid_pid pid2 rc2'),
       pid1 <> pid2 ->
-      (forall s0 s1 s2,
-         s0 ~[delete_mailbox normal pid1 rc1 valid1]~> s1 ->
-         s1 ~[mailbox_spawn pid2 rc2 fresh2 mb_t]~> s2 ->
-         forall (rc2' : Ctx) (fresh2' : is_invalid_pid pid2 rc2')
-                (rc1' : Ctx) (valid1' : is_valid_pid pid1 rc1'),
-           exists{s2' == s2}, exists s1',
-             s0 ~[mailbox_spawn pid2 rc2' fresh2' mb_t]~> s1' /\
-             s1' ~[delete_mailbox normal pid1 rc1' valid1']~> s2')
-      /\
-      (forall s0 s1 s2,
-         s0 ~[mailbox_spawn pid2 rc2 fresh2 mb_t]~> s1 ->
-         s1 ~[delete_mailbox normal pid1 rc1 valid1]~> s2 ->
-         forall (rc1' : Ctx) (valid1' : is_valid_pid pid1 rc1')
-                (rc2' : Ctx) (fresh2' : is_invalid_pid pid2 rc2'),
-           exists{s2' == s2}, exists s1',
-             s0 ~[delete_mailbox normal pid1 rc1' valid1']~> s1' /\
-             s1' ~[mailbox_spawn pid2 rc2' fresh2' mb_t]~> s2').
+      quasi_commute (delete_mailbox normal pid1 rc1 valid1) (mailbox_spawn pid2 rc2 fresh2 mb_t)
+                  (delete_mailbox normal pid1 rc1' valid1') (mailbox_spawn pid2 rc2' fresh2' mb_t).
   Proof.
-    intros normal pid1 pid2 mb_t rc1 v1 rc2 f2 Hne.
-    unfold commute_def, exists_equiv.
+    intros normal pid1 pid2 mb_t rc1 rc2 rc1' rc2' v1 v1' f2 f2' Hne s0 s2.
+    unfold quasi_commute_def, exists_equiv.
     split.
-    - intros s0 s1 s2 Hd1 Hs1 rc2' f2' rc1' v1'.
+    - intros [s1 [Hd1 Hs1]].
       rewrite delete_mailbox_morph in Hd1.
       unfold mailbox_spawn, pure in Hs1.
       cbn in Hs1.
@@ -217,7 +212,7 @@ Section defn.
       + exists (put pid2 {| mb_t := mb_t; mb_q := empty |} s0).
         split; reflexivity.
       + symmetry. apply delete_put_comm. exact Hne.
-    - intros s0 s1 s2 Hs1 Hd1 rc1' v1' rc2' f2'.
+    - intros [s1 [Hs1 Hd1]].
       unfold mailbox_spawn, pure in Hs1.
       cbn in Hs1.
       rewrite delete_mailbox_morph in Hd1.

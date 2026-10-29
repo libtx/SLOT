@@ -134,17 +134,14 @@ Section IOHandler.
         (mailbox_t : Set) : MFun h_state h_state;
 
       h_spawn_commutativity : forall (pid1 pid2 : Pid) (mb_t1 mb_t2 : Set)
-                                     (ctx1 : Ctx) (fresh1 : is_invalid_pid pid1 ctx1)
-                                     (ctx2 : Ctx) (fresh2 : is_invalid_pid pid2 ctx2),
+                                     (ctx1 ctx2 ctx1' ctx2' : Ctx)
+                                     (fresh1 : is_invalid_pid pid1 ctx1)
+                                     (fresh1' : is_invalid_pid pid1 ctx1')
+                                     (fresh2 : is_invalid_pid pid2 ctx2)
+                                     (fresh2' : is_invalid_pid pid2 ctx2'),
         pid1 <> pid2 ->
-        forall s0 s1 s2,
-          s0 ~[h_spawn pid1 ctx1 fresh1 mb_t1]~> s1 ->
-          s1 ~[h_spawn pid2 ctx2 fresh2 mb_t2]~> s2 ->
-          forall (ctx2' : Ctx) (fresh2' : is_invalid_pid pid2 ctx2')
-                 (ctx1' : Ctx) (fresh1' : is_invalid_pid pid1 ctx1'),
-            exists{s2' == s2}, exists s1',
-              s0 ~[h_spawn pid2 ctx2' fresh2' mb_t2]~> s1' /\
-              s1' ~[h_spawn pid1 ctx1' fresh1' mb_t1]~> s2';
+        quasi_commute (h_spawn pid1 ctx1 fresh1 mb_t1) (h_spawn pid2 ctx2 fresh2 mb_t2)
+                    (h_spawn pid1 ctx1' fresh1' mb_t1) (h_spawn pid2 ctx2' fresh2' mb_t2);
 
       h_terminate (normal : bool) (pid : Pid) (ctx : Ctx)
         (pid_valid : is_valid_pid pid ctx) : MFun h_state h_state;
@@ -182,26 +179,14 @@ Section IOHandler.
           (cf. [h_spawn_commutativity]). *)
       h_spawn_terminate_commutativity :
         forall (normal : bool) (pid1 pid2 : Pid) (mb_t : Set)
-               (ctx1 : Ctx) (valid1 : is_valid_pid pid1 ctx1)
-               (ctx2 : Ctx) (fresh2 : is_invalid_pid pid2 ctx2),
+               (ctx1 ctx2 ctx1' ctx2' : Ctx)
+               (valid1 : is_valid_pid pid1 ctx1)
+               (valid1' : is_valid_pid pid1 ctx1')
+               (fresh2 : is_invalid_pid pid2 ctx2)
+               (fresh2' : is_invalid_pid pid2 ctx2'),
           pid1 <> pid2 ->
-          (forall s0 s1 s2,
-             s0 ~[h_terminate normal pid1 ctx1 valid1]~> s1 ->
-             s1 ~[h_spawn pid2 ctx2 fresh2 mb_t]~> s2 ->
-             forall (ctx2' : Ctx) (fresh2' : is_invalid_pid pid2 ctx2')
-                    (ctx1' : Ctx) (valid1' : is_valid_pid pid1 ctx1'),
-               exists{s2' == s2}, exists s1',
-                 s0 ~[h_spawn pid2 ctx2' fresh2' mb_t]~> s1' /\
-                 s1' ~[h_terminate normal pid1 ctx1' valid1']~> s2')
-          /\
-          (forall s0 s1 s2,
-             s0 ~[h_spawn pid2 ctx2 fresh2 mb_t]~> s1 ->
-             s1 ~[h_terminate normal pid1 ctx1 valid1]~> s2 ->
-             forall (ctx1' : Ctx) (valid1' : is_valid_pid pid1 ctx1')
-                    (ctx2' : Ctx) (fresh2' : is_invalid_pid pid2 ctx2'),
-               exists{s2' == s2}, exists s1',
-                 s0 ~[h_terminate normal pid1 ctx1' valid1']~> s1' /\
-                 s1' ~[h_spawn pid2 ctx2' fresh2' mb_t]~> s2');
+          quasi_commute (h_terminate normal pid1 ctx1 valid1) (h_spawn pid2 ctx2 fresh2 mb_t)
+                      (h_terminate normal pid1 ctx1' valid1') (h_spawn pid2 ctx2' fresh2' mb_t);
     }.
 End IOHandler.
 

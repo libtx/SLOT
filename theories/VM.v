@@ -1190,12 +1190,15 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (@h_spawn_commutativity Fresh.t _ Request Reply IOH new_pid new_pid0 child_mb_t1 child_mb_t2
-                vm0_rc (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
-                new_pid_rc (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
-                Hnp vm0_w Hvm1_spawn_w Hvm2_spawn_w Hvm1_w Hvm2_w
-                vm0_rc (Fresh.make_invalid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-                rc2' (Fresh.make_invalid_ref pid1 new_pid rc2' rc3' Hnew_pid2'))
+    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH
+                        new_pid new_pid0 child_mb_t1 child_mb_t2
+                        vm0_rc new_pid_rc rc2' vm0_rc
+                        (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
+                        (Fresh.make_invalid_ref pid1 new_pid rc2' rc3' Hnew_pid2')
+                        (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
+                        (Fresh.make_invalid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
+                        Hnp vm0_w Hvm2_spawn_w)
+                  (ex_intro _ Hvm1_spawn_w (conj Hvm1_w Hvm2_w)))
       as [w_fin [[w_mid [Hw_mid1 Hw_mid2]] Hw_fin]].
     (* Invariant proofs for the queues and counters of the swapped run. *)
     assert (INV_RQ2' : Forall (proc_valid_pid vm0_rc) rq2').
@@ -1330,12 +1333,15 @@ Section commute.
     (* Worlds: the two h_spawn effects commute.  The swapped run uses
        the freshness witnesses from [swap_make], which differ from the
        ones of the destructed original run. *)
-    destruct (@h_spawn_commutativity Fresh.t _ Request Reply IOH new_pid new_pid0 child_mb_t1 child_mb_t2
-                vm0_rc (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
-                new_pid_rc (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
-                Hnp vm0_w Hvm1_spawn_w Hvm2_spawn_w Hvm1_w Hvm2_w
-                vm0_rc (Fresh.make_invalid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-                rc2' (Fresh.make_invalid_ref pid1 new_pid rc2' rc3' Hnew_pid2'))
+    destruct (proj1 (@h_spawn_commutativity Fresh.t _ Request Reply IOH
+                        new_pid new_pid0 child_mb_t1 child_mb_t2
+                        vm0_rc new_pid_rc rc2' vm0_rc
+                        (Fresh.make_invalid_ref pid1 new_pid vm0_rc new_pid_rc Hmake_pid)
+                        (Fresh.make_invalid_ref pid1 new_pid rc2' rc3' Hnew_pid2')
+                        (Fresh.make_invalid_ref pid2 new_pid0 new_pid_rc new_pid_rc0 Hmake_pid0)
+                        (Fresh.make_invalid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
+                        Hnp vm0_w Hvm2_spawn_w)
+                  (ex_intro _ Hvm1_spawn_w (conj Hvm1_w Hvm2_w)))
       as [w_fin [[w_mid [Hw_mid1 Hw_mid2]] Hw_fin]].
     (* Invariant proofs for the queues and counters of the swapped run. *)
     assert (INV_RQ2' : Forall (proc_valid_pid vm0_rc) rq2').
@@ -1822,13 +1828,16 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH true pid1 new_pid child_mb_t
-                      $rc1 $v1 $rc2 $fr Hne) as [Hdir1 Hdir2];
-          destruct (Hdir1 vm0_w vm2_w Hvm2_spawn_w $hd $hs
-                      vm2_rc (Fresh.make_invalid_ref pid2 new_pid vm2_rc new_pid_rc Hmake_pid)
-                      new_pid_rc
-                      (Fresh.make_keeps_valid pid2 pid1 new_pid vm2_rc new_pid_rc
-                         Hpid1_valid Hmake_pid))
+          destruct (proj1 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH
+                              true pid1 new_pid child_mb_t
+                              $rc1 $rc2 new_pid_rc vm2_rc
+                              $v1
+                              (Fresh.make_keeps_valid pid2 pid1 new_pid vm2_rc new_pid_rc
+                                 Hpid1_valid Hmake_pid)
+                              $fr
+                              (Fresh.make_invalid_ref pid2 new_pid vm2_rc new_pid_rc Hmake_pid)
+                              Hne vm0_w Hvm2_spawn_w)
+                        (ex_intro _ vm2_w (conj $hd $hs)))
             as [w_fin [[w_mid [Hw_mid1 Hw_mid2]] Hw_fin]]
       end.
       (* Invariants *)
@@ -1942,11 +1951,13 @@ Section commute.
           _hs : context [ h_spawn new_pid ?rc2 ?fr ?_mb ] |- _ ] =>
           let hd := Control.hyp _hd in
           let hs := Control.hyp _hs in
-          destruct (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH true pid1 new_pid child_mb_t
-                      $rc1 $v1 $rc2 $fr Hne) as [Hdir1 Hdir2];
-          destruct (Hdir2 vm0_w Hvm1_spawn_w vm4_w $hs $hd
-                      vm0_rc Hpid1_valid
-                      vm0_rc (Fresh.make_invalid_ref pid2 new_pid vm0_rc vm4_rc Hmake_pid))
+          destruct (proj2 (@h_spawn_terminate_commutativity Fresh.t _ Request Reply IOH
+                              true pid1 new_pid child_mb_t
+                              $rc1 $rc2 vm0_rc vm0_rc
+                              $v1 Hpid1_valid
+                              $fr (Fresh.make_invalid_ref pid2 new_pid vm0_rc vm4_rc Hmake_pid)
+                              Hne vm0_w vm4_w)
+                        (ex_intro _ Hvm1_spawn_w (conj $hs $hd)))
             as [w_fin [[w_mid [Hterm_mid Hspawn_mid]] Hw_fin]]
       end.
       (* Invariants *)
