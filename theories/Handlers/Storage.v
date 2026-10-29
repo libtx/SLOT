@@ -75,12 +75,13 @@ Section storage_handler.
     | delete k => storage_delete k
     end.
 
-  Definition storage_h_perform_io (pid : Ref) (rc : Fresh.t)
-    (pid_valid : is_valid_pid pid rc) (req : StorageReq) :
+  Definition storage_h_perform_io {Ctx : Type} `{Setoid Ctx} `{Context Ctx}
+    (pid : Ref) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx) (req : StorageReq) :
     mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Instance storageHandler : @IOHandler StorageReq StorageRet :=
+  Instance storageHandler {Ctx : Type} `{Setoid Ctx} `{Context Ctx} :
+    @IOHandler StorageReq StorageRet Ctx _ _ :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
@@ -89,11 +90,11 @@ Section storage_handler.
       h_spawn := fun _ _ _ _ => id_mfun;
       h_spawn_commutativity := ltac:(sauto);
       h_terminate := fun _ _ _ _ => id_mfun;
-      h_perform_io_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_perform_io_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_spawn_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
+      h_terminate_ctx_covariance := ltac:(intros; eapply morphism_covariance; eauto);
       h_spawn_terminate_commutativity := ltac:(sauto);
     |}.
 End storage_handler.
 
-Global Arguments storageHandler (_ _) {_} (_).
+Global Arguments storageHandler {_ _} {_ _ _} (_ _).
