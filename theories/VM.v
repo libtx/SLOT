@@ -630,14 +630,49 @@ Section definitions.
           rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
   End io.
 
+  Section die.
+    Context (pd : Pid).
+
+    Definition do_die (vm1 vm2 : VM)
+      (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
+      vm1 ~[lift_w (h_terminate true pd (ref_ctr vm1) pd_valid)]~> vm2.
+
+    Let ValidDieVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
+
+    Program Definition terminate : MFun ValidDieVM VM :=
+      {| morphism (vm1 : ValidDieVM) (vm2 : VM) :=
+          let (vm0, Hpd_valid) := vm1 in
+          do_die vm0 vm2 Hpd_valid
+      |}.
+    Next Obligation.
+      destruct x as [vm1 Hvalid]. destruct x' as [vm1' Hvalid'].
+      destruct vm1 as [w1 rq1 rc1 inv1].
+      destruct vm1' as [w1' rq1' rc1' inv1'].
+      destruct y as [w2 rq2 rc2 inv2].
+      cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
+      cbn in H0. destruct H0 as [Hterm [Hrq13 Hrc13]].
+      cbn in Hterm.
+      destruct (h_terminate_ctx_covariance true pd
+                  (existT _ rc1 Hvalid)
+                  (existT _ rc1' Hvalid')
+                  Hrc1 w1 w1' w2 Hw1 Hterm)
+        as [w2' [Hterm' Hw2'w2]].
+      exists {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}.
+      split.
+      - cbn. split; [exact Hterm' | split; reflexivity].
+      - cbn. split; [exact Hw2'w2 | split].
+        + rewrite <- Hrc13. exact Hrc1.
+        + rewrite <- Hrq13. exact Hrq1.
+    Qed.
+  End die.
+
   #[refine]
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop :=
     let pid := pid proc in
     let proc_mb_t := proc_mb_t proc in
     match cont proc with
     | die _ =>
-        let world_morph := h_terminate true pid (ref_ctr vm1) (schedule_out_valid_pid vm0 proc vm1 Hproc) in
-        vm1 ~[lift_w world_morph]~> vm2
+        _ ~[terminate pid]~> vm2
     | p_io _ req cont =>
         do_io vm1 vm2 pid proc_mb_t req cont (schedule_out_valid_pid vm0 proc vm1 Hproc)
     | @p_spawn _ child_mb_t child_cont parent_cont =>
@@ -646,8 +681,7 @@ Section definitions.
         False
     end.
   Proof.
-    exists vm1.
-    now apply (schedule_out_valid_pid vm0 proc vm1).
+    all: (exists vm1; now apply (schedule_out_valid_pid vm0 proc vm1)).
   Defined.
 
   Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
@@ -915,6 +949,10 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   | do_io _ _ _ _ ?req _ _ =>
       let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
       destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
+  | do_die _ _ _ _ =>
+      unfold do_die in $id;
+      cbn in $id;
+      unfold_exec_proc_morph id
   | _ /\ _ /\ _ =>
       destruct $new_hyp as [$hworld [$hrq $hrc]]
   | @morphism _ _ _ _ (spawn _ _ _ _ _) _ _ =>
