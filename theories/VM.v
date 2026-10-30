@@ -74,7 +74,7 @@ Section definitions.
    *)
   CoInductive Program (Mailbox : Set) : Type :=
   (** Program termintes: *)
-  | die :
+  | exit :
     Program Mailbox
   (** Program is doing I/O: *)
   | p_io :
@@ -695,19 +695,19 @@ Section definitions.
                (is_valid_pid_proper_vm pd) perform_io.
   End io.
 
-  Section die.
+  Section exit.
     Context (pd : Pid).
 
-    Definition do_die (vm1 vm2 : VM)
+    Definition do_exit (vm1 vm2 : VM)
       (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
       vm1 ~[lift_w (h_terminate true pd (ref_ctr vm1) pd_valid)]~> vm2.
 
-    Let ValidDieVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
+    Let ValidExitVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
 
-    Program Definition terminate : MFun ValidDieVM VM :=
-      {| morphism (vm1 : ValidDieVM) (vm2 : VM) :=
+    Program Definition terminate : MFun ValidExitVM VM :=
+      {| morphism (vm1 : ValidExitVM) (vm2 : VM) :=
           let (vm0, Hpd_valid) := vm1 in
-          do_die vm0 vm2 Hpd_valid
+          do_exit vm0 vm2 Hpd_valid
       |}.
     Next Obligation.
       destruct x as [vm1 Hvalid]. destruct x' as [vm1' Hvalid'].
@@ -735,14 +735,14 @@ Section definitions.
     Definition terminate_vm : MFun VM VM :=
       totalize (fun vm => is_valid_pid pd (ref_ctr vm))
                (is_valid_pid_proper_vm pd) terminate.
-  End die.
+  End exit.
 
   #[refine]
   Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop :=
     let pid := pid proc in
     let proc_mb_t := proc_mb_t proc in
     match cont proc with
-    | die _ =>
+    | exit _ =>
         _ ~[terminate pid]~> vm2
     | p_io _ req cont =>
         _ ~[perform_io pid proc_mb_t req cont]~> vm2
@@ -791,7 +791,7 @@ Section definitions.
       unfold exec_proc_morph in Hvm2.
       remember (cont proc) as cont_.
       destruct cont_ as [ | |child_mb_t child_cont cont |].
-      + (* die *)
+      + (* exit *)
         destruct vm1 as [w1 rq1 rc1 inv1].
         destruct vm1' as [w1' rq1' rc1' inv1'].
         destruct vm3 as [w3 rq3 rc3 inv3].
@@ -877,12 +877,12 @@ End definitions.
     and no re-parameterized (quasi) version is needed.  Consequently
     the class is tied to the concrete context [Fresh.t] of the VM. *)
 
-Class IOHandler
-  {Request : Type} {Reply : Request -> Type}
-  (Basics : @IOHandler_basics Fresh.t Fresh_ctx Request Reply) := {
+Class IOHandler {Request : Type} {Reply : Request -> Type}
+                (Basics : @IOHandler_basics Fresh.t Fresh_ctx Request Reply) :=
+  {
       (** Spawning children of two distinct pids commutes. *)
       h_spawn_commutativity :
-        forall (child_mb_t1 : Set) (child1 : Program child_mb_t1)
+          forall (child_mb_t1 : Set) (child1 : Program child_mb_t1)
                (mb_t1 : Set) (cont1 : @Address child_mb_t1 -> Program mb_t1)
                (child_mb_t2 : Set) (child2 : Program child_mb_t2)
                (mb_t2 : Set) (cont2 : @Address child_mb_t2 -> Program mb_t2)
@@ -1003,7 +1003,7 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       (* The totalized [terminate_vm] reads the validity witness from
          the state; recover the restricted [terminate] run. *)
       unfold terminate_vm, totalize in $id;
-      destruct $new_hyp as [_vt_die $id];
+      destruct $new_hyp as [_vt_exit $id];
       unfold_exec_proc_morph id
   | @morphism _ _ _ _ (perform_io_vm _ _ _ _) _ _ =>
       unfold perform_io_vm, totalize in $id;
@@ -1024,8 +1024,8 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   | do_io _ _ ?req _ _ _ _ =>
       let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
       destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
-  | do_die _ _ _ _ =>
-      unfold do_die in $id;
+  | do_exit _ _ _ _ =>
+      unfold do_exit in $id;
       cbn in $id;
       unfold_exec_proc_morph id
   | _ /\ _ /\ _ =>
@@ -1303,7 +1303,8 @@ Section commute.
                   (@child_mb_t1, @child_mb_t2); (@child_mb_t2, @child_mb_t1)]
     ];
     intros [vm2 [Hvm1 Hvm2]].
-    (* vm0 --spawn@pid1--> vm2 --spawn@pid2--> vm4; rebuild the run in the swapped order *)  - unfold_vm_step_morph Hvm1.
+    (* vm0 --spawn@pid1--> vm2 --spawn@pid2--> vm4; rebuild the run in the swapped order *)
+    - unfold_vm_step_morph Hvm1.
     simpl in Hvm2.
     unfold_vm_step_morph Hvm2.
     injection Hvm1_eq_vm as E1 E2 E3.
@@ -1328,8 +1329,7 @@ Section commute.
     destruct (pick_cons HHvm2_out_pick Hne_parent1) as [rq_a [Heq_a Hpick_a]].
     subst Hvm2_out_rq.
     assert (Hnew_pid_neq : new_pid <> pid2).
-    { exact (Fresh.make_valid_not_equal pid1 pid2 new_pid vm0_rc new_pid_rc
-               Hvalid_pid2 Hmake_pid). }
+    { exact (Fresh.make_valid_not_equal pid1 pid2 new_pid vm0_rc new_pid_rc Hvalid_pid2 Hmake_pid). }
     assert (Hne_child1 :
       {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
       <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
@@ -1349,13 +1349,13 @@ Section commute.
        The swapped run returned by the law carries the counter
        coincidence facts established by [swap_make]. *)
     ltac1:(pose proof vm2_pids_valid as HI2).
-    ltac1:(inversion HI2 as [|? ? HI_p1 HI2r]).
-    ltac1:(inversion HI2r as [|? ? HI_c1 _]).
+    inversion HI2 as [|? ? HI_p1 HI2r].
+    inversion HI2r as [|? ? HI_c1 _].
     ltac1:(pose proof vm4_pids_valid as HI4).
-    ltac1:(inversion HI4 as [|? ? HI_p2s HI4r]).
-    ltac1:(inversion HI4r as [|? ? HI_c2s HI4r2]).
-    ltac1:(inversion HI4r2 as [|? ? HI_p1s HI4r3]).
-    ltac1:(inversion HI4r3 as [|? ? HI_c1s _]).
+    inversion HI4 as [|? ? HI_p2s HI4r].
+    inversion HI4r as [|? ? HI_c2s HI4r2].
+    inversion HI4r2 as [|? ? HI_p1s HI4r3].
+    inversion HI4r3 as [|? ? HI_c1s _].
     assert (Hleg1 :
       @morphism _ _ _ _
         (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
@@ -1597,13 +1597,13 @@ Section commute.
        The swapped run returned by the law carries the counter
        coincidence facts established by [swap_make]. *)
     ltac1:(pose proof vm2_pids_valid as HI2).
-    ltac1:(inversion HI2 as [|? ? HI_p1 HI2r]).
-    ltac1:(inversion HI2r as [|? ? HI_c1 _]).
+    inversion HI2 as [|? ? HI_p1 HI2r].
+    inversion HI2r as [|? ? HI_c1 _].
     ltac1:(pose proof vm4_pids_valid as HI4).
-    ltac1:(inversion HI4 as [|? ? HI_p2s HI4r]).
-    ltac1:(inversion HI4r as [|? ? HI_c2s HI4r2]).
-    ltac1:(inversion HI4r2 as [|? ? HI_p1s HI4r3]).
-    ltac1:(inversion HI4r3 as [|? ? HI_c1s _]).
+    inversion HI4 as [|? ? HI_p2s HI4r].
+    inversion HI4r as [|? ? HI_c2s HI4r2].
+    inversion HI4r2 as [|? ? HI_p1s HI4r3].
+    inversion HI4r3 as [|? ? HI_c1s _].
     assert (Hleg1 :
       @morphism _ _ _ _
         (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
@@ -1801,14 +1801,14 @@ Section commute.
   Qed.
 
   (* 2/10 *)
-  Lemma die_die_commute {pid1 pid2 mb_t1 mb_t2} :
+  Lemma exit_exit_commute {pid1 pid2 mb_t1 mb_t2} :
     pid1 <> pid2 ->
     (forall rc (v1 : is_valid_pid pid1 rc)
                (v2 : is_valid_pid pid2 rc),
        commute (h_terminate true pid1 rc v1) (h_terminate true pid2 rc v2)) ->
     ts_event_commute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @die req_t rep_t mb_t2 |}.
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
+      {| pid := pid2; proc_mb_t := mb_t2; cont := @exit req_t rep_t mb_t2 |}.
   Proof.
     intros Hpids Hw_comm vm0 vm2.
     split; intros [vm1 [Hvm1 Hvm2]].
@@ -2151,18 +2151,18 @@ Section commute.
   Qed.
 
   (* 4/10 *)
-  Lemma die_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
+  Lemma exit_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     pid1 <> pid2 ->
     ts_event_commute_ctx
       (fun vm => is_valid_pid pid1 (ref_ctr vm) /\
               is_valid_pid pid2 (ref_ctr vm))
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @die req_t rep_t mb_t1 |}
+      {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
   Proof.
     intros Hpid12 vm0 vm4 [Hpid1_valid Hpid2_valid].
     unfold ts_event_commute_ctx, commute_ctx, commute_def, exists_equiv.
     split; intros [vm2 [Hvm1 Hvm2]].
-    - (* die -> spawn *)
+    - (* exit -> spawn *)
       unfold_vm_step_morph Hvm1.
       simpl in Hvm2.
       unfold_vm_step_morph Hvm2.
@@ -2185,7 +2185,7 @@ Section commute.
       { apply not_eq_sym.
         exact (Fresh.make_valid_not_equal pid2 pid1 new_pid vm2_rc new_pid_rc
                  Hpid1_valid Hmake_pid). }
-      (* The die and the spawn commute at the level of the VM's own
+      (* The exit and the spawn commute at the level of the VM's own
          operations: the law is applied to a synthetic two-step run
          with an empty run queue, reusing the allocation equation and
          the world effects of the destructed run. *)
@@ -2200,7 +2200,7 @@ Section commute.
              inv_valid_pids := Forall_nil (proc_valid_pid vm2_rc) |}).
       { unfold terminate_vm, totalize. cbn.
         exists Hpid1_valid.
-        unfold terminate. cbn. unfold do_die. cbn.
+        unfold terminate. cbn. unfold do_exit. cbn.
         split.
         - ltac1:(eapply h_terminate_morph_pi; eassumption).
         - split > [reflexivity | reflexivity]. }
@@ -2259,7 +2259,7 @@ Section commute.
       unfold terminate_vm, totalize in HsT. cbn in HsT.
       destruct HsT as [_v1s HsT].
       unfold terminate in HsT. cbn in HsT.
-      unfold do_die in HsT. cbn in HsT.
+      unfold do_exit in HsT. cbn in HsT.
       destruct HsT as [Hterm_mid [Hrq_eq Hrc_eq]].
       subst rq_fin. subst rc_fin.
       cbn in Heq_vm_c'.
@@ -2288,11 +2288,11 @@ Section commute.
       assert (Hpick_proc1' :
         Pick ({| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
               :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |} :: rq2')
-             {| pid := pid1; proc_mb_t := mb_t1; cont := die mb_t1 |}
+             {| pid := pid1; proc_mb_t := mb_t1; cont := exit mb_t1 |}
              ({| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
               :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |} :: rq3')).
       { apply pick_cons_rev. apply pick_cons_rev. exact Hpick_proc1. }
-      (* Build the swapped run: spawn first, then die *)
+      (* Build the swapped run: spawn first, then exit *)
       exists {| world := w_fin;
                runq := {| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
                         :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |} :: rq3';
@@ -2314,7 +2314,7 @@ Section commute.
           exists w_mid.
           exact Hw_mid1.
           f_equal. apply ProofIrrelevance.proof_irrelevance.
-        * (* die *)
+        * (* exit *)
           simpl.
           vm_step_some {| world := w_mid;
                           runq := {| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
@@ -2328,7 +2328,7 @@ Section commute.
       + split > [exact Hw_fin |
                  split > [reflexivity
                          | (repeat (apply perm_skip); apply Permutation_sym; exact Hrq3'equiv) ]].
-    - (* spawn -> die *)
+    - (* spawn -> exit *)
       unfold_vm_step_morph Hvm1.
       simpl in Hvm2.
       unfold_vm_step_morph Hvm2.
@@ -2343,18 +2343,18 @@ Section commute.
       subst vm0_out_rc.
       subst Hvm2_out_rc.
       subst.
-      (* The process scheduled out second (die) cannot be among the
+      (* The process scheduled out second (exit) cannot be among the
          processes added to the queue by the first spawn (their pids differ): *)
       assert (Hne_parent :
         {| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
-        <> {| pid := pid1; proc_mb_t := mb_t1; cont := die mb_t1 |}).
+        <> {| pid := pid1; proc_mb_t := mb_t1; cont := exit mb_t1 |}).
       { intros Heq. injection Heq as Hpid_eq Hmb Hcnt.
         apply not_eq_sym in Hpid12. now apply Hpid12. }
       destruct (pick_cons HHvm2_out_pick Hne_parent) as [rq_a [Heq_a Hpick_a]].
       subst vm4_rq.
       assert (Hne_child :
         {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
-        <> {| pid := pid1; proc_mb_t := mb_t1; cont := die mb_t1 |}).
+        <> {| pid := pid1; proc_mb_t := mb_t1; cont := exit mb_t1 |}).
       { intros Heq. injection Heq as Hpid_eq Hmb Hcnt.
         exact (Fresh.make_valid_not_equal pid2 pid1 new_pid vm0_rc vm4_rc
                  Hpid1_valid Hmake_pid Hpid_eq). }
@@ -2415,7 +2415,7 @@ Section commute.
                Forall_cons _ HI_p2s (Forall_cons _ HI_c2s (Forall_nil _)) |}).
       { unfold terminate_vm, totalize. cbn.
         exists Hv1.
-        unfold terminate. cbn. unfold do_die. cbn.
+        unfold terminate. cbn. unfold do_exit. cbn.
         split.
         - ltac1:(eapply h_terminate_morph_pi; eassumption).
         - split > [reflexivity | reflexivity]. }
@@ -2452,7 +2452,7 @@ Section commute.
       unfold terminate_vm, totalize in HsT. cbn in HsT.
       destruct HsT as [_v1s HsT].
       unfold terminate in HsT. cbn in HsT.
-      unfold do_die in HsT. cbn in HsT.
+      unfold do_exit in HsT. cbn in HsT.
       destruct HsT as [Hterm_mid [Hrq_mid Hrc_mid]].
       subst rq_mid. subst rc_mid.
       (* then spawns, also from the initial counter *)
@@ -2478,7 +2478,7 @@ Section commute.
           | (constructor >
               [ exact (Fresh.makes_valid_ref pid2 new_pid vm0_rc vm4_rc Hmake_pid)
               | (eapply make_keeps_valid_Forall > [exact INV_RQ3' | exact Hmake_pid]) ]) ]. }
-      (* Build the swapped run: die first, then spawn *)
+      (* Build the swapped run: exit first, then spawn *)
       exists {| world := w_fin;
                runq := {| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
                         :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |} :: rq3';
@@ -2488,7 +2488,7 @@ Section commute.
       + exists {| world := w_mid; runq := rq2'; ref_ctr := vm0_rc;
                   inv_valid_pids := INV_RQ2' |}.
         split.
-        * (* die *)
+        * (* exit *)
           simpl.
           vm_step_some {| world := vm0_w; runq := rq2'; ref_ctr := vm0_rc;
                           inv_valid_pids := INV_RQ2' |}.
