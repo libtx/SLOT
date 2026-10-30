@@ -620,7 +620,11 @@ Section definitions.
   End spawn.
 
   Section io.
-    Definition do_io (vm1 vm2 : VM) (pd : Pid) (mb_t : Set) req cnt
+    Context
+      (pd : Pid) (mb_t : Set) (req : Request)
+      (cnt : Reply req -> Program mb_t).
+
+    Definition do_io (vm1 vm2 : VM)
       (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
       let (w1, rq1, rc1, inv1) := vm1 in
       let (w2, rq2, rc2, inv2) := vm2 in
@@ -628,6 +632,43 @@ Section definitions.
         w1 ~[h_perform_io pd (ref_ctr vm1) pd_valid req]~> (rep, w2) /\
           rc2 = rc1 /\
           rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
+
+    Let ValidIOVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
+
+    Program Definition perform_io : MFun ValidIOVM VM :=
+      {| morphism (vm1 : ValidIOVM) (vm2 : VM) :=
+          let (vm0, Hpd_valid) := vm1 in
+          do_io vm0 vm2 Hpd_valid
+      |}.
+    Next Obligation.
+      destruct x as [vm1 Hvalid]. destruct x' as [vm1' Hvalid'].
+      destruct vm1 as [w1 rq1 rc1 inv1].
+      destruct vm1' as [w1' rq1' rc1' inv1'].
+      destruct y as [w2 rq2 rc2 inv2].
+      cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
+      cbn in H0. destruct H0 as [rep [Hhandler [Hrc13 Hrq13]]].
+      cbn in Hhandler.
+      destruct (h_perform_io_ctx_covariance pd req
+                  (existT _ rc1 Hvalid)
+                  (existT _ rc1' Hvalid')
+                  Hrc1 w1 w1' (rep, w2) Hw1 Hhandler)
+        as [[rep' w2'] [Hhandler' Hret'eq]].
+      destruct Hret'eq as [Hrep' Hw2'w2].
+      assert (E : rep = rep') by exact Hrep'.
+      subst rep'.
+      assert (inv' : Forall (proc_valid_pid rc1')
+                ({| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1')).
+      { constructor; [exact Hvalid' | exact inv1']. }
+      exists {| world := w2';
+               runq := {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1';
+               ref_ctr := rc1';
+               inv_valid_pids := inv' |}.
+      split.
+      - cbn. exists rep. split; [exact Hhandler' | split; reflexivity].
+      - cbn. split; [exact Hw2'w2 | split].
+        + rewrite Hrc13. exact Hrc1.
+        + rewrite Hrq13. apply perm_skip. exact Hrq1.
+    Qed.
   End io.
 
   Section die.
@@ -674,7 +715,7 @@ Section definitions.
     | die _ =>
         _ ~[terminate pid]~> vm2
     | p_io _ req cont =>
-        do_io vm1 vm2 pid proc_mb_t req cont (schedule_out_valid_pid vm0 proc vm1 Hproc)
+        _ ~[perform_io pid proc_mb_t req cont]~> vm2
     | @p_spawn _ child_mb_t child_cont parent_cont =>
         _ ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
     | _ =>
@@ -741,40 +782,19 @@ Section definitions.
            now split; [exact Hterm'|].
         * sauto.
       + (* io *)
-        unfold do_io in Hvm2.
-        destruct vm1 as [w1 rq1 rc1 inv1].
-        destruct vm1' as [w1' rq1' rc1' inv1'].
-        destruct vm3 as [w3 rq3 rc3 inv3].
-        cbn in Hvm1'vm1. destruct Hvm1'vm1 as [Hw1 [Hrc1 Hrq1]].
-        destruct Hvm2 as [rep [Hhandler [Hrq3 Hrc3]]].
-        cbn in Hhandler.
-        destruct (h_perform_io_ctx_covariance (pid proc) pending_req
-                    (existT _ rc1 (schedule_out_valid_pid vm0 proc
-                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1))
-                    (existT _ rc1' (schedule_out_valid_pid vm0' proc
-                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1'))
-                    Hrc1 w1 w1' (rep, w3) Hw1 Hhandler)
-          as [[rep' w3'] [Hhandler' Hret'eq]].
-        assert (inv3' : Forall (proc_valid_pid rc1')
-                  ({| pid := pid proc; proc_mb_t := proc_mb_t proc; cont := continuation rep' |} :: rq1')).
-        { constructor.
-          - exact (schedule_out_valid_pid0 vm0' proc
-                     {| pid := pid proc; proc_mb_t := proc_mb_t proc; cont := continuation rep' |}
-                     {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}
-                     Hvm1' eq_refl).
-          - exact inv1'. }
-        exists (Some (proc, {| world := w3';
-                         runq := {| pid := pid proc; proc_mb_t := proc_mb_t proc; cont := continuation rep' |} :: rq1';
-                         ref_ctr := rc1';
-                         inv_valid_pids := inv3'
-                       |})).
+        destruct (morphism_covariance
+                      (perform_io (pid proc) (proc_mb_t proc) pending_req continuation)
+                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
+                             vm1 (schedule_out_valid_pid vm0 proc vm1 Hvm1))
+                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
+                             vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1'))
+                      vm3
+                      Hvm1'vm1 Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
+        exists (Some (proc, vm3')).
         split.
-        * lazymatch goal with
-          | [ H : vm0' ~[schedule_out]~> Some (proc, ?vm) |- _ ] =>
-              constructor 2 with (vm1 := vm) (Hproc := H)
-          end.
+        * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
           unfold exec_proc_morph. rewrite <-Heqcont_.
-          now exists rep'.
+          exact Hdo'.
         * sauto.
       + (* spawn *)
         destruct (morphism_covariance
@@ -946,7 +966,11 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   let hrc := fresh_id (String.app hyp_prefix "_rc") in
   let new_hyp := Control.hyp id in
   lazy_match! Constr.type new_hyp with
-  | do_io _ _ _ _ ?req _ _ =>
+  | @morphism _ _ _ _ (perform_io _ _ ?req _) _ _ =>
+      let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
+      unfold perform_io in $id;
+      destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
+  | do_io _ _ ?req _ _ _ _ =>
       let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
       destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
   | do_die _ _ _ _ =>
@@ -1703,7 +1727,7 @@ Section commute.
       [ ltac1:(exfalso; inversion Hpick_proc2)
       | unfold schedule_out; cbn;
         split > [exact Hpick_proc2 | split > [reflexivity | reflexivity]] ].
-    unfold exec_proc_morph. cbn. unfold do_io. cbn.
+    unfold exec_proc_morph. cbn. unfold perform_io. cbn. unfold do_io. cbn.
     exists req2_rep.
     split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hg_first)) | split ].
     reflexivity.
@@ -1726,7 +1750,7 @@ Section commute.
     unfold schedule_out. cbn. split > [exact Hpick_proc1' | split].
     reflexivity.
     reflexivity.
-    unfold exec_proc_morph. cbn. unfold do_io. cbn.
+    unfold exec_proc_morph. cbn. unfold perform_io. cbn. unfold do_io. cbn.
     exists req1_rep.
     split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hf_second)) | split ].
     reflexivity.
@@ -1824,7 +1848,7 @@ Section commute.
       [ ltac1:(exfalso; inversion Hpick_proc2)
       | unfold schedule_out; cbn;
         split > [exact Hpick_proc2 | split > [reflexivity | reflexivity]] ].
-    unfold exec_proc_morph. cbn. unfold do_io. cbn.
+    unfold exec_proc_morph. cbn. unfold perform_io. cbn. unfold do_io. cbn.
     exists req2_rep.
     split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hg_first)) | split ].
     reflexivity.
@@ -1847,7 +1871,7 @@ Section commute.
     unfold schedule_out. cbn. split > [exact Hpick_proc1' | split].
     reflexivity.
     reflexivity.
-    unfold exec_proc_morph. cbn. unfold do_io. cbn.
+    unfold exec_proc_morph. cbn. unfold perform_io. cbn. unfold do_io. cbn.
     exists req1_rep.
     split > [ (ltac1:(eapply h_perform_io_morph_pi; exact Hf_second)) | split ].
     reflexivity.
