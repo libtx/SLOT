@@ -235,11 +235,6 @@ Section defn.
       h_initial := new;
       h_spawn := mailbox_spawn;
       h_terminate := delete_mailbox;
-    |}.
-
-  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet mailboxHandler_basics:=
-    {|
-      h_spawn_commutativity := mailbox_spawn_commute;
       h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
                                      destruct c as [ctx v]; destruct c' as [ctx' v'];
                                      cbn; apply simulated_by_refl);
@@ -249,6 +244,11 @@ Section defn.
       h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
                                    destruct c as [ctx v]; destruct c' as [ctx' v'];
                                    cbn; apply simulated_by_refl);
+    |}.
+
+  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet mailboxHandler_basics:=
+    {|
+      h_spawn_commutativity := mailbox_spawn_commute;
       h_spawn_terminate_commutativity := mailbox_spawn_terminate_commute;
     |}.
 End defn.

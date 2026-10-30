@@ -141,6 +141,32 @@ Section IOHandler.
 
       h_terminate (normal : bool) (pid : Pid) (ctx : Ctx)
         (pid_valid : is_valid_pid pid ctx) : MFun h_state h_state;
+
+      (** The world-level effects must not depend on the choice of the
+          context: setoid-equal contexts must lead to setoid-equal
+          results.  These laws make it possible to relate the effects
+          performed from setoid-equal VM states, whose contexts may
+          differ syntactically. *)
+
+      h_perform_io_ctx_covariance :
+        forall (pid : Pid) (req : Request),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_valid_in pid => h_perform_io pid (projT1 c) (projT2 c) req);
+
+      h_spawn_ctx_covariance :
+        forall (pid : Pid) (mb_t : Set),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_fresh_in pid => h_spawn pid (projT1 c) (projT2 c) mb_t);
+
+      (** [h_terminate], parameterized by a context together with its
+          validity proof, is a proper morphism from contexts to
+          multifunctions: replacing the context (and its proof) with a
+          setoid-equal one simulates every run with a run from an
+          equivalent state to an equivalent result. *)
+      h_terminate_ctx_covariance :
+        forall (normal : bool) (pid : Pid),
+          Proper (same_pid_status ==> simulated_by)
+                  (fun c : pid_valid_in pid => h_terminate normal pid (projT1 c) (projT2 c));
     }.
 
 
