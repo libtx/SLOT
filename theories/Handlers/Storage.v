@@ -105,24 +105,11 @@ Section storage_handler.
                                    cbn; apply simulated_by_refl);
     |}.
 
-  Instance storageHandler :
-    @IOHandler Ctx _ StorageReq StorageRet storageHandler_basics :=
-    {|
-      h_spawn_commutativity := ltac:(intros pid1 pid2 mb_t1 mb_t2
-                                         ctx1 ctx2 ctx1' ctx2' f1 f1' f2 f2' Hne x y;
-                                     split; intros [z [H1 H2]];
-                                     (exists y; split;
-                                      [ exists z; split; assumption
-                                      | reflexivity ]));
-      h_spawn_terminate_commutativity :=
-        ltac:(intros normal pid1 pid2 mb_t ctx1 ctx2 ctx1' ctx2'
-                    v1 v1' f2 f2' Hne x y;
-              split; intros [z [H1 H2]];
-              (exists y; split;
-               [ exists z; split; assumption
-               | reflexivity ]));
-    |}.
+  (* The [IOHandler] laws instance used to live here, stated over the
+     handler-level [h_spawn]/[h_terminate].  The laws are now stated
+     in VM.v over the VM's own operations ([spawn_vm]/
+     [terminate_vm]); they will be provided at the composition
+     root. *)
 End storage_handler.
 
 Global Arguments storageHandler_basics {_ _} (_ _ _).
-Global Arguments storageHandler {_ _} {_ _} (_).

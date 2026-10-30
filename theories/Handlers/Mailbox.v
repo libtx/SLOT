@@ -246,9 +246,10 @@ Section defn.
                                    cbn; apply simulated_by_refl);
     |}.
 
-  Instance mailboxHandler : @IOHandler Ctx _ MBReq MBRet mailboxHandler_basics:=
-    {|
-      h_spawn_commutativity := mailbox_spawn_commute;
-      h_spawn_terminate_commutativity := mailbox_spawn_terminate_commute;
-    |}.
+  (* The [IOHandler] laws instance used to live here, stated over the
+     handler-level [h_spawn]/[h_terminate].  The laws are now stated
+     in VM.v over the VM's own operations ([spawn_vm]/
+     [terminate_vm]), so they can no longer be provided at this
+     level; the lemmas above are kept for the composition root, where
+     the law instance will be derived from them. *)
 End defn.
