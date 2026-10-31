@@ -191,42 +191,7 @@ Section props.
   Definition commute (f g : T) :=
     forall x y, commute_def f g x y.
 
-  (** [quasi_commute f g f' g']: [f] followed by [g] quasi-commutes
-      with [g'] followed by [f'].
-
-      Semantics: any run that performs [f] and then [g] (reaching a
-      state [y]) can be matched by a run from the same start state
-      that performs [g'] and then [f'] and reaches a state equivalent
-      to [y]; and symmetrically, runs of [f] after [g] are matched by
-      runs of [g'] after [f'].
-
-      The difference from [commute]: plain commutation of [f] and [g]
-      reorders the very same two operations — the swapped run
-      performs [g] after [f].  Here the swapped run performs the
-      *re-parameterized versions* [g'] and [f'] of the two operations,
-      while the order of the given run is preserved up to the
-      equivalence of results.  This covers effects such as
-      [h_spawn], whose behaviour depends on parameters (the context
-      witnessing freshness of the pid) that legitimately differ
-      between the two runs: e.g. spawning pid1 and then pid2 can be
-      re-run as spawning pid2 and then pid1, with both spawns
-      witnessed by freshly chosen contexts.
-
-      With [f' := f] and [g' := g] this is exactly [commute f g]. *)
-  Definition quasi_commute_def (f g f' g' : T) (x y : A) :=
-      (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f' ∘ g']~> y') /\
-      (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g' ∘ f']~> y').
-
-  Definition quasi_commute (f g f' g' : T) :=
-    forall x y, quasi_commute_def f g f' g' x y.
-
-  Lemma quasi_commute_same f g :
-    quasi_commute f g f g <-> commute f g.
-  Proof.
-    reflexivity.
-  Qed.
-
-  (** Limite version of the above *)
+  (** Limited version of the above *)
   Definition commute_ctx (ctx : A -> Prop) (f g : T) :=
     forall x y,
       ctx x ->
