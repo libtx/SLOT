@@ -35,38 +35,13 @@ Infix "=h=" := (@equiv _ h_setoid) (at level 50) : slot_scope.
 
 Open Scope slot_scope.
 
-(** A named [Setoid Fresh.t] instance: the sections below spell it
-    out explicitly in their [IOHandler] binders, so that no unresolved
-    instance placeholders remain (flexible [Setoid ?T] goals make the
-    instance search diverge through [setoid_option]/[queueSetoid]). *)
-#[export] Instance Fresh_setoid : Setoid Fresh.t.
-Proof.
-  exact _.
-Defined.
-
-(** The reference-counter collection is the canonical [VMContext]:
-    a pid is valid there iff [Fresh.is_valid_ref] says so.  The proper
-    morphism laws follow from [Fresh.is_valid_ref_mor]. *)
-#[export] Program Instance Fresh_ctx : VMContext Fresh.t :=
-  {|
-    ctx_setoid := s_eq_setoid;
-    is_valid_pidb := fun pid cc => Fresh.is_valid_ref pid cc;
-  |}.
-Next Obligation.
-  intros s s' Hequiv.
-  unfold Fresh.is_valid_ref.
-  destruct pid.
-  - easy.
-  - now rewrite Hequiv.
-Qed.
-
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}.
+          `{IOH_b : @IOHandler_basics Request Reply}.
 
-  Let World := @h_state _ _ _ _ IOH_b.
+  Let World := @h_state _ _ IOH_b.
 
-  Let Hequiv_w := @h_setoid _ _ _ _ IOH_b.
+  Let Hequiv_w := @h_setoid _ _ IOH_b.
 
   (** ** Processes
    *** Programs
@@ -122,8 +97,6 @@ Section definitions.
   #[export] Instance etaProc : Settable _ := settable! mkProcess <pid; proc_mb_t; cont>.
   (* end hide *)
 
-  Definition proc_valid_pid ref_ctr proc := is_valid_pid (pid proc) ref_ctr.
-
   (** ** VM
       [VM] record defines state of the entire VM.
    *)
@@ -135,15 +108,13 @@ Section definitions.
         runq : list Process;
         (** Counter that gets incremented when process creates a reference: *)
         ref_ctr : Ref.Fresh.t;
-        (** Invariant: all processes have valid pids: *)
-        inv_valid_pids : Forall (proc_valid_pid ref_ctr) runq;
       }.
 
   Definition vm_eq (a b : VM) : Prop :=
     world a = world b /\ runq a = runq b /\ ref_ctr a = ref_ctr b.
 
   (* begin hide *)
-  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr; inv_valid_pids>.
+  #[export] Instance etaVM : Settable _ := settable! mkVM <world; runq; ref_ctr>.
   (* end hide *)
 
   Program Instance vm_setoid : Setoid VM :=
@@ -188,39 +159,9 @@ Section definitions.
       canon_rel_total := vmte_canon_rel_total;
     }.
 
-  Lemma make_keeps_valid_Forall (parent new : Pid) (cc cc' : Fresh.t) l :
-    Forall (fun x => is_valid_pid (pid x) cc) l ->
-    Fresh.make parent cc = (new, cc') ->
-    Forall (fun x => is_valid_pid (pid x) cc') l.
-  Proof.
-    induction l as [|a l]; intros Hl Hcc'.
-    - constructor.
-    - inversion Hl; subst.
-      constructor.
-      + eapply Fresh.make_keeps_valid; [exact H1 | exact Hcc'].
-      + apply IHl; easy.
-  Qed.
-
-  Lemma Forall_is_valid_pid_equiv rc rc' rq :
-    rc == rc' ->
-    Forall (proc_valid_pid rc) rq ->
-    Forall (proc_valid_pid rc') rq.
-  Proof.
-    generalize dependent rc.
-    generalize dependent rc'.
-    induction rq.
-    - constructor.
-    - intros rc rc' H H1.
-      inversion_clear H1.
-      constructor.
-      + apply Fresh.is_valid_equiv with (cc := rc'); assumption.
-      + apply IHrq with (rc := rc'); assumption.
-  Qed.
-  (** ** Schedule out *)
-
   Definition MaybeValidProc : Type := option (Process * VM).
 
-  Program Definition schedule_out : MFun VM MaybeValidProc :=
+  Program Definition schedule_out : @MFun VM MaybeValidProc vm_setoid (setoid_option _) :=
       {| morphism vm ret :=
           match vm with
             {| world := w; runq := rq; ref_ctr := rc |} =>
@@ -253,11 +194,7 @@ Section definitions.
       subst.
       apply pick_equiv with (l1' := rq') in Hpick_proc; try easy.
       destruct Hpick_proc as [rq2' [Hpick_proc' Hrq2']].
-      assert (inv'' : Forall (proc_valid_pid rc') rq2'). {
-        rewrite <-Hrq2'.
-        now apply Forall_is_valid_pid_equiv with (rc := rc2).
-      }
-      exists (Some (proc, {|world := w'; runq := rq2'; ref_ctr := rc'; inv_valid_pids := inv'' |})).
+      exists (Some (proc, {|world := w'; runq := rq2'; ref_ctr := rc' |})).
       simpl. split; [|split]; try easy.
       destruct rq' as [|rq'_ rq'_rest].
       + exfalso.
@@ -278,56 +215,6 @@ Section definitions.
     destruct rq0 as [|f r].
     - exfalso. discriminate.
     - assumption.
-  Qed.
-
-  Lemma schedule_out_valid_pid_prev0 vm proc proc' vm' :
-    vm ~[schedule_out]~> Some (proc, vm') ->
-    pid proc = pid proc' ->
-    proc_valid_pid (ref_ctr vm) proc'.
-  Proof.
-    unfold proc_valid_pid, schedule_out. simpl.
-    intros Hsched Hpids.
-    destruct vm as [w rq rc Hinv].
-    destruct vm' as [w' rq' rc' Hinv'].
-    destruct rq as [|_first _rest].
-    - discriminate.
-    - destruct Hsched as [Hpick [Hworld Hrc]].
-      simpl.
-      apply pick_forall_elem with (a := proc) (l' := rq') in Hinv; [|assumption].
-      now rewrite <-Hpids.
-  Qed.
-
-  Lemma schedule_out_valid_pid_prev vm proc vm' :
-    vm ~[schedule_out]~> Some (proc, vm') ->
-    proc_valid_pid (ref_ctr vm) proc.
-  Proof.
-    intros H.
-    now apply schedule_out_valid_pid_prev0 with (proc' := proc) in H.
-  Qed.
-
-  Lemma schedule_out_valid_pid0 vm proc proc' vm' :
-    vm ~[schedule_out]~> Some (proc, vm') ->
-    pid proc = pid proc' ->
-    proc_valid_pid (ref_ctr vm') proc'.
-  Proof.
-    unfold proc_valid_pid.
-    intros H Hpids.
-    destruct vm as [w rq rc inv].
-    simpl in H.
-    destruct rq as [|_first _rest].
-    - discriminate.
-    - destruct vm' as [w' rq' rc' inv'].
-      destruct H as [Hrq' [Hw' Hrc']]. subst. simpl.
-      rewrite <-Hpids.
-      now apply pick_forall_elem with (a := proc) (l' := rq') (l := _first :: _rest).
-  Qed.
-
-  Lemma schedule_out_valid_pid vm proc vm' :
-    vm ~[schedule_out]~> Some (proc, vm') ->
-    proc_valid_pid (ref_ctr vm') proc.
-  Proof.
-    intros H.
-    eapply schedule_out_valid_pid0 with (proc' := proc); eauto.
   Qed.
 
   (** ** Operations with the world *)
@@ -354,7 +241,7 @@ Section definitions.
     apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
     destruct Hw12 as [[ret' w2'] [Hw12' H2]].
     destruct H2 as [Hret Hw2].
-    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv_valid_pids1 |}).
+    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1' |}).
     repeat split; try assumption.
     - apply Hrc.
   Qed.
@@ -378,7 +265,7 @@ Section definitions.
     subst.
     apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
     destruct Hw12 as [w2' [Hw12' H2]].
-    exists {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv_valid_pids1 |}.
+    exists {| world := w2'; runq := rq1'; ref_ctr := rc1' |}.
     repeat split; try assumption.
     - apply Hrc.
   Qed.
@@ -403,72 +290,12 @@ Section definitions.
       | destruct (Hgf H13) as [w3' [Hw3' Heqiuv]]
       ];
       destruct Hw3' as [w2' ?];
-      exists {| world := w3'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |}.
-    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |} |]; sauto.
-    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3; inv_valid_pids := inv_valid_pids2 |} |]; sauto.
-  Qed.
-
-  (** The world-level effects do not depend on the particular proof of
-      pid validity: two such proofs are equal by proof irrelevance. *)
-  Lemma h_terminate_morph_pi (pid : Pid) (rc : Fresh.t)
-    (V V' : is_valid_pid pid rc) (w w' : World) :
-    w ~[h_terminate true pid rc V]~> w' ->
-    w ~[h_terminate true pid rc V']~> w'.
-  Proof.
-    intros H.
-    assert (Hf : h_terminate true pid rc V = h_terminate true pid rc V').
-    { f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    rewrite Hf in H.
-    exact H.
-  Qed.
-
-  Lemma h_perform_io_morph_pi (pid : Pid) (rc : Fresh.t) req
-    (V V' : is_valid_pid pid rc) (w : World) (ret : Reply req * World) :
-    w ~[h_perform_io pid rc V req]~> ret ->
-    w ~[h_perform_io pid rc V' req]~> ret.
-  Proof.
-    intros H.
-    assert (Hf : h_perform_io pid rc V req = h_perform_io pid rc V' req).
-    { f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    rewrite Hf in H.
-    exact H.
+      exists {| world := w3'; ref_ctr := rc3; runq := rq3 |}.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
+    - split; [exists {| world := w2'; ref_ctr := rc3; runq := rq3 |} |]; sauto.
   Qed.
 
   (** ** Spawn *)
-
-  (* begin details *)
-  Lemma schedule_in_new_inv
-    (parent : Pid)
-    (rq : list Process)
-    (rc : Fresh.t)
-    (inv_valid : Forall (proc_valid_pid rc) rq)
-    (new : Pid)
-    (rc' : Fresh.t)
-    (Heqfresh : Fresh.make parent rc = (new, rc'))
-    (Hnewvalid : is_valid_pid new rc') :
-    Forall (proc_valid_pid rc') rq.
-  Proof.
-    induction inv_valid as [|proc l Hproc Hl IH].
-    - constructor.
-    - constructor.
-      + apply Fresh.make_keeps_valid with (new := new) (cc := rc) (parent := parent); assumption.
-      + assumption.
-  Qed.
-  (* end details *)
-
-  (** Pid validity of a VM state depends only on its reference
-      counter, so it is stable under VM equality.  This makes the
-      restricted operation MFuns below totalizable. *)
-  Lemma is_valid_pid_proper_vm (pd : Pid) :
-    forall vm vm' : VM,
-      vm == vm' ->
-      is_valid_pid pd (ref_ctr vm) -> is_valid_pid pd (ref_ctr vm').
-  Proof.
-    intros vm vm' Heq Hv.
-    destruct vm as [w1 rq1 rc1 inv1]. destruct vm' as [w2 rq2 rc2 inv2'].
-    cbn in Heq. destruct Heq as [Hw [Hrc Hrq]].
-    exact (proj1 (is_valid_pid_proper pd _ _ Hrc) Hv).
-  Qed.
 
   Section spawn.
     Context
@@ -476,66 +303,40 @@ Section definitions.
       (parent : Pid) (parent_mb_t : Set)
       (parent_cont : @Address child_mb_t -> Program parent_mb_t).
 
-    Lemma do_spawn_keeps_invariniant
-      addr
-      (rq : list Process)
-      (rc rc' : Fresh.t)
-      (new : Pid)
-      (inv_valid : Forall (proc_valid_pid rc) rq)
-      (parent_valid : is_valid_pid parent rc)
-      (Hnewvalid : is_valid_pid new rc')
-      (Heqfresh : Fresh.make parent rc = (new, rc'))
-      (inv_valid' : Forall (proc_valid_pid rc') rq) :
-      Forall (proc_valid_pid rc')
-        ({| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |}
-           :: {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} :: rq).
-    Proof.
-      apply Forall_cons_iff. split.
-      - eapply Fresh.make_keeps_valid; [exact parent_valid | exact Heqfresh].
-      - eapply Forall_cons_iff. split; assumption.
-    Qed.
-
     (** Allocate a new pid for a process and add it to the VM.
         Update the parent process (which should be scheduled out),
         and add it to the VM too. Does not change the world. *)
-    Definition alloc_pid
-      (vm : VM)
-      (parent_valid : is_valid_pid parent (ref_ctr vm)) :
-      Pid * VM.
+    Definition alloc_pid (vm : VM) : Pid * VM.
     Proof.
       destruct vm as [w rq rc inv_valid].
-      destruct (Fresh.make_valid parent rc) as [new rc' Hnewvalid Heqfresh].
-      specialize (schedule_in_new_inv parent rq rc inv_valid new rc' Heqfresh Hnewvalid) as inv_valid'.
+      destruct (Fresh.make parent rc) as [new rc'].
       set (addr := mkAddress child_mb_t new).
       set (rq' :=
              {| pid := parent; proc_mb_t := parent_mb_t; cont := parent_cont addr |} ::
              {| pid := new; proc_mb_t := child_mb_t; cont := child_cont |} ::
              rq).
-      assert (inv_valid'' : Forall (proc_valid_pid rc') rq'). {
-        apply (do_spawn_keeps_invariniant addr rq rc rc' new inv_valid parent_valid Hnewvalid Heqfresh inv_valid').
-      }
-      exact (new, {| world := w; runq := rq'; ref_ctr := rc'; inv_valid_pids := inv_valid''|}).
+      exact (new, {| world := w; runq := rq'; ref_ctr := rc' |}).
     Defined.
 
     Lemma alloc_pid_covariance
       (vm vm' : VM)
-      (Hvm' : vm == vm')
-      (parent_valid : is_valid_pid parent (ref_ctr vm))
-      (parent_valid' : is_valid_pid parent (ref_ctr vm')) :
-      @equiv _ (pair_setoid' (eq_setoid _) vm_setoid) (alloc_pid vm parent_valid) (alloc_pid vm' parent_valid').
+      (Hvm' : vm == vm') :
+      @equiv _ (pair_setoid' (eq_setoid _) vm_setoid) (alloc_pid vm) (alloc_pid vm').
     Proof.
       destruct vm as [w1 rq1 rc1 inv1].
       destruct vm' as [w1' rq1' rc1' inv1'].
       unfold alloc_pid.
-      destruct (Fresh.make_valid parent rc1) as [new_pid rc2 H_1 H_2].
-      destruct (Fresh.make_valid parent rc1') as [new_pid' rc2' H_1' H_2'].
-      simpl.
       simpl in Hvm'. destruct Hvm' as [Hw [Hrc Hrq]].
-      specialize (Fresh.make_morph parent rc1 rc1' Hrc) as H.
-      rewrite H_2, H_2' in H.
-      simpl in H. destruct H as [Hpids Hrc2]. subst.
+      (* Ref counters: *)
+      apply Fresh.make_morph with (parent := parent) in Hrc.
+      destruct (Fresh.make parent rc1) as [new_pid rc2].
+      destruct (Fresh.make parent rc1') as [new_pid' rc2'].
+      destruct Hrc as [Hnew_pids Hrc2]. simpl in Hnew_pids.
+      subst.
+      (* Rest *)
+      simpl.
       split.
-      - reflexivity.
+      - easy.
       - split; [|split].
         + assumption.
         + assumption.
@@ -545,98 +346,34 @@ Section definitions.
     (** Allocate a new pid for a process and add it to the VM.
         Update the parent process (which should be scheduled out),
         and add it to the VM too. *)
-    (** The pid handed to [h_spawn] is fresh: it is NOT valid in the
-        pre-allocation reference counter of [vm0] (see
-        [Fresh.make_invalid_ref]).  The case analysis on
-        [Fresh.make_valid] mirrors the one inside [alloc_pid], and the
-        resulting VM is constructed explicitly (as in [alloc_pid]) so
-        that the terms stay canonical. *)
-    Definition do_spawn
-      (vm0 vm : VM)
-      (parent_valid : is_valid_pid parent (ref_ctr vm0)) : Prop :=
-      match Fresh.make_valid parent (ref_ctr vm0) with
-      | Fresh.new_valid_ref _ _ new_pid rc' Hnewvalid Hmake =>
-          let vm1 :=
-            {| world := world vm0;
-               runq :=
-                 {| pid := parent; proc_mb_t := parent_mb_t;
-                    cont := parent_cont {| mba_pid := new_pid |} |}
-                 :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
-                 :: runq vm0;
-               ref_ctr := rc';
-               inv_valid_pids :=
-                 do_spawn_keeps_invariniant (mkAddress child_mb_t new_pid)
-                   (runq vm0) (ref_ctr vm0) rc' new_pid (inv_valid_pids vm0)
-                   parent_valid Hnewvalid Hmake
-                   (schedule_in_new_inv parent (runq vm0) (ref_ctr vm0)
-                      (inv_valid_pids vm0) new_pid rc' Hmake Hnewvalid)
-            |} in
-          exists2 w2 : World,
-            @morphism _ _ Hequiv_w Hequiv_w
-              (h_spawn new_pid (ref_ctr vm0)
-                 (Fresh.make_invalid_ref parent new_pid (ref_ctr vm0) rc' Hmake)
-                 child_mb_t) (world vm0) w2 &
-            vm = vm1<|world := w2|>
-      end.
-
-    Let ValidVM : Type := {vm : VM | is_valid_pid parent (ref_ctr vm)}.
+    Definition spawn_morph (vm0 vm2 : VM) : Prop :=
+      let (new_pid, vm1) := alloc_pid vm0 in
+      exists2 w2 : World,
+          (world vm1) ~[h_spawn new_pid child_mb_t]~> w2 &
+          vm2 = vm1<|world := w2|>.
 
     #[refine]
-    Definition spawn : MFun ValidVM VM :=
-      {| morphism (vm0 : ValidVM) (vm : VM) :=
-          let (vm0, Hparent_valid) := vm0 in
-          do_spawn vm0 vm Hparent_valid
+    Definition spawn : MFun VM VM :=
+      {| morphism := spawn_morph;
       |}.
     Proof.
-      intros vm0 vm0' vm Hvm0.
-      destruct vm0 as [vm0 Hparent]. destruct vm0' as [vm0' Hparent'].
-      intros Hvm.
-      specialize (alloc_pid_covariance vm0 vm0' Hvm0 Hparent Hparent') as Hvm1'.
-      unfold equiv,setoid_sigma in Hvm0.
-      unfold do_spawn in *.
-      destruct vm0 as [w0 rq0 rc0 inv0].
-      destruct vm0' as [w0' rq0' rc0' inv0'].
-      cbn in Hvm0. destruct Hvm0 as [Hw0 [Hrc0 Hrq0]].
-      cbn in Hvm. cbn.
-      unfold alloc_pid in Hvm1'.
-      destruct (Fresh.make_valid parent rc0) as [new_pid rc1 Hnewvalid Hmake].
-      destruct (Fresh.make_valid parent rc0') as [new_pid' rc1' Hnewvalid' Hmake'].
-      simpl in Hvm1'. destruct Hvm1' as [Hnp2 Hvm12].
-      subst new_pid'.
-      simpl in Hvm12. destruct Hvm12 as [Hw12 [Hrc12 Hrq12]].
+      intros vm0 vm0' vm Hvm0 Hvm.
+      unfold spawn_morph in *.
+      specialize (alloc_pid_covariance vm0 vm0' Hvm0) as Hvm1'.
+      destruct (alloc_pid vm0) as [new_pid vm1].
+      destruct (alloc_pid vm0') as [new_pid' vm1'].
+      destruct Hvm1' as [Hnew_pid Hvm1']. simpl in Hnew_pid.
       destruct Hvm as [w2 Hw2 Hvm2].
-      (* Bridge the world-side effect to the other counter collection: *)
-      destruct (@h_spawn_ctx_covariance Fresh.t _ Request Reply IOH_b
-                  new_pid child_mb_t
-                  (existT _ rc0 (Fresh.make_invalid_ref parent new_pid rc0 rc1 Hmake))
-                  (existT _ rc0' (Fresh.make_invalid_ref parent new_pid rc0' rc1' Hmake'))
-                  Hrc0 w0 w0' w2 Hw0 Hw2)
-        as [w2' [Hw2' Hw2w2']].
-      exists {| world := w2';
-                runq := {| pid := parent; proc_mb_t := parent_mb_t;
-                           cont := parent_cont {| mba_pid := new_pid |} |}
-                        :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
-                        :: rq0';
-                ref_ctr := rc1';
-                inv_valid_pids :=
-                  do_spawn_keeps_invariniant (mkAddress child_mb_t new_pid) rq0' rc0' rc1'
-                    new_pid inv0' Hparent' Hnewvalid' Hmake'
-                    (schedule_in_new_inv parent rq0' rc0' inv0' new_pid rc1'
-                       Hmake' Hnewvalid') |}.
+      subst.
+      destruct vm1 as [w1 rq1 rc1].
+      destruct vm1' as [w1' rq1' rc1'].
+      destruct Hvm1' as [Hw1 [Hrc1 Hrq1]].
+      morph_shift (h_spawn new_pid' child_mb_t) w1'.
+      exists {| world := w2'; runq := rq1'; ref_ctr := rc1' |}.
       split.
-      - now constructor 1 with (x := w2').
-      - rewrite Hvm2. simpl.
-        split; [|split].
-        + exact Hw2w2'.
-        + exact Hrc12.
-        + exact Hrq12.
-    Defined.
-
-    (** The spawn operation as used by the VM, totalized over all VMs:
-        from states without a valid parent pid it simply has no run. *)
-    Definition spawn_vm : MFun VM VM :=
-      totalize (fun vm => is_valid_pid parent (ref_ctr vm))
-               (is_valid_pid_proper_vm parent) spawn.
+      - now exists w2'.
+      - easy.
+    Qed.
   End spawn.
 
   Section io.
@@ -644,123 +381,99 @@ Section definitions.
       (pd : Pid) (mb_t : Set) (req : Request)
       (cnt : Reply req -> Program mb_t).
 
-    Definition do_io (vm1 vm2 : VM)
-      (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
-      let (w1, rq1, rc1, inv1) := vm1 in
-      let (w2, rq2, rc2, inv2) := vm2 in
+    Definition perform_io_morph (vm1 vm2 : VM) : Prop :=
+      let (w1, rq1, rc1) := vm1 in
+      let (w2, rq2, rc2) := vm2 in
       exists (rep : Reply req),
-        w1 ~[h_perform_io pd (ref_ctr vm1) pd_valid req]~> (rep, w2) /\
+        w1 ~[h_perform_io pd req]~> (rep, w2) /\
           rc2 = rc1 /\
           rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
 
-    Let ValidIOVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
-
-    Program Definition perform_io : MFun ValidIOVM VM :=
-      {| morphism (vm1 : ValidIOVM) (vm2 : VM) :=
-          let (vm0, Hpd_valid) := vm1 in
-          do_io vm0 vm2 Hpd_valid
+    Program Definition perform_io : MFun VM VM :=
+      {| morphism := perform_io_morph;
       |}.
     Next Obligation.
-      destruct x as [vm1 Hvalid]. destruct x' as [vm1' Hvalid'].
-      destruct vm1 as [w1 rq1 rc1 inv1].
-      destruct vm1' as [w1' rq1' rc1' inv1'].
-      destruct y as [w2 rq2 rc2 inv2].
+      destruct x as [w1 rq1 rc1].
+      destruct x' as [w1' rq1' rc1'].
+      destruct y as [w2 rq2 rc2].
       cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
       cbn in H0. destruct H0 as [rep [Hhandler [Hrc13 Hrq13]]].
-      cbn in Hhandler.
-      destruct (h_perform_io_ctx_covariance pd req
-                  (existT _ rc1 Hvalid)
-                  (existT _ rc1' Hvalid')
-                  Hrc1 w1 w1' (rep, w2) Hw1 Hhandler)
-        as [[rep' w2'] [Hhandler' Hret'eq]].
-      destruct Hret'eq as [Hrep' Hw2'w2].
-      assert (E : rep = rep') by exact Hrep'.
-      subst rep'.
-      assert (inv' : Forall (proc_valid_pid rc1')
-                ({| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1')).
-      { constructor; [exact Hvalid' | exact inv1']. }
+      apply morphism_covariance with (x' := w1') in Hhandler; [|assumption].
+      destruct Hhandler as [[rep' w2'] [Hw2' [Hrep Hw2_eqiuv']]].
+      simpl in Hrep.
+      subst.
       exists {| world := w2';
-               runq := {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1';
-               ref_ctr := rc1';
-               inv_valid_pids := inv' |}.
+           runq := {| pid := pd; proc_mb_t := mb_t; cont := cnt rep' |} :: rq1';
+           ref_ctr := rc1'
+        |}.
       split.
-      - cbn. exists rep. split; [exact Hhandler' | split; reflexivity].
-      - cbn. split; [exact Hw2'w2 | split].
-        + rewrite Hrc13. exact Hrc1.
-        + rewrite Hrq13. apply perm_skip. exact Hrq1.
+      - exists rep'. easy.
+      - repeat split.
+        + easy.
+        + apply Hrc1.
+        + now apply perm_skip.
     Qed.
-
-    Definition perform_io_vm : MFun VM VM :=
-      totalize (fun vm => is_valid_pid pd (ref_ctr vm))
-               (is_valid_pid_proper_vm pd) perform_io.
   End io.
 
   Section exit.
-    Context (pd : Pid).
+    Context (pid : Pid).
 
-    Definition do_exit (vm1 vm2 : VM)
-      (pd_valid : is_valid_pid pd (ref_ctr vm1)) : Prop :=
-      vm1 ~[lift_w (h_terminate true pd (ref_ctr vm1) pd_valid)]~> vm2.
+    Definition terminate_morph (vm1 vm2 : VM) : Prop :=
+      vm1 ~[lift_w (h_terminate true pid)]~> vm2.
 
-    Let ValidExitVM : Type := {vm : VM | is_valid_pid pd (ref_ctr vm)}.
-
-    Program Definition terminate : MFun ValidExitVM VM :=
-      {| morphism (vm1 : ValidExitVM) (vm2 : VM) :=
-          let (vm0, Hpd_valid) := vm1 in
-          do_exit vm0 vm2 Hpd_valid
+    Program Definition terminate : MFun VM VM :=
+      {| morphism  := terminate_morph
       |}.
     Next Obligation.
-      destruct x as [vm1 Hvalid]. destruct x' as [vm1' Hvalid'].
-      destruct vm1 as [w1 rq1 rc1 inv1].
-      destruct vm1' as [w1' rq1' rc1' inv1'].
+      destruct x as [w1 rq1 rc1 inv1].
+      destruct x' as [w1' rq1' rc1' inv1'].
       destruct y as [w2 rq2 rc2 inv2].
       cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
       cbn in H0. destruct H0 as [Hterm [Hrq13 Hrc13]].
-      cbn in Hterm.
-      destruct (h_terminate_ctx_covariance true pd
-                  (existT _ rc1 Hvalid)
-                  (existT _ rc1' Hvalid')
-                  Hrc1 w1 w1' w2 Hw1 Hterm)
-        as [w2' [Hterm' Hw2'w2]].
-      exists {| world := w2'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}.
-      split.
-      - cbn. split; [exact Hterm' | split; reflexivity].
-      - cbn. split; [exact Hw2'w2 | split].
-        + rewrite <- Hrc13. exact Hrc1.
-        + rewrite <- Hrq13. exact Hrq1.
+      morph_shift (h_terminate true pid) w1'.
+      subst.
+      now exists {| world := w2'; runq := rq1'; ref_ctr := rc1' |}.
     Qed.
-
-    (** The termination operation as used by the VM, totalized over
-        all VMs: from states without a valid pid it has no run. *)
-    Definition terminate_vm : MFun VM VM :=
-      totalize (fun vm => is_valid_pid pd (ref_ctr vm))
-               (is_valid_pid_proper_vm pd) terminate.
   End exit.
 
-  #[refine]
-  Definition exec_proc_morph (vm0 vm1 vm2 : VM) (proc : Process) (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)) : Prop :=
+  Definition exec_proc_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
     let pid := pid proc in
     let proc_mb_t := proc_mb_t proc in
     match cont proc with
     | exit _ =>
-        _ ~[terminate pid]~> vm2
+        vm1 ~[terminate pid]~> vm2
     | p_io _ req cont =>
-        _ ~[perform_io pid proc_mb_t req cont]~> vm2
+        vm1 ~[perform_io pid proc_mb_t req cont]~> vm2
     | @p_spawn _ child_mb_t child_cont parent_cont =>
-        _ ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
+        vm1 ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
     | _ =>
         False
     end.
+
+  Lemma exec_proc_morph_covariance (proc : Process) vm0 vm0' vm1 :
+    vm0 == vm0' ->
+    exec_proc_morph proc vm0 vm1 ->
+    exists{vm1' == vm1}, exec_proc_morph proc vm0' vm1'.
   Proof.
-    all: (exists vm1; now apply (schedule_out_valid_pid vm0 proc vm1)).
-  Defined.
+    intros Hvm0 Hvm2.
+    destruct proc as [pid mb_t prog].
+    destruct prog; unfold exec_proc_morph in Hvm2;
+      try now apply morphism_covariance with (x' := vm0') in Hvm2.
+    contradiction.
+  Qed.
+
+  Definition exec_proc (proc : Process) : MFun VM VM :=
+    {| morphism := exec_proc_morph proc;
+       morphism_covariance := exec_proc_morph_covariance proc;
+    |}.
 
   Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
   | vm_step_nil : forall vm,
       vm ~[schedule_out]~> None ->
       vm_step_morph vm None
-  | vm_step_some : forall vm0 vm1 vm2 proc (Hproc : vm0 ~[schedule_out]~> Some (proc, vm1)),
-      exec_proc_morph vm0 vm1 vm2 proc Hproc ->
+  | vm_step_some : forall vm0 vm1 vm2 proc,
+      vm0 ~[schedule_out]~> Some (proc, vm1) ->
+      exec_proc_morph proc vm1 vm2 ->
       vm_step_morph vm0 (Some (proc, vm2)).
 
   Lemma vm_step_morph_covariance vm0 vm0' vm2 :
@@ -771,77 +484,24 @@ Section definitions.
     intros Hequiv H0.
     inversion H0 as [|H vm1 ? proc Hvm1 Hvm2]; subst; clear H0.
     - exists None.
-      destruct vm0 as [w0 rq0 rc0 inv0].
-      destruct vm0' as [w0' rq0' rc0' inv0'].
-      destruct Hequiv as [Hw [Hrc Hrq]].
       split; [|easy].
-      simpl in H.
-      destruct rq0.
-      + apply Permutation_nil in Hrq. subst.
-        now constructor.
-      + contradiction.
-    - destruct (morphism_covariance schedule_out vm0 vm0' (Some (proc, vm1)) Hequiv Hvm1) as [ret1' Hret1'].
-      destruct ret1' as [[proc' vm1']|]; [| exfalso; sauto].
-      destruct Hret1' as [Hvm1' Hequiv1].
-      unfold equiv, setoid_option, equiv, pair_setoid in Hequiv1.
-      destruct Hequiv1 as [Hproc'proc Hvm1'vm1].
-      simpl in Hproc'proc. rewrite <-Hproc'proc in *. clear Hproc'proc proc'.
-
-      unfold exec_proc_morph in Hvm1.
-      unfold exec_proc_morph in Hvm2.
-      remember (cont proc) as cont_.
-      destruct cont_ as [ | |child_mb_t child_cont cont |].
-      + (* exit *)
-        destruct vm1 as [w1 rq1 rc1 inv1].
-        destruct vm1' as [w1' rq1' rc1' inv1'].
-        destruct vm3 as [w3 rq3 rc3 inv3].
-        cbn in Hvm1'vm1. destruct Hvm1'vm1 as [Hw1 [Hrc1 Hrq1]].
-        cbn in Hvm2. destruct Hvm2 as [Hterm [Hrq13 Hrc13]].
-        cbn in Hterm.
-        destruct (h_terminate_ctx_covariance true (pid proc)
-                    (existT _ rc1 (schedule_out_valid_pid vm0 proc
-                       {| world := w1; runq := rq1; ref_ctr := rc1; inv_valid_pids := inv1 |} Hvm1))
-                    (existT _ rc1' (schedule_out_valid_pid vm0' proc
-                       {| world := w1'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |} Hvm1'))
-                    Hrc1 w1 w1' w3 Hw1 Hterm)
-          as [w3' [Hterm' Hw3'w3]].
-        exists (Some (proc, {| world := w3'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |})).
-        split.
-        *  constructor 2 with (vm2 := {| world := w3'; runq := rq1'; ref_ctr := rc1'; inv_valid_pids := inv1' |}) (Hproc := Hvm1').
-           unfold exec_proc_morph. rewrite <-Heqcont_. cbn.
-           now split; [exact Hterm'|].
-        * sauto.
-      + (* io *)
-        destruct (morphism_covariance
-                      (perform_io (pid proc) (proc_mb_t proc) pending_req continuation)
-                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
-                             vm1 (schedule_out_valid_pid vm0 proc vm1 Hvm1))
-                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
-                             vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1'))
-                      vm3
-                      Hvm1'vm1 Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
-        exists (Some (proc, vm3')).
-        split.
-        * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
-          unfold exec_proc_morph. rewrite <-Heqcont_.
-          exact Hdo'.
-        * sauto.
-      + (* spawn *)
-        destruct (morphism_covariance
-                      (spawn child_mb_t child_cont (pid proc) (proc_mb_t proc) cont)
-                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
-                             vm1 (schedule_out_valid_pid vm0 proc vm1 Hvm1))
-                      (exist (fun vm : VM => is_valid_pid (pid proc) (ref_ctr vm))
-                             vm1' (schedule_out_valid_pid vm0' proc vm1' Hvm1'))
-                      vm3
-                      Hvm1'vm1 Hvm2) as [vm3' [Hdo' Hequiv_vm3]].
-        exists (Some (proc, vm3')).
-        split.
-        * constructor 2 with (vm1 := vm1') (Hproc := Hvm1').
-          unfold exec_proc_morph. rewrite <-Heqcont_.
-          exact Hdo'.
-        * sauto.
-      + (* fault : TODO *) contradiction.
+      constructor.
+      apply morphism_covariance with (x' := vm0') in H; [|easy].
+      destruct H as [x [H1 H2]].
+      now destruct x.
+    - apply morphism_covariance with (x' := vm0') in Hvm1;[|easy].
+      destruct Hvm1 as [vm1' [Hvm1' Hvm1'equiv]].
+      destruct vm1'; [|easy].
+      destruct p as [proc' vm1'].
+      destruct Hvm1'equiv as [Hproc Hvm1'equiv].
+      simpl in Hproc.
+      subst.
+      apply exec_proc_morph_covariance with (vm0' := vm1') in Hvm2; [|easy].
+      destruct Hvm2 as [vm2' [Hvm2' Hvm2'equiv]].
+      exists (Some (proc', vm2')).
+      split.
+      + now constructor 2 with (vm1 := vm1').
+      + easy.
   Qed.
 
   Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
@@ -857,25 +517,6 @@ Section definitions.
       ts_state_trans := vm_step
     |}.
 End definitions.
-
-(** ** The laws of an I/O handler
-
-    [IOHandler Basics] extends an [IOHandler_basics] implementation
-    with its laws.  The class is defined here, in the VM module,
-    rather than next to [IOHandler_basics]: the laws are consumed
-    where the commutativity of VM steps is proved, at which point the
-    VM-level [spawn], I/O and termination operations are already
-    defined.  (The context-covariance laws live in
-    [IOHandler_basics]: they are needed already for the basic VM
-    definitions, which otherwise rely on [IOHandler_basics] alone.)
-
-    The laws quantify over the VM's own operations — [spawn_vm] and
-    [terminate_vm] — whose pid-validity contexts are read from the VM
-    states themselves rather than passed as parameters.  This is why
-    the plain [commute] relation expresses them: the swapped run
-    re-derives its own contexts from the states it passes through,
-    and no re-parameterized (quasi) version is needed.  Consequently
-    the class is tied to the concrete context [Fresh.t] of the VM. *)
 
 Class IOHandler {Request : Type} {Reply : Request -> Type}
                 (Basics : @IOHandler_basics Fresh.t Fresh_ctx Request Reply) :=

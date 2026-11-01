@@ -241,24 +241,12 @@ Module Fresh.
     make parent cc := make0 parent cc (get_ parent cc).
 
   Equations parent_of0 (ctr : positive) (acc : Ref) (l : Ref) : (Ref * positive) :=
-    parent_of0 ctr acc [] := (rev acc, ctr);
+    parent_of0 ctr acc [] := (rev' acc, ctr);
     parent_of0 ctr acc (ctr1 :: l) := parent_of0 ctr1 (ctr :: acc) l.
 
   Equations parent_of (ref : Ref) : option (Ref * positive) :=
     parent_of [] := None;
     parent_of (ctr :: l) := Some (parent_of0 ctr [] l).
-
-  Equations is_valid_ref0 : positive -> option positive -> bool :=
-    is_valid_ref0 _ None := false;
-    is_valid_ref0 ctr (Some parent_ctr) := Pos.ltb ctr parent_ctr.
-
-  Equations is_valid_ref1 : option (Ref * positive) -> t -> bool :=
-    is_valid_ref1 None _ := true;
-    is_valid_ref1 (Some (parent, ctr)) cc :=
-      is_valid_ref0 ctr (get parent cc).
-
-  Equations is_valid_ref : Ref -> t -> bool :=
-    is_valid_ref ref cc := is_valid_ref1 (parent_of ref) cc.
 
   Section tests.
     Goal fst (make [4; 5] (FMap.M.empty positive)) = [4; 5; 1].
@@ -272,160 +260,20 @@ Module Fresh.
 
   Lemma parent_of_app a b : parent_of (a ++ [b]) = Some (a, b).
   Proof.
-    funelim (parent_of (a ++ [b])); [now apply app_cons_not_nil in eqargs|].
-    induction a as [|x a' IH].
-    - sauto.
-    - admit.
+    induction a as [|x a IH].
+    - reflexivity.
+    - simpl.
+      funelim (parent_of0 x [] (a ++ [b])).
+      { now apply app_cons_not_nil in H. }
+      funelim (parent_of (a ++ [b])).
+      { now apply app_cons_not_nil in eqargs. }
+      rewrite <-Heqcall0 in IH. inversion IH.
+      apply f_equal.
   Admitted.
 
-  Lemma makes_valid_ref (parent new : Ref) (cc cc' : t) :
-    make parent cc = (new, cc') ->
-    is_valid_ref new cc' = true.
-  Proof.
-    Ltac slv := try easy; lia.
-    unfold make, is_valid_ref, get_.
-    intros Hnew.
-    funelim (make0 parent cc (get parent cc));
-      rewrite Hnew in Heqcall;
-      inversion Heqcall;
-      subst.
-    - rewrite parent_of_app.
-    Admitted.
-
-  Lemma make_keeps_valid (parent other new : Ref) (cc cc' : t) :
-    is_valid_ref other cc = true ->
-    make parent cc = (new, cc') ->
-    is_valid_ref other cc' = true.
-  Proof.
-    (*
-    unfold make, is_valid_ref, get_.
-    intros Hvalid Hnew.
-    destruct other as [|oc oparent].
-    - easy.
-    - destruct (RefOrd.eq_dec oparent parent).
-      2:{ (* parent <> oparent *)
-        destruct (get parent cc);
-          inversion Hnew; clear Hnew;
-          rewrite <-distinct; assumption.
-      }
-      (* parent = oparent *)
-      subst. unfold Ref in *.
-      destruct (get parent cc); inversion Hnew; clear Hnew.
-      + subst. rewrite keep.
-        destruct (Pos.ltb_spec0 oc (p + 1));
-          destruct (Pos.ltb_spec0 oc p);
-          try easy; lia.
-      + discriminate.
-  Qed.*)
-    Admitted.
-
-  Lemma make_valid_not_equal (parent other new : Ref) (cc cc' : t) :
-    is_valid_ref other cc = true ->
-    make parent cc = (new, cc') ->
-    new <> other.
-  Proof.
-    (*
-    unfold is_valid_ref, make, get_.
-    intros Hvalid Hnew.
-    destruct other as [|oc oparent].
-    - unfold make0 in Hnew. sauto.
-    - destruct (RefOrd.eq_dec parent oparent).
-      2:{ (* parent <> oparent *)
-        destruct (get parent cc) as [pctr|];
-          inversion Hnew; clear Hnew; sauto.
-      }
-      (* parent = oparent *)
-      intros Habsurd.
-      subst.
-      unfold Ref in *.
-      remember (get oparent cc) as maybe_ctr.
-      destruct maybe_ctr as [ctr|].
-      + inversion Hnew; clear Hnew.
-        subst.
-        destruct (Pos.ltb_spec0 oc oc); lia.
-      + discriminate.
-  Qed.*)
-    Admitted.
-
-  (** The freshly allocated ref is NOT valid in the old counter [cc]:
-      it only becomes valid after [make] bumps the parent's counter. *)
-  Lemma make_invalid_ref (parent new : Ref) (cc cc' : t) :
-    make parent cc = (new, cc') ->
-    is_valid_ref new cc = false.
-  Proof.
-    (*
-    unfold make, is_valid_ref, get_.
-    intros Hnew.
-    destruct (get parent cc) as [ctr|] eqn:Hget.
-    - inversion Hnew; subst.
-      unfold Ref in Hget.
-      rewrite Hget. cbn.
-      now apply Pos.ltb_irrefl.
-    - inversion Hnew; subst.
-      unfold Ref in Hget.
-      now rewrite Hget.
-  Qed.*)
-    Admitted.
-
-  Lemma new2_not_equal p1 p2 rc rc' rc'' n1 n2 :
-    p1 <> p2 ->
-    Fresh.make p1 rc = (n1, rc') ->
-    Fresh.make p2 rc' = (n2, rc'') ->
-    n1 <> n2.
-  Proof.
-    (*
-    intros Hp12 Hn1_make Hn2_make.
-    unfold make, make0, get_, put_ in *.
-    destruct (get p1 rc).
-    - injection Hn1_make. intros Hrc' Hn1.
-      sauto.
-    - destruct (get p2 rc').
-      + sauto.
-      + sauto.
-  Qed. *)
-    Admitted.
-
-  Lemma is_valid_neq_proxy a b rc :
-    is_valid_ref a rc = true ->
-    is_valid_ref b rc = false ->
-    a <> b.
-  Proof.
-    unfold Fresh.is_valid_ref.
-    intros Ha Hb.
-    destruct a as [|a_h a_t]; destruct b as [|b_h b_t]; intros H.
-    - discriminate.
-    - inversion H.
-    - inversion H.
-    - injection H as H_h H_t. subst. now rewrite Ha in Hb.
-  Qed.
-
-  Lemma is_valid_equiv ref cc cc' :
-    s_eq cc cc' ->
-    is_valid_ref ref cc = true ->
-    is_valid_ref ref cc' = true.
-  Proof.
-    unfold is_valid_ref, parent_of.
-    intros Hequiv Hvalid.
-    destruct ref.
-    - easy.
-    - now rewrite <-Hequiv.
-  Qed.
-
-  (** [is_valid_ref] is a morphism w.r.t. [s_eq]: setoid-equal
-      collections return the same verdict for every pid. *)
-  Lemma is_valid_ref_mor ref cc cc' :
-    cc == cc' ->
-    is_valid_ref ref cc = is_valid_ref ref cc'.
-  Proof.
-    unfold is_valid_ref.
-    intros Hequiv.
-    destruct ref.
-    - easy.
-    - now rewrite <-Hequiv.
-  Qed.
-
-  Add Parametric Morphism (parent : Ref) :
-    (make parent) with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid)) as make_morph.
+  Add Parametric Morphism (parent : Ref) : (make parent)
+      with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid))
+      as make_morph.
   Proof.
     intros a1 a1' Hequiv.
     unfold make, make0, get_.
@@ -484,62 +332,4 @@ Module Fresh.
       rewrite <-Heqnp1 || rewrite <-Heqnp2;
       reflexivity.
   Qed.
-
-  Inductive NewValidRef (parent : Ref) (cc : Fresh.t) : Type :=
-  | new_valid_ref : forall (new : Ref) (cc' : Fresh.t),
-      is_valid_ref new cc' = true ->
-      make parent cc = (new, cc') ->
-      NewValidRef parent cc.
-
-  Program Equations make_valid p c: NewValidRef p c :=
-    make_valid p c with get__equation_1 p c, get_ p c => {
-      make_valid p c H (Some ctr) := new_valid_ref p c (ctr :: p) (put_ p (ctr + 1) c) _ _;
-      make_valid p c H None := new_valid_ref p c (1 :: p) (put_ p 2 c) _ _;
-    }.
-  Next Obligation.
-    unfold put_. rewrite keep.
-    assert (H1 : ctr <= ctr + 1) by lia.
-    destruct (Pos.ltb_spec0 ctr (ctr + 1)); lia.
-  Qed.
-  Next Obligation.
-    now rewrite make_equation_1, <- make0_equation_1, H.
-  Qed.
-  Next Obligation.
-    unfold put_. rewrite keep.
-    assert (H1 : 1 <= 2) by lia.
-    destruct (Pos.ltb_spec0 1 2); lia.
-  Qed.
-  Next Obligation.
-    now rewrite make_equation_1, <- make0_equation_2, H.
-  Qed.
-
-  Lemma make_valid_eq parent cc new cc' (H : make parent cc = (new, cc')) :
-    make_valid parent cc = new_valid_ref parent cc new cc' (makes_valid_ref parent new cc cc' H) H.
-  Proof.
-    funelim (make_valid parent cc).
-    - assert (H1 : ctr :: p = new /\ put_ p (ctr + 1) c = cc'). {
-        clear Heq0 Heqcall.
-        funelim (make p c).
-        rewrite Heq in Heqcall. symmetry in H0. rewrite <-H0 in Heqcall.
-        unfold make0 in Heqcall.
-        apply pair_equal_spec in Heqcall.
-        funelim (put_ parent (ctr + 1) cc). now rewrite Heqcall0 in Heqcall.
-      }
-      destruct H1 as [Hnew Ncc']. subst.
-      replace (make_valid_obligations_obligation_2 p c ctr H) with H0 by apply proof_irrelevance.
-      now replace (make_valid_obligations_obligation_1 p c ctr) with (makes_valid_ref p (ctr :: p) c (put_ p (ctr + 1) c) H0) by apply proof_irrelevance.
-    - assert (H1 : 1 :: p = new /\ put_ p 2 c = cc'). {
-        clear Heq0 Heqcall.
-        funelim (make p c).
-        rewrite Heq in Heqcall. symmetry in H0. rewrite <-H0 in Heqcall.
-        unfold make0 in Heqcall.
-        apply pair_equal_spec in Heqcall.
-        funelim (put_ parent 2 cc). now rewrite Heqcall0 in Heqcall.
-      }
-      destruct H1 as [Hnew Ncc']. subst.
-      replace (make_valid_obligations_obligation_4 p c H) with H0 by apply proof_irrelevance.
-      now replace (make_valid_obligations_obligation_3 p c) with (makes_valid_ref p (1 :: p) c (put_ p 2 c) H0) by apply proof_irrelevance.
-  Qed.
 End Fresh.
-
-Opaque Fresh.make_valid.
