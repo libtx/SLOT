@@ -214,6 +214,15 @@ Section props.
     now apply (commute_def_sym f g x y).
   Qed.
 
+  Lemma commute_ctx_sym ctx (f g : T) :
+    commute_ctx ctx f g ->
+    commute_ctx ctx g f.
+  Proof.
+    intros H x y Hx.
+    specialize (H x y Hx).
+    now apply (commute_def_sym f g x y).
+  Qed.
+
   Lemma commute_compose (f g h : T) :
     commute f h ->
     commute g h ->
