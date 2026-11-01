@@ -258,19 +258,6 @@ Module Fresh.
   Opaque put.
   Opaque get.
 
-  Lemma parent_of_app a b : parent_of (a ++ [b]) = Some (a, b).
-  Proof.
-    induction a as [|x a IH].
-    - reflexivity.
-    - simpl.
-      funelim (parent_of0 x [] (a ++ [b])).
-      { now apply app_cons_not_nil in H. }
-      funelim (parent_of (a ++ [b])).
-      { now apply app_cons_not_nil in eqargs. }
-      rewrite <-Heqcall0 in IH. inversion IH.
-      apply f_equal.
-  Admitted.
-
   Add Parametric Morphism (parent : Ref) : (make parent)
       with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid))
       as make_morph.
@@ -331,5 +318,28 @@ Module Fresh.
       end;
       rewrite <-Heqnp1 || rewrite <-Heqnp2;
       reflexivity.
+  Qed.
+
+  Lemma reford_app ref a :
+    RefOrd.compare_ ref (ref ++ [a]) = Lt.
+  Proof.
+    induction ref.
+    - easy.
+    - simpl.
+      now rewrite Pos.compare_refl.
+  Qed.
+
+  Lemma child_gt_parent parent child cc cc' :
+    (child, cc') = make parent cc ->
+    RefOrd.compare_ parent child = Lt.
+  Proof.
+    intros Hmake.
+    funelim (make parent cc).
+    rewrite <-Heqcall in Hmake.
+    funelim (make0 parent cc (get_ parent cc));
+      rewrite <-Heqcall0 in Hmake;
+      inversion Hmake;
+      subst;
+      apply reford_app.
   Qed.
 End Fresh.

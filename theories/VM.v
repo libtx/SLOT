@@ -519,18 +519,18 @@ Section definitions.
 End definitions.
 
 Class IOHandler {Request : Type} {Reply : Request -> Type}
-                (Basics : @IOHandler_basics Fresh.t Fresh_ctx Request Reply) :=
+                (Basics : @IOHandler_basics Request Reply) :=
   {
       (** Spawning children of two distinct pids commutes. *)
       h_spawn_commutativity :
-          forall (child_mb_t1 : Set) (child1 : Program child_mb_t1)
-               (mb_t1 : Set) (cont1 : @Address child_mb_t1 -> Program mb_t1)
-               (child_mb_t2 : Set) (child2 : Program child_mb_t2)
-               (mb_t2 : Set) (cont2 : @Address child_mb_t2 -> Program mb_t2)
-               (pid1 pid2 : Pid),
-          pid1 <> pid2 ->
-          commute (@spawn_vm _ _ Basics child_mb_t1 child1 pid1 mb_t1 cont1)
-                  (@spawn_vm _ _ Basics child_mb_t2 child2 pid2 mb_t2 cont2);
+          forall (pid1 pid2 : Pid)
+             (child_mb_t1 : Set) (child1 : Program child_mb_t1)
+             (mb_t1 : Set) (cont1 : @Address child_mb_t1 -> Program mb_t1)
+             (child_mb_t2 : Set) (child2 : Program child_mb_t2)
+             (mb_t2 : Set) (cont2 : @Address child_mb_t2 -> Program mb_t2),
+          RefOrd.compare_ pid1 pid2 = Lt ->
+          swap_dir (@spawn _ _ Basics child_mb_t1 child1 pid1 mb_t1 cont1)
+                   (@spawn _ _ Basics child_mb_t2 child2 pid2 mb_t2 cont2);
 
       (** This property specifies that termination of a process cannot
           interfere with spawning of any new process.  The two pids
@@ -540,8 +540,8 @@ Class IOHandler {Request : Type} {Reply : Request -> Type}
                (mb_t : Set) (cont : @Address child_mb_t -> Program mb_t)
                (normal : bool) (pid1 pid2 : Pid),
           pid1 <> pid2 ->
-          commute (@terminate_vm _ _ Basics pid1)
-                  (@spawn_vm _ _ Basics child_mb_t child pid2 mb_t cont);
+          swap_dir (@terminate _ _ Basics pid1)
+                   (@spawn _ _ Basics child_mb_t child pid2 mb_t cont);
     }.
 
 From Ltac2 Require
@@ -581,7 +581,7 @@ Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
 
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IO_b : @IOHandler_basics Fresh.t _ Request Reply}.
+          `{IO_b : @IOHandler_basics Request Reply}.
 
   Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
     intros vm1 vm2 H.
@@ -591,7 +591,7 @@ End tests.
 
 Section canned.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}.
+          `{IOH_b : @IOHandler_basics Request Reply}.
 
   Lemma canned_schedule_out_some proc vm0 vm1 :
     Some (proc, vm1) <~[schedule_out]~ vm0 ->

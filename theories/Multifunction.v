@@ -45,24 +45,6 @@ Section mfun.
     }.
 End mfun.
 
-(** A restricted MFun, defined only on the states satisfying [P], can
-    be run from any state: the restriction witness is read
-    existentially from the state itself.  [HP] transports [P] along
-    setoid equality, which keeps the totalized MFun covariant. *)
-Section totalize.
-  Context {A : Type} `{HA : Setoid A}
-           (P : A -> Prop) (HP : forall x x', x == x' -> P x -> P x').
-
-  Program Definition totalize (f : MFun {x : A | P x} A) : MFun A A :=
-    {| morphism x y := exists (px : P x), @morphism _ _ _ _ f (exist _ x px) y |}.
-  Next Obligation.
-    intros.
-    destruct (@morphism_covariance _ _ _ _ f (exist _ x H0) (exist _ x' (HP _ _ H H0)) y
-                             (ltac:(exact H)) H1) as [y' [Hy' Heqy]].
-    exists y'. split; [exists (HP _ _ H H0); exact Hy' | exact Heqy].
-  Qed.
-End totalize.
-
 (* begin details *)
 Global Arguments morphism {_ _ _ _}.
 Global Arguments morphism_covariance {_ _ _ _}.
@@ -207,12 +189,6 @@ Section props.
       + apply (H2 x y).
   Qed.
 
-  (** Limited version of the above *)
-  Definition commute_ctx (ctx : A -> Prop) (f g : T) :=
-    forall x y,
-      ctx x ->
-      commute_def f g x y.
-
   Lemma commute_def_sym (f g : T) (x y : A) :
     commute_def f g x y ->
     commute_def g f x y.
@@ -227,15 +203,6 @@ Section props.
     commute g f.
   Proof.
     intros H x y.
-    now apply (commute_def_sym f g x y).
-  Qed.
-
-  Lemma commute_ctx_sym ctx (f g : T) :
-    commute_ctx ctx f g ->
-    commute_ctx ctx g f.
-  Proof.
-    intros H x y Hx.
-    specialize (H x y Hx).
     now apply (commute_def_sym f g x y).
   Qed.
 
