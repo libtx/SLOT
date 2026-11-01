@@ -69,9 +69,11 @@ Section token_trace_ensemble.
     now apply commute_sym.
   Qed.
 
+  Definition swap_events (a b : Event) := swap_dir (tm_state_trans a) (tm_state_trans b).
+
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
-         exists t', e' t' /\ RestrictedPermutation event_commute t t'.
+         exists t', e' t' /\ RestrictedPermutation swap_events t t'.
 
   Lemma sufficient_replacement_p_trans : Transitive sufficient_replacement_p.
   Proof.
@@ -88,15 +90,15 @@ End token_trace_ensemble.
 Section canonical_trace.
   Context `{Hts: TokenMachine}.
 
-  Context (commut_dec : forall f g, decidable (event_commute f g)).
+  Context (swap_events_dec : forall f g, decidable (swap_events f g)).
 
   Definition can_follow (a b : Event) :=
-    event_commute a b -> tm_canon_rel a b.
+    swap_events a b -> tm_canon_rel a b.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
     unfold can_follow.
-    specialize (commut_dec a b) as Hdcomm.
+    specialize (swap_events_dec a b) as Hdcomm.
     apply dec_imp.
     - assumption.
     - apply canon_rel_dec.
@@ -154,7 +156,7 @@ Section canonical_trace.
                          (Hfoll : ~can_follow_hd f t) :
     exists t', exists{z' == z},
       CanonicalTrace t' x z' /\
-      RestrictedPermutation event_commute (f :: t) t' /\
+      RestrictedPermutation swap_events (f :: t) t' /\
         (hd_error t = hd_error t').
   Proof.
     generalize dependent x. generalize dependent y.
@@ -168,17 +170,17 @@ Section canonical_trace.
           apply canon_rel_total.
         firstorder.
       }
-      assert (Hfg_comm : event_commute f g). {
+      assert (Hfg_comm : swap_events f g). {
         unfold can_follow_hd, can_follow in Hfoll.
-        destruct (commut_dec f g).
+        destruct (swap_events_dec f g).
         - assumption.
         - firstorder.
       }
-      (* Use commutativity to derive an intermediate state on
+      (* Use swap property to derive an intermediate state on
          the [f ∘ g] path: *)
       assert (exists{v' == v}, x ~[tm_state_trans f ∘ tm_state_trans g]~> v') as Hv'. {
         morph_shift (tm_state_trans g) y.
-        destruct (Hfg_comm x v') as [Hcomm _].
+        specialize (Hfg_comm x v') as Hcomm.
         destruct Hcomm as [w Hw].
         { exists y. firstorder. }
         exists w. split.
@@ -214,9 +216,9 @@ Section canonical_trace.
           eapply can_follow_hd_eq; eauto.
         - (* Prove that it's possible to go from [f :: g :: t'] to
           [g :: t''] by swapping commiting events: *)
-          assert (RestrictedPermutation event_commute (g :: f :: t') (g :: t'')) by
+          assert (RestrictedPermutation swap_events (g :: f :: t') (g :: t'')) by
             now constructor 2.
-          assert (RestrictedPermutation event_commute (f :: g :: t') (g :: f :: t')) by
+          assert (RestrictedPermutation swap_events (f :: g :: t') (g :: f :: t')) by
             now constructor 3.
           econstructor 4; eauto.
         - assumption.
@@ -259,7 +261,7 @@ Section canonical_trace.
           * exists y''. split.
             -- assumption.
             -- rewrite Hyy', Hy''. reflexivity.
-          * assert (RestrictedPermutation event_commute (f :: g :: t) (f :: t')) by
+          * assert (RestrictedPermutation swap_events (f :: g :: t) (f :: t')) by
               now constructor 2.
             econstructor 4; eauto.
           * reflexivity.

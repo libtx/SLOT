@@ -56,13 +56,12 @@ Section TransitionSystem.
 
   Definition ts_event_commute `{TransitionSystem} (a b : Event) := commute (ts_mfun a) (ts_mfun b).
 
-  Definition ts_event_commute_ctx `{TransitionSystem} (ctx : State -> Prop) (a b : Event) :=
-    commute_ctx ctx (ts_mfun a) (ts_mfun b).
+  Definition ts_events_swap  `{TransitionSystem} (a b : Event) := swap_dir (ts_mfun a) (ts_mfun b).
 End TransitionSystem.
 
 Section TSProps.
   Context `{HTS : TransitionSystem}
-           (Hcanon_dec : forall f g : Event, decidable (ts_event_commute f g)).
+           (Hcanon_dec : forall f g : Event, decidable (ts_events_swap f g)).
 
   (* TODO: this is an mfun *)
   Inductive TSMFunGen : State -> list Event -> State -> Prop :=
@@ -96,7 +95,7 @@ Section TSProps.
   Qed.
 
   Definition can_follow_ts (a b : Event) :=
-    event_commute a b -> ts_canon_rel a b.
+    ts_events_swap a b -> ts_canon_rel a b.
 
   Definition can_follow_hd_ts (token : Event) (trace : Trace) : Prop :=
     match trace with
