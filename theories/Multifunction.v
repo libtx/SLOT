@@ -115,6 +115,48 @@ Section equiv.
       a ~[f]~> b <-> a ~[g]~> b.
 End equiv.
 
+Section simulation.
+  Context {Dom Cod} `{HDom : Setoid Dom} `{HCod : Setoid Cod}.
+
+  (** [simulated_by f g]: [g] simulates [f] up to setoid equality:
+      whenever [f] runs from [x] to [y] and [x] is equivalent to
+      [x'], [g] reaches from [x'] some [y'] equivalent to [y]:
+
+        x == x' -> x ~[f]~> y -> exists{y' == y}, x' ~[g]~> y'
+
+      This is the simulation half of a bisimulation between the two
+      transition relations, with [==] as the (bi)simulation relation;
+      since [==] is symmetric, [simulated_by f f] (which is exactly
+      [morphism_covariance f]) states that [==] is a bisimulation for
+      [f]. *)
+  Definition simulated_by (f g : @MFun Dom Cod HDom HCod) : Prop :=
+    forall x x' y,
+      x == x' ->
+      x ~[f]~> y ->
+      exists{y' == y}, x' ~[g]~> y'.
+
+  Lemma simulated_by_refl (f : @MFun Dom Cod HDom HCod) :
+    simulated_by f f.
+  Proof.
+    exact (morphism_covariance f).
+  Qed.
+
+  (** A witness of [simulated_by f g] given that [f] and [g] have the same
+      runs, needed when the two morphisms are built from different
+      (but pointwise equal) parameters. *)
+  Lemma simulated_by_conv (f g : @MFun Dom Cod HDom HCod) :
+    (forall x y, x ~[f]~> y <-> x ~[g]~> y) ->
+    simulated_by f g.
+  Proof.
+    intros Hfg x x' y Hxx' Hf.
+    destruct (morphism_covariance f x x' y Hxx' Hf) as [y' [Hy' Heq]].
+    exists y'.
+    split.
+    - now apply (proj1 (Hfg x' y')).
+    - exact Heq.
+  Qed.
+End simulation.
+
 Section props.
   Context {A : Type} `{Hsetoid : Setoid A}.
   Let T := @MFun A A Hsetoid Hsetoid.
@@ -131,11 +173,21 @@ Section props.
   Definition commute (f g : T) :=
     forall x y, commute_def f g x y.
 
-  (** Limite version of the above *)
-  Definition commute_ctx (ctx : A -> Prop) (f g : T) :=
-    forall x y,
-      ctx x ->
-      commute_def f g x y.
+  (** [swappable f g] : any appliction of [f] followed by [g] can be re-run
+      as [g] then [f], reaching an equivalent state. *)
+  Definition swappable (f g : T) :=
+    forall x y, x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y'.
+
+  Lemma commute_as_swappable f g : commute f g <-> swappable f g /\ swappable g f.
+  Proof.
+    split.
+    - intros H.
+      split; intros x y; apply (H x y).
+    - intros [H1 H2].
+      split.
+      + apply (H1 x y).
+      + apply (H2 x y).
+  Qed.
 
   Lemma commute_def_sym (f g : T) (x y : A) :
     commute_def f g x y ->
@@ -495,7 +547,7 @@ Section MFunRet_pass_result.
   Qed.
 End MFunRet_pass_result.
 
-Definition commute_ret {State Ret1 Ret2}
+Definition swap_ret {State Ret1 Ret2}
   `{Hss : Setoid State}
   `{Hsr1 : Setoid Ret1}
   `{Hsr2 : Setoid Ret2}
@@ -505,11 +557,7 @@ Definition commute_ret {State Ret1 Ret2}
     (s1 ~[f]~> (ret_f, s2) ->
      s2 ~[g]~> (ret_g, s3) ->
      exists{s3' == s3}, exists s2', s1  ~[g]~> (ret_g, s2') /\
-                          s2' ~[f]~> (ret_f, s3')) /\
-    (s1 ~[g]~> (ret_g, s2) ->
-     s2 ~[f]~> (ret_f, s3) ->
-     exists{s3' == s3}, exists s2', s1  ~[f]~> (ret_f, s2') /\
-                          s2' ~[g]~> (ret_g, s3')).
+                          s2' ~[f]~> (ret_f, s3')).
 
 Section lift_mfun_option.
   Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).

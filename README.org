@@ -16,8 +16,7 @@ It extends plain Gallina with 4 primitives:
 
 + *spawn*: spawn a child process
 + *do*: perform I/O operation
-+ *yield*: NOP, interrupts the computation
-+ *die*: terminate the process
++ *exit*: terminate the process
 
 They allow to write programs that (if you squint hard enough) resemble Erlang:
 
@@ -27,7 +26,7 @@ Let prog : prog_t h True :=
       c1 ! 1;
       spawn c2 <- child2;
       c2 ! false;
-      die.
+      exit.
 #+end_src
 
 * Input/Output

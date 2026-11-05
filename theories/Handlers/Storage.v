@@ -9,8 +9,7 @@ From Stdlib Require Import
 Require Import
   Setoids
   Multifunction
-  IOHandler
-  Ref.
+  IOHandler.
 
 From Hammer Require Import
   Tactics.
@@ -18,7 +17,9 @@ From Hammer Require Import
 Module EqDec := EquivDec.
 
 Section storage_handler.
-  Context {Key Val Container : Type} `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
+  Context
+    {Key Val Container : Type} `{Heqdec : EqDec.EqDec Key eq}
+    `(Hstor : stor.Storage Key Val Container).
 
   Let container_setoid := @stor.s_eq_setoid Key Val Container Hstor.
 
@@ -75,25 +76,20 @@ Section storage_handler.
     | delete k => storage_delete k
     end.
 
-  Definition storage_h_perform_io (pid : Ref) (rc : Fresh.t)
-    (pid_valid : is_valid_pid pid rc) (req : StorageReq) :
-    mfun_t (StorageRet req) :=
+  Definition storage_h_perform_io (pid : Pid) (req : StorageReq) : mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Instance storageHandler : @IOHandler StorageReq StorageRet :=
+  Program Instance storageHandler :
+    @IOHandler StorageReq StorageRet :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
       h_perform_io := storage_h_perform_io;
       h_initial := stor.new;
-      h_spawn := fun _ _ _ _ => id_mfun;
-      h_spawn_commutativity := ltac:(sauto);
-      h_terminate := fun _ _ _ _ => id_mfun;
-      h_perform_io_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_spawn_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_terminate_rc_covariance := ltac:(intros; eapply morphism_covariance; eauto);
-      h_spawn_terminate_commutativity := ltac:(sauto);
+      h_spawn := fun _ _ => id_mfun;
+      h_terminate := fun _ _ => id_mfun;
     |}.
+  Solve All Obligations with sauto.
 End storage_handler.
 
-Global Arguments storageHandler (_ _) {_} (_).
+Global Arguments storageHandler {_ _ _} (_) {_ _}.

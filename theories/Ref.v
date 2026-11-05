@@ -96,26 +96,44 @@ Module RefOrd <: OrderedType.
         end
     end.
 
-  Lemma compare_asymm a b : compare_ a b = Gt -> compare_ b a = Lt.
+  Lemma compare_antisymm a b : compare_ a b = Gt <-> compare_ b a = Lt.
   Proof.
-    generalize dependent b.
-    induction a as [|x a IH]; intros b H.
-    - sauto.
-    - destruct b as [|y b].
-      + sauto.
-      + simpl in *.
-        remember (x ?= y)%positive as Hxy.
-        symmetry in HeqHxy.
-        destruct Hxy.
-        * apply Pos.compare_eq_iff in HeqHxy. subst.
-          rewrite Pos.compare_refl.
-          now apply IH in H.
-        * discriminate.
-        * apply Pos.compare_gt_iff, POrderedType.Positive_as_OT.compare_lt_iff in HeqHxy.
-          now rewrite HeqHxy.
+    split. {
+      generalize dependent b.
+      induction a as [|x a IH]; intros b H.
+      - sauto.
+      - destruct b as [|y b].
+        + sauto.
+        + simpl in *.
+          remember (x ?= y)%positive as Hxy.
+          symmetry in HeqHxy.
+          destruct Hxy.
+          * apply Pos.compare_eq_iff in HeqHxy. subst.
+            rewrite Pos.compare_refl.
+            now apply IH in H.
+          * discriminate.
+          * apply Pos.compare_gt_iff, POrderedType.Positive_as_OT.compare_lt_iff in HeqHxy.
+            now rewrite HeqHxy.
+    }
+    { generalize dependent b.
+      induction a as [|x a IH]; intros b H.
+      - sauto.
+      - destruct b as [|y b].
+        + sauto.
+        + simpl in *.
+          remember (x ?= y)%positive as Hxy.
+          symmetry in HeqHxy.
+          destruct Hxy.
+          * apply Pos.compare_eq_iff in HeqHxy. subst.
+            rewrite Pos.compare_refl in H.
+            now apply IH in H.
+          * rewrite Pos.compare_lt_iff in HeqHxy. apply Pos.lt_gt,Pcompare_eq_Gt in HeqHxy.
+            now rewrite HeqHxy in H.
+          * reflexivity.
+    }
   Qed.
 
-  Lemma ref_compare_eq_iff a b : compare_ a b = Eq -> a = b.
+  Lemma ref_compare_eq_if a b : compare_ a b = Eq -> a = b.
   Proof.
     unfold compare_.
     generalize dependent b.
@@ -133,7 +151,39 @@ Module RefOrd <: OrderedType.
         * discriminate.
   Qed.
 
+  Lemma ref_compare_eq_iff a b : compare_ a b = Eq <-> a = b.
+  Proof.
+    split.
+    - apply ref_compare_eq_if.
+    - generalize dependent b.
+      induction a; intros b Hb.
+      + now subst.
+      + subst. simpl. rewrite Pos.compare_refl.
+        now apply IHa.
+  Qed.
+
+  Lemma compare_eq_symm a b : compare_ a b = Eq -> compare_ b a = Eq.
+  Proof.
+    intros H.
+    apply ref_compare_eq_iff in H. subst.
+    now apply ref_compare_eq_iff.
+  Qed.
+
   Definition lt a b := compare_ a b = Lt.
+
+  Definition gt a b := compare_ a b = Gt.
+
+  Definition ltb a b :=
+    match compare_ a b with
+    | Lt => true
+    | _ => false
+    end.
+
+  Definition gtb a b :=
+    match compare_ a b with
+    | Gt => true
+    | _ => false
+    end.
 
   Lemma ref_lt_nil : forall x, ~lt x [].
   Proof.
@@ -195,6 +245,9 @@ Module RefOrd <: OrderedType.
              sauto unfold:lt.
   Qed.
 
+  Lemma lt_append x y a b : lt x y -> lt (x ++ [a]) (y ++ [b]).
+  Admitted.
+
   Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
   Proof.
     intros H Habsurd.
@@ -207,7 +260,7 @@ Module RefOrd <: OrderedType.
     destruct H.
     - constructor 2. now apply ref_compare_eq_iff.
     - constructor 1. now symmetry in HeqH.
-    - constructor 3. symmetry in HeqH. now apply compare_asymm in HeqH.
+    - constructor 3. symmetry in HeqH. now apply compare_antisymm in HeqH.
   Qed.
 End RefOrd.
 
@@ -234,157 +287,33 @@ Module Fresh.
     put_ p v cc := put p v cc.
 
   Equations make0 (parent : Ref) (cc : t) (ctr : option positive) : Ref * t :=
-    make0 parent cc (Some ctr) := (ctr :: parent, put parent (ctr + 1) cc);
-    make0 parent cc None       := (1   :: parent, put parent 2         cc).
+    make0 parent cc (Some ctr) := (parent ++ [ctr], put parent (ctr + 1) cc);
+    make0 parent cc None       := (parent ++ [1],   put parent 2         cc).
 
-  Equations make  (parent : Ref) (cc : t) : Ref * t :=
+  Equations make (parent : Ref) (cc : t) : Ref * t :=
     make parent cc := make0 parent cc (get_ parent cc).
 
-  Definition is_valid_ref (ref : Ref) (cc : t) : bool :=
-    match ref with
-    | [] => true
-    | (child :: parent) =>
-        match get parent cc with
-        | None =>
-            false
-        | Some parent_child_ctr =>
-            Pos.ltb child parent_child_ctr
-        end
-    end.
+  Equations parent_of0 (ctr : positive) (acc : Ref) (l : Ref) : (Ref * positive) :=
+    parent_of0 ctr acc [] := (rev' acc, ctr);
+    parent_of0 ctr acc (ctr1 :: l) := parent_of0 ctr1 (ctr :: acc) l.
+
+  Equations parent_of (ref : Ref) : option (Ref * positive) :=
+    parent_of [] := None;
+    parent_of (ctr :: l) := Some (parent_of0 ctr [] l).
+
+  Section tests.
+    Goal fst (make [4; 5] (FMap.M.empty positive)) = [4; 5; 1].
+    Proof.
+      reflexivity.
+    Qed.
+  End tests.
 
   Opaque put.
   Opaque get.
 
-  Lemma makes_valid_ref (parent new : Ref) (cc cc' : t) :
-    make parent cc = (new, cc') ->
-    is_valid_ref new cc' = true.
-  Proof.
-    Ltac slv := try easy; lia.
-    unfold make, is_valid_ref, get_.
-    intros Hnew.
-    destruct (get parent cc).
-    - inversion Hnew.
-      rewrite keep.
-      assert (H : p <= p + 1) by lia.
-      destruct (Pos.ltb_spec0 p (p + 1)); slv.
-    - inversion Hnew.
-      rewrite keep.
-      destruct (Pos.leb_spec0 1 2); slv.
-  Qed.
-
-  Lemma make_keeps_valid (parent other new : Ref) (cc cc' : t) :
-    is_valid_ref other cc = true ->
-    make parent cc = (new, cc') ->
-    is_valid_ref other cc' = true.
-  Proof.
-    unfold make, is_valid_ref, get_.
-    intros Hvalid Hnew.
-    destruct other as [|oc oparent].
-    - easy.
-    - destruct (RefOrd.eq_dec oparent parent).
-      2:{ (* parent <> oparent *)
-        destruct (get parent cc);
-          inversion Hnew; clear Hnew;
-          rewrite <-distinct; assumption.
-      }
-      (* parent = oparent *)
-      subst. unfold Ref in *.
-      destruct (get parent cc); inversion Hnew; clear Hnew.
-      + subst. rewrite keep.
-        destruct (Pos.ltb_spec0 oc (p + 1));
-          destruct (Pos.ltb_spec0 oc p);
-          try easy; lia.
-      + discriminate.
-  Qed.
-
-  Lemma make_valid_not_equal (parent other new : Ref) (cc cc' : t) :
-    is_valid_ref other cc = true ->
-    make parent cc = (new, cc') ->
-    new <> other.
-  Proof.
-    unfold is_valid_ref, make, get_.
-    intros Hvalid Hnew.
-    destruct other as [|oc oparent].
-    - unfold make0 in Hnew. sauto.
-    - destruct (RefOrd.eq_dec parent oparent).
-      2:{ (* parent <> oparent *)
-        destruct (get parent cc) as [pctr|];
-          inversion Hnew; clear Hnew; sauto.
-      }
-      (* parent = oparent *)
-      intros Habsurd.
-      subst.
-      unfold Ref in *.
-      remember (get oparent cc) as maybe_ctr.
-      destruct maybe_ctr as [ctr|].
-      + inversion Hnew; clear Hnew.
-        subst.
-        destruct (Pos.ltb_spec0 oc oc); lia.
-      + discriminate.
-  Qed.
-
-  (** The freshly allocated ref is NOT valid in the old counter [cc]:
-      it only becomes valid after [make] bumps the parent's counter. *)
-  Lemma make_invalid_ref (parent new : Ref) (cc cc' : t) :
-    make parent cc = (new, cc') ->
-    is_valid_ref new cc = false.
-  Proof.
-    unfold make, is_valid_ref, get_.
-    intros Hnew.
-    destruct (get parent cc) as [ctr|] eqn:Hget.
-    - inversion Hnew; subst.
-      unfold Ref in Hget.
-      rewrite Hget. cbn.
-      now apply Pos.ltb_irrefl.
-    - inversion Hnew; subst.
-      unfold Ref in Hget.
-      now rewrite Hget.
-  Qed.
-
-  Lemma new2_not_equal p1 p2 rc rc' rc'' n1 n2 :
-    p1 <> p2 ->
-    Fresh.make p1 rc = (n1, rc') ->
-    Fresh.make p2 rc' = (n2, rc'') ->
-    n1 <> n2.
-  Proof.
-    intros Hp12 Hn1_make Hn2_make.
-    unfold make, make0, get_, put_ in *.
-    destruct (get p1 rc).
-    - injection Hn1_make. intros Hrc' Hn1.
-      sauto.
-    - destruct (get p2 rc').
-      + sauto.
-      + sauto.
-  Qed.
-
-  Lemma is_valid_neq_proxy a b rc :
-    is_valid_ref a rc = true ->
-    is_valid_ref b rc = false ->
-    a <> b.
-  Proof.
-    unfold Fresh.is_valid_ref.
-    intros Ha Hb.
-    destruct a as [|a_h a_t]; destruct b as [|b_h b_t]; intros H.
-    - discriminate.
-    - inversion H.
-    - inversion H.
-    - injection H as H_h H_t. subst. now rewrite Ha in Hb.
-  Qed.
-
-  Lemma is_valid_equiv ref cc cc' :
-    s_eq cc cc' ->
-    is_valid_ref ref cc = true ->
-    is_valid_ref ref cc' = true.
-  Proof.
-    unfold is_valid_ref.
-    intros Hequiv Hvalid.
-    destruct ref.
-    - easy.
-    - now rewrite <-Hequiv.
-  Qed.
-
-  Add Parametric Morphism (parent : Ref) :
-    (make parent) with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid)) as make_morph.
+  Add Parametric Morphism (parent : Ref) : (make parent)
+      with signature (equiv  ==> @equiv _ (pair_setoid' (eq_setoid _) s_eq_setoid))
+      as make_morph.
   Proof.
     intros a1 a1' Hequiv.
     unfold make, make0, get_.
@@ -444,61 +373,67 @@ Module Fresh.
       reflexivity.
   Qed.
 
-  Inductive NewValidRef (parent : Ref) (cc : Fresh.t) : Type :=
-  | new_valid_ref : forall (new : Ref) (cc' : Fresh.t),
-      is_valid_ref new cc' = true ->
-      make parent cc = (new, cc') ->
-      NewValidRef parent cc.
-
-  Program Equations make_valid p c: NewValidRef p c :=
-    make_valid p c with get__equation_1 p c, get_ p c => {
-      make_valid p c H (Some ctr) := new_valid_ref p c (ctr :: p) (put_ p (ctr + 1) c) _ _;
-      make_valid p c H None := new_valid_ref p c (1 :: p) (put_ p 2 c) _ _;
-    }.
-  Next Obligation.
-    unfold put_. rewrite keep.
-    assert (H1 : ctr <= ctr + 1) by lia.
-    destruct (Pos.ltb_spec0 ctr (ctr + 1)); lia.
-  Qed.
-  Next Obligation.
-    now rewrite make_equation_1, <- make0_equation_1, H.
-  Qed.
-  Next Obligation.
-    unfold put_. rewrite keep.
-    assert (H1 : 1 <= 2) by lia.
-    destruct (Pos.ltb_spec0 1 2); lia.
-  Qed.
-  Next Obligation.
-    now rewrite make_equation_1, <- make0_equation_2, H.
-  Qed.
-
-  Lemma make_valid_eq parent cc new cc' (H : make parent cc = (new, cc')) :
-    make_valid parent cc = new_valid_ref parent cc new cc' (makes_valid_ref parent new cc cc' H) H.
+  Lemma reford_app ref a :
+    RefOrd.compare_ ref (ref ++ [a]) = Lt.
   Proof.
-    funelim (make_valid parent cc).
-    - assert (H1 : ctr :: p = new /\ put_ p (ctr + 1) c = cc'). {
-        clear Heq0 Heqcall.
-        funelim (make p c).
-        rewrite Heq in Heqcall. symmetry in H0. rewrite <-H0 in Heqcall.
-        unfold make0 in Heqcall.
-        apply pair_equal_spec in Heqcall.
-        funelim (put_ parent (ctr + 1) cc). now rewrite Heqcall0 in Heqcall.
-      }
-      destruct H1 as [Hnew Ncc']. subst.
-      replace (make_valid_obligations_obligation_2 p c ctr H) with H0 by apply proof_irrelevance.
-      now replace (make_valid_obligations_obligation_1 p c ctr) with (makes_valid_ref p (ctr :: p) c (put_ p (ctr + 1) c) H0) by apply proof_irrelevance.
-    - assert (H1 : 1 :: p = new /\ put_ p 2 c = cc'). {
-        clear Heq0 Heqcall.
-        funelim (make p c).
-        rewrite Heq in Heqcall. symmetry in H0. rewrite <-H0 in Heqcall.
-        unfold make0 in Heqcall.
-        apply pair_equal_spec in Heqcall.
-        funelim (put_ parent 2 cc). now rewrite Heqcall0 in Heqcall.
-      }
-      destruct H1 as [Hnew Ncc']. subst.
-      replace (make_valid_obligations_obligation_4 p c H) with H0 by apply proof_irrelevance.
-      now replace (make_valid_obligations_obligation_3 p c) with (makes_valid_ref p (1 :: p) c (put_ p 2 c) H0) by apply proof_irrelevance.
+    induction ref.
+    - easy.
+    - simpl.
+      now rewrite Pos.compare_refl.
+  Qed.
+
+  Lemma child_gt_parent parent child cc cc' :
+    (child, cc') = make parent cc ->
+    RefOrd.compare_ parent child = Lt.
+  Proof.
+    intros Hmake.
+    funelim (make parent cc).
+    rewrite <-Heqcall in Hmake.
+    funelim (make0 parent cc (get_ parent cc));
+      rewrite <-Heqcall0 in Hmake;
+      inversion Hmake;
+      subst;
+      apply reford_app.
+  Qed.
+
+  Lemma gt_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :
+    RefOrd.gt p1 p2 ->
+    (new1, cc1') = make p1 cc1 ->
+    (new2, cc2') = make p2 cc2 ->
+    RefOrd.gt new1 new2.
+  Proof.
+    intros Hp.
+    assert (Hslv : forall a b, RefOrd.gt (p1 ++ [a]) (p2 ++ [b])). {
+      intros a b.
+      apply RefOrd.compare_antisymm.
+      apply RefOrd.compare_antisymm in Hp.
+      apply (RefOrd.lt_append p2 p1 b a Hp).
+    }
+    unfold make, make0.
+    intros H1 H2.
+    destruct (get_ p1 cc1); destruct (get_ p2 cc2);
+      injection H1 as H1new Hcc1'; injection H2 as H2new Hcc2';
+      subst;
+      apply Hslv.
+  Qed.
+
+  Lemma different_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :
+    p1 <> p2 ->
+    (new1, cc1') = make p1 cc1 ->
+    (new2, cc2') = make p2 cc2 ->
+    new1 <> new2.
+  Proof.
+    intros Hp.
+    assert (Hslv : forall a b, p1 ++ [a] <> p2 ++ [b]). {
+      intros a b Habsurd.
+      apply app_inj_tail_iff in Habsurd.
+      firstorder.
+    }
+    unfold make, make0.
+    intros H1 H2.
+    destruct (get_ p1 cc1); destruct (get_ p2 cc2);
+      injection H1 as H1new Hcc1'; injection H2 as H2new Hcc2';
+      subst;
+      apply Hslv.
   Qed.
 End Fresh.
-
-Opaque Fresh.make_valid.
