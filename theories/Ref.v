@@ -96,26 +96,44 @@ Module RefOrd <: OrderedType.
         end
     end.
 
-  Lemma compare_asymm a b : compare_ a b = Gt -> compare_ b a = Lt.
+  Lemma compare_antisymm a b : compare_ a b = Gt <-> compare_ b a = Lt.
   Proof.
-    generalize dependent b.
-    induction a as [|x a IH]; intros b H.
-    - sauto.
-    - destruct b as [|y b].
-      + sauto.
-      + simpl in *.
-        remember (x ?= y)%positive as Hxy.
-        symmetry in HeqHxy.
-        destruct Hxy.
-        * apply Pos.compare_eq_iff in HeqHxy. subst.
-          rewrite Pos.compare_refl.
-          now apply IH in H.
-        * discriminate.
-        * apply Pos.compare_gt_iff, POrderedType.Positive_as_OT.compare_lt_iff in HeqHxy.
-          now rewrite HeqHxy.
+    split. {
+      generalize dependent b.
+      induction a as [|x a IH]; intros b H.
+      - sauto.
+      - destruct b as [|y b].
+        + sauto.
+        + simpl in *.
+          remember (x ?= y)%positive as Hxy.
+          symmetry in HeqHxy.
+          destruct Hxy.
+          * apply Pos.compare_eq_iff in HeqHxy. subst.
+            rewrite Pos.compare_refl.
+            now apply IH in H.
+          * discriminate.
+          * apply Pos.compare_gt_iff, POrderedType.Positive_as_OT.compare_lt_iff in HeqHxy.
+            now rewrite HeqHxy.
+    }
+    { generalize dependent b.
+      induction a as [|x a IH]; intros b H.
+      - sauto.
+      - destruct b as [|y b].
+        + sauto.
+        + simpl in *.
+          remember (x ?= y)%positive as Hxy.
+          symmetry in HeqHxy.
+          destruct Hxy.
+          * apply Pos.compare_eq_iff in HeqHxy. subst.
+            rewrite Pos.compare_refl in H.
+            now apply IH in H.
+          * rewrite Pos.compare_lt_iff in HeqHxy. apply Pos.lt_gt,Pcompare_eq_Gt in HeqHxy.
+            now rewrite HeqHxy in H.
+          * reflexivity.
+    }
   Qed.
 
-  Lemma ref_compare_eq_iff a b : compare_ a b = Eq -> a = b.
+  Lemma ref_compare_eq_if a b : compare_ a b = Eq -> a = b.
   Proof.
     unfold compare_.
     generalize dependent b.
@@ -133,7 +151,39 @@ Module RefOrd <: OrderedType.
         * discriminate.
   Qed.
 
+  Lemma ref_compare_eq_iff a b : compare_ a b = Eq <-> a = b.
+  Proof.
+    split.
+    - apply ref_compare_eq_if.
+    - generalize dependent b.
+      induction a; intros b Hb.
+      + now subst.
+      + subst. simpl. rewrite Pos.compare_refl.
+        now apply IHa.
+  Qed.
+
+  Lemma compare_eq_symm a b : compare_ a b = Eq -> compare_ b a = Eq.
+  Proof.
+    intros H.
+    apply ref_compare_eq_iff in H. subst.
+    now apply ref_compare_eq_iff.
+  Qed.
+
   Definition lt a b := compare_ a b = Lt.
+
+  Definition gt a b := compare_ a b = Gt.
+
+  Definition ltb a b :=
+    match compare_ a b with
+    | Lt => true
+    | _ => false
+    end.
+
+  Definition gtb a b :=
+    match compare_ a b with
+    | Gt => true
+    | _ => false
+    end.
 
   Lemma ref_lt_nil : forall x, ~lt x [].
   Proof.
@@ -195,6 +245,9 @@ Module RefOrd <: OrderedType.
              sauto unfold:lt.
   Qed.
 
+  Lemma lt_append x y a b : lt x y -> lt (x ++ [a]) (y ++ [b]).
+  Admitted.
+
   Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
   Proof.
     intros H Habsurd.
@@ -207,7 +260,7 @@ Module RefOrd <: OrderedType.
     destruct H.
     - constructor 2. now apply ref_compare_eq_iff.
     - constructor 1. now symmetry in HeqH.
-    - constructor 3. symmetry in HeqH. now apply compare_asymm in HeqH.
+    - constructor 3. symmetry in HeqH. now apply compare_antisymm in HeqH.
   Qed.
 End RefOrd.
 
@@ -341,5 +394,46 @@ Module Fresh.
       inversion Hmake;
       subst;
       apply reford_app.
+  Qed.
+
+  Lemma gt_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :
+    RefOrd.gt p1 p2 ->
+    (new1, cc1') = make p1 cc1 ->
+    (new2, cc2') = make p2 cc2 ->
+    RefOrd.gt new1 new2.
+  Proof.
+    intros Hp.
+    assert (Hslv : forall a b, RefOrd.gt (p1 ++ [a]) (p2 ++ [b])). {
+      intros a b.
+      apply RefOrd.compare_antisymm.
+      apply RefOrd.compare_antisymm in Hp.
+      apply (RefOrd.lt_append p2 p1 b a Hp).
+    }
+    unfold make, make0.
+    intros H1 H2.
+    destruct (get_ p1 cc1); destruct (get_ p2 cc2);
+      injection H1 as H1new Hcc1'; injection H2 as H2new Hcc2';
+      subst;
+      apply Hslv.
+  Qed.
+
+  Lemma different_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :
+    p1 <> p2 ->
+    (new1, cc1') = make p1 cc1 ->
+    (new2, cc2') = make p2 cc2 ->
+    new1 <> new2.
+  Proof.
+    intros Hp.
+    assert (Hslv : forall a b, p1 ++ [a] <> p2 ++ [b]). {
+      intros a b Habsurd.
+      apply app_inj_tail_iff in Habsurd.
+      firstorder.
+    }
+    unfold make, make0.
+    intros H1 H2.
+    destruct (get_ p1 cc1); destruct (get_ p2 cc2);
+      injection H1 as H1new Hcc1'; injection H2 as H2new Hcc2';
+      subst;
+      apply Hslv.
   Qed.
 End Fresh.

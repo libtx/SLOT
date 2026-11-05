@@ -173,12 +173,12 @@ Section props.
   Definition commute (f g : T) :=
     forall x y, commute_def f g x y.
 
-  (** [swap_dir f g] : any appliction of [f] followed by [g] (to [y]) can be re-run
+  (** [swappable f g] : any appliction of [f] followed by [g] can be re-run
       as [g] then [f], reaching an equivalent state. *)
-  Definition swap_dir (f g : T) :=
+  Definition swappable (f g : T) :=
     forall x y, x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y'.
 
-  Lemma commute_as_swap_dir f g : commute f g <-> swap_dir f g /\ swap_dir g f.
+  Lemma commute_as_swappable f g : commute f g <-> swappable f g /\ swappable g f.
   Proof.
     split.
     - intros H.

@@ -9,9 +9,6 @@ Require Import
   Ref
   IOHandler.
 
-From SLOT Require Import
-  VM.
-
 From LibTx Require Import
   Storage.
 
@@ -19,8 +16,6 @@ From Hammer Require Import
   Tactics.
 
 Section defn.
-  Context {Ctx : Type} `{Hctx : @VMContext Ctx}.
-
   (** Handler state *)
   Let t := Ref.FMap.M.t Mailbox.
 
@@ -108,8 +103,7 @@ Section defn.
     | send to msg => send_ msg to
     end.
 
-  Definition delete_mailbox (_normal : bool) (pid : Ref) (_ctx : Ctx)
-    (_pid_valid : is_valid_pid pid _ctx) : MFun t t.
+  Definition delete_mailbox (_normal : bool) (pid : Ref) : MFun t t.
     set (f := @delete _ Mailbox _ _ pid).
     refine (pure f _).
     - intros s s' H.
@@ -117,18 +111,17 @@ Section defn.
   Defined.
 
   (* begin details *)
-  Lemma delete_mailbox_morph (normal : bool) (pid : Ref) (ctx : Ctx)
-      (v : is_valid_pid pid ctx) s s' :
-    morphism (delete_mailbox normal pid ctx v) s s' <-> @delete _ Mailbox _ _ pid s = s'.
+  Lemma delete_mailbox_morph (normal : bool) (pid : Ref) s s' :
+    morphism (delete_mailbox normal pid) s s' <-> @delete _ Mailbox _ _ pid s = s'.
   Proof.
     split; intro H; exact H.
   Qed.
   (* end details *)
 
   Opaque put.
+  Opaque delete.
 
-  Program Definition mailbox_spawn (pid : Ref) (_ctx : Ctx)
-    (_pid_fresh : is_invalid_pid pid _ctx) (mb_t : Set) : MFun t t :=
+  Program Definition mailbox_spawn (pid : Ref) (mb_t : Set) : MFun t t :=
     pure (put pid {| mb_t := mb_t; mb_q := empty |}) _.
   Next Obligation.
     now rewrite H.
@@ -158,29 +151,49 @@ Section defn.
         reflexivity.
   Qed.
 
-  Instance mailboxHandler_basics : @IOHandler_basics Ctx _ MBReq MBRet :=
+  Program Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
-      h_perform_io _ _ _ req := mailbox_step req;
+      h_perform_io _ req := mailbox_step req;
       h_initial := new;
       h_spawn := mailbox_spawn;
       h_terminate := delete_mailbox;
-      h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
-                                     destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                     cbn; apply simulated_by_refl);
-      h_spawn_ctx_covariance := ltac:(intros pid mb_t c c' Hc;
-                                 destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                 cbn; apply simulated_by_refl);
-      h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
-                                   destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                   cbn; apply simulated_by_refl);
     |}.
-
-  (* The [IOHandler] laws instance used to live here, stated over the
-     handler-level [h_spawn]/[h_terminate].  The laws are now stated
-     in VM.v over the VM's own operations ([spawn_vm]/
-     [terminate_vm]), so they can no longer be provided at this
-     level; the lemmas above are kept for the composition root, where
-     the law instance will be derived from them. *)
+  Next Obligation.
+    rename x into mb0.
+    rename y into mb2.
+    destruct H0 as [mb1 [Hmb1 Hmb2]].
+    assert (Hpids : pid1 <> pid2). {
+      intros Habsurd.
+      apply RefOrd.ref_compare_eq_iff in Habsurd.
+      now rewrite H in Habsurd.
+    }
+    simpl in *.
+    rewrite <-Hmb1 in Hmb2.
+    specialize (put_distict_comm mb0 pid1 pid2
+                                 {| mb_t := mb_t1; mb_q := empty |}
+                                 {| mb_t := mb_t2; mb_q := empty |}
+                                 Hpids) as Hcomm.
+    exists (put pid1 {| mb_t := mb_t1; mb_q := empty |} (put pid2 {| mb_t := mb_t2; mb_q := empty |} mb0)).
+    split.
+    - exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} mb0).
+      now split.
+    - now subst.
+  Qed.
+  Next Obligation.
+    rename x into mb0.
+    rename y into mb2.
+    destruct H0 as [mb1 [Hmb1 Hmb2]].
+    assert (Hpids : pid2 <> pid1). {
+      intros Habsurd. symmetry in Habsurd.
+      apply RefOrd.ref_compare_eq_iff in Habsurd.
+      now rewrite H in Habsurd.
+    }
+    simpl in *.
+    rewrite <-Hmb1 in Hmb2.
+    specialize (put_delete_distinct_comm mb0 pid2 pid1 {| mb_t := mb_t; mb_q := empty |} Hpids) as Hcomm.
+    exists (delete pid1 (put pid2 {| mb_t := mb_t; mb_q := empty |} mb0)).
+    sauto.
+  Qed.
 End defn.

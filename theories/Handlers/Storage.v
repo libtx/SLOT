@@ -11,9 +11,6 @@ Require Import
   Multifunction
   IOHandler.
 
-From SLOT Require Import
-  VM.
-
 From Hammer Require Import
   Tactics.
 
@@ -21,9 +18,8 @@ Module EqDec := EquivDec.
 
 Section storage_handler.
   Context
-    {Ctx : Type} `{Hctx : VMContext Ctx}
-    {Key Val Container : Type}
-    `(Hstor : stor.Storage Key Val Container) `{Heqdec : EqDec.EqDec Key eq}.
+    {Key Val Container : Type} `{Heqdec : EqDec.EqDec Key eq}
+    `(Hstor : stor.Storage Key Val Container).
 
   Let container_setoid := @stor.s_eq_setoid Key Val Container Hstor.
 
@@ -80,36 +76,20 @@ Section storage_handler.
     | delete k => storage_delete k
     end.
 
-  Definition storage_h_perform_io
-    (pid : Pid) (ctx : Ctx) (pid_valid : is_valid_pid pid ctx) (req : StorageReq) :
-    mfun_t (StorageRet req) :=
+  Definition storage_h_perform_io (pid : Pid) (req : StorageReq) : mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Instance storageHandler_basics :
-    @IOHandler_basics Ctx _ StorageReq StorageRet :=
+  Program Instance storageHandler :
+    @IOHandler StorageReq StorageRet :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
       h_perform_io := storage_h_perform_io;
       h_initial := stor.new;
-      h_spawn := fun _ _ _ _ => id_mfun;
-      h_terminate := fun _ _ _ _ => id_mfun;
-      h_perform_io_ctx_covariance := ltac:(intros pid req c c' Hc;
-                                     destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                     cbn; apply simulated_by_refl);
-      h_spawn_ctx_covariance := ltac:(intros pid mb_t c c' Hc;
-                                 destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                 cbn; apply simulated_by_refl);
-      h_terminate_ctx_covariance := ltac:(intros normal pid c c' Hc;
-                                   destruct c as [ctx v]; destruct c' as [ctx' v'];
-                                   cbn; apply simulated_by_refl);
+      h_spawn := fun _ _ => id_mfun;
+      h_terminate := fun _ _ => id_mfun;
     |}.
-
-  (* The [IOHandler] laws instance used to live here, stated over the
-     handler-level [h_spawn]/[h_terminate].  The laws are now stated
-     in VM.v over the VM's own operations ([spawn_vm]/
-     [terminate_vm]); they will be provided at the composition
-     root. *)
+  Solve All Obligations with sauto.
 End storage_handler.
 
-Global Arguments storageHandler_basics {_ _} (_ _ _).
+Global Arguments storageHandler {_ _ _} (_) {_ _}.

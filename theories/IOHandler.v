@@ -65,7 +65,7 @@ Section IOHandler.
       world-level operations.  It carries no laws: those live in
       [IOHandler], which extends a basics implementation. *)
 
-  Class IOHandler_basics := {
+  Class IOHandler := {
       h_state : Type;
       h_setoid : Setoid h_state;
       h_initial : h_state;
@@ -75,8 +75,26 @@ Section IOHandler.
       h_spawn (pid : Pid) (mailbox_t : Set) : MFun h_state h_state;
 
       h_terminate (normal : bool) (pid : Pid) : MFun h_state h_state;
+
+      (** Spawning children of two distinct pids commutes. *)
+      h_spawn_commutativity :
+          forall (pid1 pid2 : Pid)
+             (mb_t1 mb_t2 : Set),
+          RefOrd.gt pid1 pid2 ->
+          swappable (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
+
+      (** This property specifies that termination of a process cannot
+          interfere with spawning of any new process.  The two pids
+          must be distinct. TODO: remove it. *)
+      h_spawn_terminate_commutativity :
+        forall (pid1 pid2 : Pid)
+          (mb_t : Set)
+          (normal : bool),
+          RefOrd.gt pid1 pid2 ->
+          swappable (h_terminate normal pid1)
+                   (h_spawn pid2 mb_t);
     }.
 End IOHandler.
 
-Definition h_request_t `(IOHandler_basics) : Type := Request.
-Definition h_reply_t `(IOHandler_basics) : Request -> Type := Reply.
+Definition h_request_t `(IOHandler) : Type := Request.
+Definition h_reply_t `(IOHandler) : Request -> Type := Reply.

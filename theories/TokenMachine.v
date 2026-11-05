@@ -69,7 +69,7 @@ Section token_trace_ensemble.
     now apply commute_sym.
   Qed.
 
-  Definition swap_events (a b : Event) := swap_dir (tm_state_trans a) (tm_state_trans b).
+  Definition swap_events (a b : Event) := swappable (tm_state_trans a) (tm_state_trans b).
 
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
@@ -162,8 +162,7 @@ Section canonical_trace.
     generalize dependent x. generalize dependent y.
     induction Ht as [|y' v z g t' Hy'v Hfoll' Ht'].
     - exfalso.
-      unfold not, can_follow_hd in Hfoll.
-      contradiction.
+      now unfold not, can_follow_hd in Hfoll.
     - intros y Hyy' x Hxy. simpl in Hfoll.
       assert (Hfg_canon : tm_canon_rel g f). {
         assert (Hcanon_total : tm_canon_rel f g \/ tm_canon_rel g f) by

@@ -37,7 +37,7 @@ Open Scope slot_scope.
 
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler_basics Request Reply}.
+          `{IOH_b : @IOHandler Request Reply}.
 
   Let World := @h_state _ _ IOH_b.
 
@@ -136,9 +136,9 @@ Section definitions.
   (** ** Canonical order *)
 
   Definition vmte_canon_rel (a b : Process) :=
-    (* Order of events is canonical when pid a =< pid b: *)
+    (* Order of events is canonical when pid a >= pid b: *)
     match RefOrd.compare_ (pid a) (pid b) with
-    | Gt => False
+    | Lt => False
     | _ => True
     end.
 
@@ -151,7 +151,12 @@ Section definitions.
   Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
   Proof.
     unfold Decidable.decidable, vmte_canon_rel.
-    sauto use:RefOrd.compare_asymm.
+    remember (RefOrd.compare_ (pid a) (pid b)) as ord.
+    destruct ord.
+    - now left.
+    - right. symmetry in Heqord. apply RefOrd.compare_antisymm in Heqord.
+      now rewrite Heqord.
+    - now left.
   Qed.
 
   Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=
@@ -352,12 +357,11 @@ Section definitions.
           (world vm1) ~[h_spawn new_pid child_mb_t]~> w2 &
           vm2 = vm1<|world := w2|>.
 
-    #[refine]
-    Definition spawn : MFun VM VM :=
+    Program Definition spawn : MFun VM VM :=
       {| morphism := spawn_morph;
       |}.
-    Proof.
-      intros vm0 vm0' vm Hvm0 Hvm.
+    Next Obligation.
+      rename x into vm0. rename x' into vm0'. rename y into vm. rename H into Hvm0. rename H0 into Hvm.
       unfold spawn_morph in *.
       specialize (alloc_pid_covariance vm0 vm0' Hvm0) as Hvm1'.
       destruct (alloc_pid vm0) as [new_pid vm1].
@@ -518,32 +522,6 @@ Section definitions.
     |}.
 End definitions.
 
-Class IOHandler {Request : Type} {Reply : Request -> Type}
-                (Basics : @IOHandler_basics Request Reply) :=
-  {
-      (** Spawning children of two distinct pids commutes. *)
-      h_spawn_commutativity :
-          forall (pid1 pid2 : Pid)
-             (child_mb_t1 : Set) (child1 : Program child_mb_t1)
-             (mb_t1 : Set) (cont1 : @Address child_mb_t1 -> Program mb_t1)
-             (child_mb_t2 : Set) (child2 : Program child_mb_t2)
-             (mb_t2 : Set) (cont2 : @Address child_mb_t2 -> Program mb_t2),
-          RefOrd.compare_ pid1 pid2 = Lt ->
-          swap_dir (@spawn _ _ Basics child_mb_t1 child1 pid1 mb_t1 cont1)
-                   (@spawn _ _ Basics child_mb_t2 child2 pid2 mb_t2 cont2);
-
-      (** This property specifies that termination of a process cannot
-          interfere with spawning of any new process.  The two pids
-          must be distinct. *)
-      h_spawn_terminate_commutativity :
-        forall (child_mb_t : Set) (child : Program child_mb_t)
-               (mb_t : Set) (cont : @Address child_mb_t -> Program mb_t)
-               (normal : bool) (pid1 pid2 : Pid),
-          pid1 <> pid2 ->
-          swap_dir (@terminate _ _ Basics pid1)
-                   (@spawn _ _ Basics child_mb_t child pid2 mb_t cont);
-    }.
-
 From Ltac2 Require
   Fresh
   String
@@ -569,11 +547,10 @@ Ltac2 dvm (vms : ident list) :=
        let w := fresh_id (String.app prefix "_w") in
        let rq := fresh_id (String.app prefix "_rq") in
        let rc := fresh_id (String.app prefix "_rc") in
-       let inv := fresh_id (String.app prefix "_pids_valid") in
        let vm_ := Control.hyp vm in
        match! Constr.type vm_ with
        | VM =>
-           destruct $vm_ as [$w $rq $rc $inv]
+           destruct $vm_ as [$w $rq $rc]
        end)
     vms.
 
@@ -581,7 +558,7 @@ Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
 
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IO_b : @IOHandler_basics Request Reply}.
+          `{IO_b : @IOHandler Request Reply}.
 
   Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
     intros vm1 vm2 H.
@@ -591,7 +568,7 @@ End tests.
 
 Section canned.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler_basics Request Reply}.
+          `{IOH_b : @IOHandler Request Reply}.
 
   Lemma canned_schedule_out_some proc vm0 vm1 :
     Some (proc, vm1) <~[schedule_out]~ vm0 ->
@@ -631,7 +608,7 @@ Ltac2 maybe_hyp_to_string (c : constr) (default : string) : string :=
   end.
 
 (* Destruct the [exec_proc_morph] conclusion that the hypothesis
-   [id] (already unfolded down to the level of do_io / lift_w /
+   [id] (already unfolded down to the level of perform_io / lift_w /
    do_spawn / spawn) is left with. *)
 Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   let hyp_prefix := Ident.to_string id in
@@ -640,18 +617,16 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   let hrc := fresh_id (String.app hyp_prefix "_rc") in
   let new_hyp := Control.hyp id in
   lazy_match! Constr.type new_hyp with
-  | @morphism _ _ _ _ (terminate_vm _) _ _ =>
-      (* The totalized [terminate_vm] reads the validity witness from
-         the state; recover the restricted [terminate] run. *)
-      unfold terminate_vm, totalize in $id;
+  | @morphism _ _ _ _ (terminate _) _ _ =>
+      unfold terminate in $id;
       destruct $new_hyp as [_vt_exit $id];
       unfold_exec_proc_morph id
-  | @morphism _ _ _ _ (perform_io_vm _ _ _ _) _ _ =>
-      unfold perform_io_vm, totalize in $id;
+  | @morphism _ _ _ _ (perform_io _ _ _ _) _ _ =>
+      unfold perform_io in $id;
       destruct $new_hyp as [_vt_io $id];
       unfold_exec_proc_morph id
-  | @morphism _ _ _ _ (spawn_vm _ _ _ _ _) _ _ =>
-      unfold spawn_vm, totalize in $id;
+  | @morphism _ _ _ _ (spawn _ _ _ _ _) _ _ =>
+      unfold spawn_morph in $id;
       destruct $new_hyp as [_vt_spawn $id];
       unfold_exec_proc_morph id
   | @morphism _ _ _ _ (perform_io _ _ ?req _) _ _ =>
@@ -662,11 +637,11 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       unfold terminate in $id;
       cbn in $id;
       unfold_exec_proc_morph id
-  | do_io _ _ ?req _ _ _ _ =>
+  | perform_io_morph _ _ ?req _ _ _ _ =>
       let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
       destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
-  | do_exit _ _ _ _ =>
-      unfold do_exit in $id;
+  | terminate_morph _ _ _ _ =>
+      unfold terminate_morph in $id;
       cbn in $id;
       unfold_exec_proc_morph id
   | _ /\ _ /\ _ =>
@@ -678,35 +653,60 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       unfold spawn in $id;
       cbn in $id;
       unfold_exec_proc_morph id
-  | do_spawn ?_child_mb_t' ?_child' ?_parent' ?_parent_mb_t' ?_parent_cont' ?_vm0' ?_vm_end' ?_valid' =>
-      (* [do_spawn] unfolds to an existential over the new world and
-         an equation for the resulting VM.  Destruct the fresh
-         reference allocation first, then the existential. *)
+  | spawn_morph ?_child_mb_t' ?_child' ?_parent' ?_parent_mb_t' ?_parent_cont' ?_vm0' ?_vm_end =>
       let new_pid := fresh_id "new_pid" in
       let new_rc := fresh_id "new_pid_rc" in
       let hvalid := fresh_id "Hnew_pid_rc_valid" in
       let hmake := fresh_id "Hmake_pid" in
       let w2 := fresh_id (String.app hyp_prefix "_spawn_w") in
       let heq_vm := fresh_id (String.app hyp_prefix "_eq_vm") in
-      unfold do_spawn in $id;
+      let fresh_make_result := fresh_id (String.app hyp_prefix "_fresh") in
+      unfold spawn_morph in $id;
       cbn in $id;
-      (* The scrutinee of the [alloc_pid] case analysis is
-         [Fresh.make_valid parent rc] with [rc] already reduced by
-         [cbn]; extract it from the hypothesis so that [destruct]
-         substitutes it exactly (building the term from [ref_ctr]
-         of the record would only be convertible, not syntactic,
-         and the case analysis would not reduce). *)
-      match! Constr.type (Control.hyp id) with
-      | context [Fresh.make_valid ?parent_mw ?rc_mw] =>
-          destruct (Fresh.make_valid $parent_mw $rc_mw) as [$new_pid $new_rc $hvalid $hmake]
+      lazy_match! Constr.type (Control.hyp id) with
+      | context [Fresh.make ?parent_mw ?rc_mw] =>
+          remember (Fresh.make $parent_mw $rc_mw) as fresh_make_result;
+          destruct fresh_make_result as [$new_pid $new_rc]
       end;
-      (* [Control.hyp] must be re-captured: the destruct above
-         re-introduces the hypothesis. *)
       let new_hyp := Control.hyp id in
-      destruct $new_hyp as [$w2 $hworld $heq_vm]
+      destruct $new_hyp as [$w2 $hworld $heq_vm];
+      (* Unfold equality over the VM *)
+      let heq_vm_w := fresh_id "_w" in
+      let heq_vm_rq := fresh_id "_rq" in
+      let heq_vm_rc := fresh_id "_rc" in
+      let heq_vm' := Control.hyp heq_vm in
+      injection $heq_vm' as $heq_vm_w $heq_vm_rq $heq_vm_rc; clear $heq_vm;
+      let heq_vm_w' := Control.hyp heq_vm_w in
+      let heq_vm_rq' := Control.hyp heq_vm_rq in
+      let heq_vm_rc' := Control.hyp heq_vm_rc in
+      rewrite $heq_vm_w' in *; clear $heq_vm_w;
+      rewrite $heq_vm_rq' in *; clear $heq_vm_rq;
+      rewrite $heq_vm_rc' in *; clear $heq_vm_rc
   | ?other =>
       printf "No match: %t" other
   end.
+
+Ltac2 unfold_schedule_out (id : ident) :=
+  match! Constr.type (Control.hyp id) with
+  | ?_vm0 ~[schedule_out]~> Some (?proc, ?vm) =>
+      let proc_prefix := maybe_hyp_to_string proc (Ident.to_string id) in
+      let world_prefix := maybe_hyp_to_string vm (Ident.to_string id) in
+      let hpick := fresh_id (String.app proc_prefix "_pick") in
+      let hworld := fresh_id (String.app world_prefix "_w") in
+      let hrc := fresh_id (String.app world_prefix "_rc") in
+      let tmp := fresh_id "H" in
+      apply canned_schedule_out_some in $id as $tmp;
+      let tmp := Control.hyp tmp in
+      destruct $tmp as [$hpick [$hworld $hrc]];
+      cbn in $hworld; cbn in $hrc; cbn in $hpick;
+      let hw := Control.hyp hworld in
+      let hr := Control.hyp hrc in
+      rewrite $hw in *; clear $hworld;
+      rewrite $hr in *; clear $hrc;
+      clear $id
+  end.
+
+Ltac2 Notation "unfold_schedule_out" x(ident) := unfold_schedule_out x.
 
 Ltac2 rec unfold_vm_step_morph (id : ident) :=
   lazy_match! Constr.type (Control.hyp id) with
@@ -739,27 +739,11 @@ Ltac2 rec unfold_vm_step_morph (id : ident) :=
       | _ => ()
       end;
       dvm $vm1_out;
+      unfold_schedule_out $schedule_out;
       unfold_exec_proc_morph id
   end.
 
 Ltac2 Notation "unfold_vm_step_morph" x(ident) := unfold_vm_step_morph x.
-
-Ltac2 unfold_schedule_out (id : ident) :=
-  match! Constr.type (Control.hyp id) with
-  | ?_vm0 ~[schedule_out]~> Some (?proc, ?vm) =>
-      let proc_prefix := maybe_hyp_to_string proc (Ident.to_string id) in
-      let world_prefix := maybe_hyp_to_string vm (Ident.to_string id) in
-      let hpick := fresh_id (String.app proc_prefix "_pick") in
-      let hworld := fresh_id (String.app world_prefix "_w") in
-      let hrc := fresh_id (String.app world_prefix "_rc") in
-      let tmp := fresh_id "H" in
-      apply canned_schedule_out_some in $id as $tmp;
-      let tmp := Control.hyp tmp in
-      destruct $tmp as [$hpick [$hworld $hrc]];
-      cbn in $hworld; cbn in $hrc; cbn in $hpick
-  end.
-
-Ltac2 Notation "unfold_schedule_out" x(ident) := unfold_schedule_out x.
 
 (* Use equations instead? *)
 Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
@@ -768,7 +752,7 @@ Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
   let new_rc := fresh_id (String.app prefix "_rc") in
   let valid := fresh_id (String.app "H" (String.app prefix "_valid")) in
   let inv := fresh_id (String.app "H" (String.app (String.app prefix "_rc") "_valid")) in
-  destruct (Fresh.make_valid $pid $rc) as [$new_pid $new_rc $valid $inv].
+  destruct (Fresh.make $pid $rc) as [$new_pid $new_rc].
 
 Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) := unfold_alloc_pid pid rc new.
 
@@ -776,94 +760,21 @@ Notation "'P<' T > A @ C " := {| pid := A; proc_mb_t := T; cont := C |} (at leve
 
 Section commute.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler_basics Fresh.t _ Request Reply}
-          `{IOH : @IOHandler Request Reply IOH_b}.
+          `{IOH : @IOHandler Request Reply}.
 
-  Let req_t := h_request_t IOH_b.
-  Let rep_t := h_reply_t IOH_b.
+  Let req_t := h_request_t IOH.
+  Let rep_t := h_reply_t IOH.
   Let prog_t := @Program req_t rep_t.
-
-  Ltac2 simpl_fresh_ref () :=
-    unfold proc_valid_pid;
-    match! goal with
-    | [ hnew : Fresh.make ?parent ?rc0 = (?new, ?rc) |- is_valid_pid ?new ?rc ] =>
-        let h := Control.hyp hnew in
-        apply (Fresh.makes_valid_ref $parent $new $rc0 $rc $h)
-    | [ _h : Fresh.make ?parent ?rc0 = (?new, ?_rc) |- is_valid_pid ?_pid ?_rc ] =>
-        apply Fresh.make_keeps_valid with (new := $new) (parent := $parent) (cc := $rc0) > [|assumption]
-    end.
-
-  (* Solve goal of type
-     [Forall (fun proc : Process => is_valid_pid (pid proc) rc) rq] *)
-  Ltac2 Notation "simpl_fresh_ref" := simpl_fresh_ref ().
-
-  Ltac2 solve_fresh_ref () :=
-    constructor > [now repeat (simpl_fresh_ref)|].
-
-  Ltac2 Notation "solve_fresh_ref" := solve_fresh_ref ().
 
   Ltac2 solve_alloc_pid () :=
     simpl;
     lazy_match! goal with
-      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [Fresh.make_valid ?pid ?rc0] ] =>
+      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [Fresh.make ?pid ?rc0] ] =>
         let h := Control.hyp h_new in
-        rewrite (Fresh.make_valid_eq $pid $rc0 $new $rc1 $h)
+        rewrite (Fresh.make $pid $rc0 $new)
     end.
 
   Ltac2 Notation "solve_alloc_pid" := solve_alloc_pid ().
-
-  (* Simplify all available hypotheses of type Forall (.. is_valid_ref.. ) (a :: b :: ..) *)
-  Ltac2 unfold_rc_invarinats () :=
-    repeat (
-        lazy_match! goal with
-        | [ h : Forall (fun x : Process => is_valid_pid (pid x) _) (?a :: ?l)  |- _
-          ] =>
-            let h := Control.hyp h in
-            let ha := fresh_id (String.app "H_valid_" (maybe_hyp_to_string a "a")) in
-            let hl := fresh_id (String.app "H_valid_" (maybe_hyp_to_string l "l")) in
-            let hx := Fresh.in_goal @h in
-            inversion_clear $h as [|? ? $ha $hl $hx];
-            simpl in $ha;
-            simpl in $hl
-        end).
-
-  Ltac2 rec solve_rc_invariant2 () :=
-    match! goal with
-    | [ |- Forall _ [] ] =>
-        now constructor
-    | [ |- is_valid_pid _ _ ] =>
-        repeat (simpl_fresh_ref); assumption
-    | [ |- Forall (fun x => is_valid_pid (pid x) _) (_ ++ _) ] =>
-        apply Forall_app; split; Control.enter solve_rc_invariant2
-    | [ |- Forall (fun x => is_valid_pid (pid x) _) (_ :: _) ] =>
-        apply Forall_cons; Control.enter solve_rc_invariant2
-    | [ hmake : Fresh.make ?parent ?rc1 = (?new, ?rc2)
-        |- Forall (fun x => is_valid_pid (pid x) ?rc2) ?l
-      ] =>
-        let hmake := Control.hyp hmake in
-        refine '(make_keeps_valid_Forall $parent $new $rc1 $rc2 $l _ $hmake);
-        Control.enter solve_rc_invariant2
-    | [ _ : Pick ?l ?elem ?l'
-        |- Forall (fun x => is_valid_pid (pid x) _) ?l'
-      ] =>
-        apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem);
-        Control.enter solve_rc_invariant2
-    | [ h : Pick ?l ?elem ?l'
-        |- Forall (fun x => is_valid_pid (pid x) _) ?l
-      ] =>
-        apply pick_forall_rest with (l := $l) (l' := $l') (a := $elem) in $h;
-        Control.enter solve_rc_invariant2
-    | [ |- _ ] =>
-        assumption
-    end.
-
-  Ltac2 solve_rc_invariant () :=
-    subst;
-    unfold proc_valid_pid in *;
-    unfold_rc_invarinats ();
-    solve_rc_invariant2 ().
-
-  Ltac2 Notation "solve_rc_invariant" := solve_rc_invariant ().
 
   Ltac2 vm_step_some (vm_out : constr) :=
     match! goal with
@@ -879,38 +790,6 @@ Section commute.
 
   Ltac2 Notation "vm_step_some" vm(constr) := vm_step_some vm.
 
-  Lemma vm_step_morph_rq_cons {x proc w1 w2 rq1 rq2 rc1 rc2 inv1 inv2}
-    (H1 : proc_valid_pid rc1 x)
-    (H2 : proc_valid_pid rc2 x) :
-    vm_step_morph {| world := w1; runq := rq1;       ref_ctr := rc1; inv_valid_pids := @Forall_inv_tail _ _ _ _ inv1 |}
-      (Some (proc, {| world := w2; runq := rq2;      ref_ctr := rc2; inv_valid_pids := @Forall_inv_tail _ _ _ _ inv2 |})) ->
-    vm_step_morph {| world := w1; runq := (x :: rq1); ref_ctr := rc1; inv_valid_pids := inv1 |}
-     (Some (proc, {| world := w2; runq := (x :: rq2); ref_ctr := rc2; inv_valid_pids := inv2 |})).
-  Proof.
-    intros H. inversion_clear H as [|? vm1 ? ? Hsched Hexec].
-    (* This will become wrong when halt is in place, if proc is halt and [pid x] is in the halted domain *)
-  Abort.
-
-  Ltac2 rec solve_vm_step () :=
-    match! goal with
-    | [ _ : Pick ?_rq0 ?_proc ?rq1 |-
-          vm_step_morph {| world := ?w; runq := ?_rq0; ref_ctr := ?rc |} (Some (?_proc, _))] =>
-        let hinv := fresh_id (String.app "HInv_" (maybe_hyp_to_string rc "rc")) in
-        assert ($hinv : Forall (proc_valid_pid $rc) $rq1) >
-          [try assumption |
-            let hinv := Control.hyp hinv in
-            vm_step_some {| world := $w;
-                            runq := $rq1;
-                            ref_ctr := $rc;
-                            inv_valid_pids := $hinv
-                         |} >
-              [|unfold exec_proc_morph, vm_eq]
-          ]
-    (* | [ h : Pick _ ?proc _ |- vm_step_morph {| runq := (?x :: _) |} (Some (?proc, {| runq := (?x :: _) |}))] => *)
-    (*     apply pick_cons_rev with (b := $x) in $h; *)
-    (*     solve_vm_step () *)
-    end.
-
   Ltac2 swap_make () :=
     lazy_match! goal with
     | [ hpids : ?pid1 <> ?pid2, h1 : Fresh.make ?pid1 _ = (?new1, _), h2 : Fresh.make ?pid2 _ = (?new2, _) |- _ ] =>
@@ -921,524 +800,102 @@ Section commute.
     end.
 
   (* 1/10 *)
-  Lemma spawn_spawn_commute {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
-    pid1 <> pid2 ->
-    ts_event_commute_ctx
-      (fun vm => is_valid_pid pid1 (ref_ctr vm) /\
-              is_valid_pid pid2 (ref_ctr vm))
+  Lemma spawn_spawn_swap {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
+    RefOrd.gt pid1 pid2 ->
+    ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
   Proof.
     intros Hpids12.
-    unfold ts_event_commute_ctx, commute_ctx, commute_def, exists_equiv.
-    intros vm0 vm4 [Hvalid_pid1 Hvalid_pid2].
-    split > [|apply neq_symm in Hpids12;
-      (* Prepare for the reverse goal by mirroring all variables, so
-         the proof is syntactically equivalent.  Copy-paste is used
-         instead of a "smart" approach to make modifications easier *)
-      Std.rename [(@pid1, @pid2); (@pid2, @pid1);
-                  (@Hvalid_pid1, @Hvalid_pid2); (@Hvalid_pid2, @Hvalid_pid1);
-                  (@child1, @child2); (@child2, @child1);
-                  (@mb_t1, @mb_t2); (@mb_t2, @mb_t1);
-                  (@cont1, @cont2); (@cont2, @cont1);
-                  (@child_mb_t1, @child_mb_t2); (@child_mb_t2, @child_mb_t1)]
-    ];
-    intros [vm2 [Hvm1 Hvm2]].
-    (* vm0 --spawn@pid1--> vm2 --spawn@pid2--> vm4; rebuild the run in the swapped order *)
-    - unfold_vm_step_morph Hvm1.
-    simpl in Hvm2.
+    (* Unfold the original path: *)
+    unfold ts_events_swap, swappable, exists_equiv.
+    intros vm0 vm4 [vm2 [Hvm2 Hvm4]].
     unfold_vm_step_morph Hvm2.
-    injection Hvm1_eq_vm as E1 E2 E3.
-    subst vm2_w vm2_rq vm2_rc.
-    clear Hvm1_eq_vm E1 E2 E3.
-    injection Hvm2_eq_vm as F1 F2 F3.
-    subst vm4_w vm4_rq vm4_rc.
-    clear Hvm2_eq_vm F1 F2 F3.
-    unfold_schedule_out Hvm0_out.
-    unfold_schedule_out HHvm2_out.
-    cbn in Hvalid_pid1, Hvalid_pid2.
-    subst vm0_out_w.
-    subst Hvm2_out_w.
-    subst vm0_out_rc.
-    subst Hvm2_out_rc.
-    (* The process scheduled out second cannot be among the processes
-       added to the queue by the first spawn (their pids differ): *)
-    assert (Hne_parent1 :
-      {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-      <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
-    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt. now apply Hpids12. }
-    destruct (pick_cons HHvm2_out_pick Hne_parent1) as [rq_a [Heq_a Hpick_a]].
-    subst Hvm2_out_rq.
-    assert (Hnew_pid_neq : new_pid <> pid2).
-    { exact (Fresh.make_valid_not_equal pid1 pid2 new_pid vm0_rc new_pid_rc Hvalid_pid2 Hmake_pid). }
-    assert (Hne_child1 :
-      {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-      <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
-    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt. now apply Hnew_pid_neq. }
+    unfold_vm_step_morph Hvm4.
+    (* Relations between pids: *)
+    assert (Hpids12_ne : pid1 <> pid2). {
+      intros Heq.
+      apply RefOrd.ref_compare_eq_iff in Heq.
+      unfold RefOrd.gt in Hpids12. now rewrite Heq in Hpids12.
+    }
+    assert (Hpid1_new : RefOrd.compare_ pid1 new_pid = Lt).
+    { now apply Fresh.child_gt_parent in Heqfresh_make_result.
+    }
+    assert (Hpid2_new : RefOrd.compare_ pid2 new_pid = Lt).
+    { apply RefOrd.compare_antisymm in Hpids12.
+      now specialize (RefOrd.lt_trans Hpids12 Hpid1_new).
+    }
+    assert (Hnew_pid2_neq : new_pid <> pid2).
+    { intros Habsurd. apply RefOrd.ref_compare_eq_iff,RefOrd.compare_eq_symm in Habsurd.
+      now rewrite Hpid2_new in Habsurd.
+    }
+    assert (Hnew_pids : new_pid <> new_pid0).
+    { apply (Fresh.different_parents_children pid1 pid2 new_pid new_pid0 Hpids12_ne Heqfresh_make_result Heqfresh_make_result0).
+    }
+    assert (Hnew_pids_gt : RefOrd.gt new_pid new_pid0). {
+      apply (Fresh.gt_parents_children pid1 pid2 new_pid new_pid0 Hpids12 Heqfresh_make_result Heqfresh_make_result0).
+    }
+    (* Build the run queue *)
+    assert (Hne_parent1 : {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
+                        <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
+    { (* The second scheduled out process cannot be among the processes
+         added to the queue by the first spawn (their pids differ): *)
+      intros Heq. injection Heq as Hpid_eq Hmb Hcnt.
+      now apply Hpids12_ne in Hpid_eq.
+    }
+    destruct (pick_cons HHvm4_out_pick Hne_parent1) as [rq_a [Heq_a Hpick_a]].
+    subst Hvm4_out_rq.
+    assert (Hne_child1 : {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
+                       <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
+    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt. now apply Hnew_pid2_neq. }
     destruct (pick_cons Hpick_a Hne_child1) as [rq_b [Heq_b Hpick_b]].
     subst rq_a.
-    destruct (pick_two Hvm0_out_pick Hpick_b)
-      as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'b]]]].
+    destruct (pick_two Hvm0_out_pick Hpick_b) as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'b]]]].
+    (* Build the new ref counter *)
+    symmetry in Heqfresh_make_result. symmetry in Heqfresh_make_result0.
     swap_make ().
-    assert (Hnp : new_pid <> new_pid0).
-    { exact (Fresh.new2_not_equal pid1 pid2 vm0_rc new_pid_rc new_pid_rc0
-               new_pid new_pid0 Hpids12 Hmake_pid Hmake_pid0). }
-    (* The two spawns commute at the level of the VM's own
-       operations.  The law is applied to a synthetic run performing
-       just the two spawns (empty run queue): its legs reuse the
-       allocation equations and world effects of the destructed run.
-       The swapped run returned by the law carries the counter
-       coincidence facts established by [swap_make]. *)
-    ltac1:(pose proof vm2_pids_valid as HI2).
-    inversion HI2 as [|? ? HI_p1 HI2r].
-    inversion HI2r as [|? ? HI_c1 _].
-    ltac1:(pose proof vm4_pids_valid as HI4).
-    inversion HI4 as [|? ? HI_p2s HI4r].
-    inversion HI4r as [|? ? HI_c2s HI4r2].
-    inversion HI4r2 as [|? ? HI_p1s HI4r3].
-    inversion HI4r3 as [|? ? HI_c1s _].
-    assert (Hleg1 :
-      @morphism _ _ _ _
-        (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
-        {| world := vm0_w; runq := []; ref_ctr := vm0_rc;
-           inv_valid_pids := Forall_nil (proc_valid_pid vm0_rc) |}
-        {| world := Hvm1_spawn_w;
-           runq :=
-             {| pid := pid1; proc_mb_t := mb_t1;
-                cont := cont1 {| mba_pid := new_pid |} |}
-             :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc;
-           inv_valid_pids :=
-             Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}).
-    { unfold spawn_vm, totalize. cbn.
-      exists Hvalid_pid1.
-      unfold spawn. cbn. unfold do_spawn. cbn.
-      rewrite (Fresh.make_valid_eq pid1 vm0_rc new_pid new_pid_rc Hmake_pid). cbn.
-      exists Hvm1_spawn_w.
-      exact Hvm1_w.
-      f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    assert (Hleg2 :
-      @morphism _ _ _ _
-        (spawn_vm child_mb_t2 child2 pid2 mb_t2 cont2)
-        {| world := Hvm1_spawn_w;
-           runq :=
-             {| pid := pid1; proc_mb_t := mb_t1;
-                cont := cont1 {| mba_pid := new_pid |} |}
-             :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc;
-           inv_valid_pids :=
-             Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}
-        {| world := Hvm2_spawn_w;
-           runq :=
-             {| pid := pid2; proc_mb_t := mb_t2;
-                cont := cont2 {| mba_pid := new_pid0 |} |}
-             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |}
-                :: {| pid := pid1; proc_mb_t := mb_t1;
-                     cont := cont1 {| mba_pid := new_pid |} |}
-                :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc0;
-           inv_valid_pids :=
-             Forall_cons _ HI_p2s (Forall_cons _ HI_c2s
-               (Forall_cons _ HI_p1s (Forall_cons _ HI_c1s (Forall_nil _)))) |}).
-    { unfold spawn_vm, totalize. cbn.
-      assert (Hv2 : is_valid_pid pid2 new_pid_rc).
-      { ltac1:(eapply Fresh.make_keeps_valid; [exact Hvalid_pid2 | exact Hmake_pid]). }
-      exists Hv2.
-      unfold spawn. cbn. unfold do_spawn. cbn.
-      rewrite (Fresh.make_valid_eq pid2 new_pid_rc new_pid0 new_pid_rc0 Hmake_pid0). cbn.
-      exists Hvm2_spawn_w.
-      exact Hvm2_w.
-      f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    assert (Hpre :
-      @morphism _ _ _ _
-        (compose (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
-                 (spawn_vm child_mb_t2 child2 pid2 mb_t2 cont2))
-        {| world := vm0_w; runq := []; ref_ctr := vm0_rc;
-           inv_valid_pids := Forall_nil (proc_valid_pid vm0_rc) |}
-        {| world := Hvm2_spawn_w;
-           runq :=
-             {| pid := pid2; proc_mb_t := mb_t2;
-                cont := cont2 {| mba_pid := new_pid0 |} |}
-             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |}
-                :: {| pid := pid1; proc_mb_t := mb_t1;
-                     cont := cont1 {| mba_pid := new_pid |} |}
-                :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc0;
-           inv_valid_pids :=
-             Forall_cons _ HI_p2s (Forall_cons _ HI_c2s
-               (Forall_cons _ HI_p1s (Forall_cons _ HI_c1s (Forall_nil _)))) |}).
-    { exists {| world := Hvm1_spawn_w;
-               runq :=
-                 {| pid := pid1; proc_mb_t := mb_t1;
-                    cont := cont1 {| mba_pid := new_pid |} |}
-                 :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                    :: [];
-               ref_ctr := new_pid_rc;
-               inv_valid_pids :=
-                 Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}.
-      split > [exact Hleg1 | exact Hleg2]. }
-    destruct (proj1 (h_spawn_commutativity child_mb_t1 child1 mb_t1 cont1
-                                         child_mb_t2 child2 mb_t2 cont2 pid1 pid2 Hpids12
-                                         _ _) Hpre)
-      as [vm_c' [[vm2s [Hs2 Hs1]] Heq_vm_c']].
-    unfold spawn_vm, totalize in Hs2. cbn in Hs2.
-    destruct Hs2 as [_v2s Hs2].
-    unfold spawn in Hs2. cbn in Hs2.
-    unfold do_spawn in Hs2. cbn in Hs2.
-    rewrite (Fresh.make_valid_eq pid2 vm0_rc new_pid0 rc2' Hnew_pid1') in Hs2. cbn in Hs2.
-    destruct Hs2 as [w_mid Hw_mid1 Hvm2s_eq].
-    subst vm2s.
-    unfold spawn_vm, totalize in Hs1. cbn in Hs1.
-    destruct Hs1 as [_v1s Hs1].
-    unfold spawn in Hs1. cbn in Hs1.
-    unfold do_spawn in Hs1. cbn in Hs1.
-    rewrite (Fresh.make_valid_eq pid1 rc2' new_pid rc3' Hnew_pid2') in Hs1. cbn in Hs1.
-    destruct Hs1 as [w_fin Hw_mid2 Hvm_c'_eq].
-    subst vm_c'.
-    cbn in Heq_vm_c'.
-    destruct Heq_vm_c' as [Hw_fin [Hrc_fin Hrq_fin]].
-    (* Invariant proofs for the queues and counters of the swapped run. *)
-    assert (INV_RQ2' : Forall (proc_valid_pid vm0_rc) rq2').
-    { eapply pick_forall_rest > [exact vm0_pids_valid | exact Hpick_proc2]. }
-    assert (INV_RQ3' : Forall (proc_valid_pid rc2') rq3').
-    { eapply make_keeps_valid_Forall >
-        [ (eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1])
-        | exact Hnew_pid1' ]. }
-    assert (INV_pid1_rc3' : is_valid_pid pid1 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid1 | exact Hnew_pid1'])
-        | exact Hnew_pid2' ]. }
-    assert (INV_pid2_rc3' : is_valid_pid pid2 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
-        | exact Hnew_pid2' ]. }
-    assert (INV_new0_rc3' : is_valid_pid new_pid0 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-        | exact Hnew_pid2' ]. }
-    assert (INV_new_rc3' : is_valid_pid new_pid rc3').
-    { exact (Fresh.makes_valid_ref pid1 new_pid rc2' rc3' Hnew_pid2'). }
-    assert (INV_FIN : Forall (proc_valid_pid rc3')
-      ({| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-       :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-       :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { assert (INV_RQ3'_rc3' : Forall (proc_valid_pid rc3') rq3').
-      { eapply make_keeps_valid_Forall > [exact INV_RQ3' | exact Hnew_pid2' ]. }
-      constructor >
-        [exact INV_pid1_rc3' | constructor >
-          [exact INV_new_rc3' | constructor >
-            [exact INV_pid2_rc3' | constructor >
-              [exact INV_new0_rc3' | exact INV_RQ3'_rc3']]]]. }
-    exists {| world := w_fin;
-             runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-                      :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                      :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                      :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3';
-             ref_ctr := rc3';
-             inv_valid_pids := INV_FIN |}.
+    (* Build the new world *)
+    simpl in Hvm2_w. simpl in Hvm4_w.
+    destruct (h_spawn_commutativity new_pid new_pid0 child_mb_t1 child_mb_t2 Hnew_pids_gt vm0_out_w Hvm4_spawn_w) as [w2' [Hw2' Hw2'_equiv]].
+    { now exists Hvm4_out_w. }
+    exists {| world := w2';
+        runq := {| proc_mb_t := mb_t1; pid := pid1; cont := cont1 {| mba_pid := new_pid |} |}
+              :: {| proc_mb_t := child_mb_t1; pid := new_pid; cont := child1 |}
+              :: ({| proc_mb_t := mb_t2; pid := pid2; cont := cont2 {| mba_pid := new_pid0 |} |}
+              :: {| proc_mb_t :=  child_mb_t2; pid := new_pid0; cont := child2 |}
+              :: rq3');
+        ref_ctr := rc3'
+      |}.
     split.
-    simpl.
-    assert (INV_MID : Forall (proc_valid_pid rc2')
-      ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2')).
-    { constructor >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
-        | (constructor >
-            [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-            | (eapply make_keeps_valid_Forall > [exact INV_RQ2' | exact Hnew_pid1']) ]) ]. }
-    exists {| world := w_mid;
-             runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                      :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2';
-             ref_ctr := rc2';
-             inv_valid_pids := INV_MID |}.
-    split.
-    vm_step_some {| world := vm0_w; runq := rq2'; ref_ctr := vm0_rc;
-                    inv_valid_pids := INV_RQ2' |}.
-    sauto.
-    unfold exec_proc_morph. cbn. unfold do_spawn. cbn. solve_alloc_pid. cbn.
-    exists w_mid.
-    exact Hw_mid1.
-    f_equal. apply ProofIrrelevance.proof_irrelevance.
-    assert (Hpick_proc1' :
-      Pick ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-            :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2')
-           {| pid := pid1; proc_mb_t := mb_t1; cont := p_spawn mb_t1 child1 cont1 |}
-           ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-            :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { apply pick_cons_rev. apply pick_cons_rev. exact Hpick_proc1. }
-    assert (INV_PICK1 : Forall (proc_valid_pid rc2')
-      ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { eapply pick_forall_rest > [exact INV_MID | exact Hpick_proc1']. }
-    vm_step_some {| world := w_mid;
-                    runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3';
-                    ref_ctr := rc2';
-                    inv_valid_pids := INV_PICK1 |}.
-    unfold schedule_out. cbn. split > [exact Hpick_proc1' | split].
-    reflexivity.
-    reflexivity.
-    unfold exec_proc_morph. cbn. unfold do_spawn. cbn. solve_alloc_pid. cbn.
-    exists w_fin.
-    exact Hw_mid2.
-    f_equal. apply ProofIrrelevance.proof_irrelevance.
-    split > [exact Hw_fin |
-             split > [ (symmetry; exact Hrc')
-                     | (eapply Permutation_swap2 >
-                         [apply Permutation_sym; exact Hrq3'b]) ]].
-  - (* The following is a carbon copy of the above *)
-    unfold_vm_step_morph Hvm1.
-    simpl in Hvm2.
-    unfold_vm_step_morph Hvm2.
-    injection Hvm1_eq_vm as E1 E2 E3.
-    subst vm2_w vm2_rq vm2_rc.
-    clear Hvm1_eq_vm E1 E2 E3.
-    injection Hvm2_eq_vm as F1 F2 F3.
-    subst vm4_w vm4_rq vm4_rc.
-    clear Hvm2_eq_vm F1 F2 F3.
-    unfold_schedule_out Hvm0_out.
-    unfold_schedule_out HHvm2_out.
-    cbn in Hvalid_pid1, Hvalid_pid2.
-    subst vm0_out_w.
-    subst Hvm2_out_w.
-    subst vm0_out_rc.
-    subst Hvm2_out_rc.
-    (* The process scheduled out second cannot be among the processes
-       added to the queue by the first spawn (their pids differ): *)
-    assert (Hne_parent1 :
-      {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-      <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
-    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt. now apply Hpids12. }
-    destruct (pick_cons HHvm2_out_pick Hne_parent1) as [rq_a [Heq_a Hpick_a]].
-    subst Hvm2_out_rq.
-    assert (Hnew_pid_neq : new_pid <> pid2).
-    { exact (Fresh.make_valid_not_equal pid1 pid2 new_pid vm0_rc new_pid_rc
-               Hvalid_pid2 Hmake_pid). }
-    assert (Hne_child1 :
-      {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-      <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
-    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt. now apply Hnew_pid_neq. }
-    destruct (pick_cons Hpick_a Hne_child1) as [rq_b [Heq_b Hpick_b]].
-    subst rq_a.
-    destruct (pick_two Hvm0_out_pick Hpick_b)
-      as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'b]]]].
-    swap_make ().
-    assert (Hnp : new_pid <> new_pid0).
-    { exact (Fresh.new2_not_equal pid1 pid2 vm0_rc new_pid_rc new_pid_rc0
-               new_pid new_pid0 Hpids12 Hmake_pid Hmake_pid0). }
-    (* The two spawns commute at the level of the VM's own
-       operations.  The law is applied to a synthetic run performing
-       just the two spawns (empty run queue): its legs reuse the
-       allocation equations and world effects of the destructed run.
-       The swapped run returned by the law carries the counter
-       coincidence facts established by [swap_make]. *)
-    ltac1:(pose proof vm2_pids_valid as HI2).
-    inversion HI2 as [|? ? HI_p1 HI2r].
-    inversion HI2r as [|? ? HI_c1 _].
-    ltac1:(pose proof vm4_pids_valid as HI4).
-    inversion HI4 as [|? ? HI_p2s HI4r].
-    inversion HI4r as [|? ? HI_c2s HI4r2].
-    inversion HI4r2 as [|? ? HI_p1s HI4r3].
-    inversion HI4r3 as [|? ? HI_c1s _].
-    assert (Hleg1 :
-      @morphism _ _ _ _
-        (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
-        {| world := vm0_w; runq := []; ref_ctr := vm0_rc;
-           inv_valid_pids := Forall_nil (proc_valid_pid vm0_rc) |}
-        {| world := Hvm1_spawn_w;
-           runq :=
-             {| pid := pid1; proc_mb_t := mb_t1;
-                cont := cont1 {| mba_pid := new_pid |} |}
-             :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc;
-           inv_valid_pids :=
-             Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}).
-    { unfold spawn_vm, totalize. cbn.
-      exists Hvalid_pid1.
-      unfold spawn. cbn. unfold do_spawn. cbn.
-      rewrite (Fresh.make_valid_eq pid1 vm0_rc new_pid new_pid_rc Hmake_pid). cbn.
-      exists Hvm1_spawn_w.
-      exact Hvm1_w.
-      f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    assert (Hleg2 :
-      @morphism _ _ _ _
-        (spawn_vm child_mb_t2 child2 pid2 mb_t2 cont2)
-        {| world := Hvm1_spawn_w;
-           runq :=
-             {| pid := pid1; proc_mb_t := mb_t1;
-                cont := cont1 {| mba_pid := new_pid |} |}
-             :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc;
-           inv_valid_pids :=
-             Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}
-        {| world := Hvm2_spawn_w;
-           runq :=
-             {| pid := pid2; proc_mb_t := mb_t2;
-                cont := cont2 {| mba_pid := new_pid0 |} |}
-             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |}
-                :: {| pid := pid1; proc_mb_t := mb_t1;
-                     cont := cont1 {| mba_pid := new_pid |} |}
-                :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc0;
-           inv_valid_pids :=
-             Forall_cons _ HI_p2s (Forall_cons _ HI_c2s
-               (Forall_cons _ HI_p1s (Forall_cons _ HI_c1s (Forall_nil _)))) |}).
-    { unfold spawn_vm, totalize. cbn.
-      assert (Hv2 : is_valid_pid pid2 new_pid_rc).
-      { ltac1:(eapply Fresh.make_keeps_valid; [exact Hvalid_pid2 | exact Hmake_pid]). }
-      exists Hv2.
-      unfold spawn. cbn. unfold do_spawn. cbn.
-      rewrite (Fresh.make_valid_eq pid2 new_pid_rc new_pid0 new_pid_rc0 Hmake_pid0). cbn.
-      exists Hvm2_spawn_w.
-      exact Hvm2_w.
-      f_equal. apply ProofIrrelevance.proof_irrelevance. }
-    assert (Hpre :
-      @morphism _ _ _ _
-        (compose (spawn_vm child_mb_t1 child1 pid1 mb_t1 cont1)
-                 (spawn_vm child_mb_t2 child2 pid2 mb_t2 cont2))
-        {| world := vm0_w; runq := []; ref_ctr := vm0_rc;
-           inv_valid_pids := Forall_nil (proc_valid_pid vm0_rc) |}
-        {| world := Hvm2_spawn_w;
-           runq :=
-             {| pid := pid2; proc_mb_t := mb_t2;
-                cont := cont2 {| mba_pid := new_pid0 |} |}
-             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |}
-                :: {| pid := pid1; proc_mb_t := mb_t1;
-                     cont := cont1 {| mba_pid := new_pid |} |}
-                :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                :: [];
-           ref_ctr := new_pid_rc0;
-           inv_valid_pids :=
-             Forall_cons _ HI_p2s (Forall_cons _ HI_c2s
-               (Forall_cons _ HI_p1s (Forall_cons _ HI_c1s (Forall_nil _)))) |}).
-    { exists {| world := Hvm1_spawn_w;
-               runq :=
-                 {| pid := pid1; proc_mb_t := mb_t1;
-                    cont := cont1 {| mba_pid := new_pid |} |}
-                 :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                    :: [];
-               ref_ctr := new_pid_rc;
-               inv_valid_pids :=
-                 Forall_cons _ HI_p1 (Forall_cons _ HI_c1 (Forall_nil _)) |}.
-      split > [exact Hleg1 | exact Hleg2]. }
-    destruct (proj1 (h_spawn_commutativity child_mb_t1 child1 mb_t1 cont1
-                                         child_mb_t2 child2 mb_t2 cont2 pid1 pid2 Hpids12
-                                         _ _) Hpre)
-      as [vm_c' [[vm2s [Hs2 Hs1]] Heq_vm_c']].
-    unfold spawn_vm, totalize in Hs2. cbn in Hs2.
-    destruct Hs2 as [_v2s Hs2].
-    unfold spawn in Hs2. cbn in Hs2.
-    unfold do_spawn in Hs2. cbn in Hs2.
-    rewrite (Fresh.make_valid_eq pid2 vm0_rc new_pid0 rc2' Hnew_pid1') in Hs2. cbn in Hs2.
-    destruct Hs2 as [w_mid Hw_mid1 Hvm2s_eq].
-    subst vm2s.
-    unfold spawn_vm, totalize in Hs1. cbn in Hs1.
-    destruct Hs1 as [_v1s Hs1].
-    unfold spawn in Hs1. cbn in Hs1.
-    unfold do_spawn in Hs1. cbn in Hs1.
-    rewrite (Fresh.make_valid_eq pid1 rc2' new_pid rc3' Hnew_pid2') in Hs1. cbn in Hs1.
-    destruct Hs1 as [w_fin Hw_mid2 Hvm_c'_eq].
-    subst vm_c'.
-    cbn in Heq_vm_c'.
-    destruct Heq_vm_c' as [Hw_fin [Hrc_fin Hrq_fin]].
-    (* Invariant proofs for the queues and counters of the swapped run. *)
-    assert (INV_RQ2' : Forall (proc_valid_pid vm0_rc) rq2').
-    { eapply pick_forall_rest > [exact vm0_pids_valid | exact Hpick_proc2]. }
-    assert (INV_RQ3' : Forall (proc_valid_pid rc2') rq3').
-    { eapply make_keeps_valid_Forall >
-        [ (eapply pick_forall_rest > [exact INV_RQ2' | exact Hpick_proc1])
-        | exact Hnew_pid1' ]. }
-    assert (INV_pid1_rc3' : is_valid_pid pid1 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid1 | exact Hnew_pid1'])
-        | exact Hnew_pid2' ]. }
-    assert (INV_pid2_rc3' : is_valid_pid pid2 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
-        | exact Hnew_pid2' ]. }
-    assert (INV_new0_rc3' : is_valid_pid new_pid0 rc3').
-    { eapply Fresh.make_keeps_valid >
-        [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-        | exact Hnew_pid2' ]. }
-    assert (INV_new_rc3' : is_valid_pid new_pid rc3').
-    { exact (Fresh.makes_valid_ref pid1 new_pid rc2' rc3' Hnew_pid2'). }
-    assert (INV_FIN : Forall (proc_valid_pid rc3')
-      ({| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-       :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-       :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { assert (INV_RQ3'_rc3' : Forall (proc_valid_pid rc3') rq3').
-      { eapply make_keeps_valid_Forall > [exact INV_RQ3' | exact Hnew_pid2' ]. }
-      constructor >
-        [exact INV_pid1_rc3' | constructor >
-          [exact INV_new_rc3' | constructor >
-            [exact INV_pid2_rc3' | constructor >
-              [exact INV_new0_rc3' | exact INV_RQ3'_rc3']]]]. }
-    exists {| world := w_fin;
-             runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
-                      :: {| pid := new_pid; proc_mb_t := child_mb_t1; cont := child1 |}
-                      :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                      :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3';
-             ref_ctr := rc3';
-             inv_valid_pids := INV_FIN |}.
-    split.
-    simpl.
-    assert (INV_MID : Forall (proc_valid_pid rc2')
-      ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2')).
-    { constructor >
-        [ (eapply Fresh.make_keeps_valid > [exact Hvalid_pid2 | exact Hnew_pid1'])
-        | (constructor >
-            [ exact (Fresh.makes_valid_ref pid2 new_pid0 vm0_rc rc2' Hnew_pid1')
-            | (eapply make_keeps_valid_Forall > [exact INV_RQ2' | exact Hnew_pid1']) ]) ]. }
-    exists {| world := w_mid;
-             runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                      :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2';
-             ref_ctr := rc2';
-             inv_valid_pids := INV_MID |}.
-    split.
-    vm_step_some {| world := vm0_w; runq := rq2'; ref_ctr := vm0_rc;
-                    inv_valid_pids := INV_RQ2' |}.
-    sauto.
-    unfold exec_proc_morph. cbn. unfold do_spawn. cbn. solve_alloc_pid. cbn.
-    exists w_mid.
-    exact Hw_mid1.
-    f_equal. apply ProofIrrelevance.proof_irrelevance.
-    assert (Hpick_proc1' :
-      Pick ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-            :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq2')
-           {| pid := pid1; proc_mb_t := mb_t1; cont := p_spawn mb_t1 child1 cont1 |}
-           ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-            :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { apply pick_cons_rev. apply pick_cons_rev. exact Hpick_proc1. }
-    assert (INV_PICK1 : Forall (proc_valid_pid rc2')
-      ({| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-       :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3')).
-    { eapply pick_forall_rest > [exact INV_MID | exact Hpick_proc1']. }
-    vm_step_some {| world := w_mid;
-                    runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 {| mba_pid := new_pid0 |} |}
-                             :: {| pid := new_pid0; proc_mb_t := child_mb_t2; cont := child2 |} :: rq3';
-                    ref_ctr := rc2';
-                    inv_valid_pids := INV_PICK1 |}.
-    unfold schedule_out. cbn. split > [exact Hpick_proc1' | split].
-    reflexivity.
-    reflexivity.
-    unfold exec_proc_morph. cbn. unfold do_spawn. cbn. solve_alloc_pid. cbn.
-    exists w_fin.
-    exact Hw_mid2.
-    f_equal. apply ProofIrrelevance.proof_irrelevance.
-    split > [exact Hw_fin |
-             split > [ (symmetry; exact Hrc')
-                     | (eapply Permutation_swap2 >
-                         [apply Permutation_sym; exact Hrq3'b]) ]].
+    2:{ split > [|split].
+        - assumption.
+        - now symmetry.
+        - rewrite Hrq3'b.
+          now apply Permutation_swap2.
+    }
+    { destruct Hw2' as [w1' [Hw1' Hw2']].
+      exists {| world := w1';
+           runq := {| proc_mb_t := mb_t2; pid := pid2; cont := cont2 {| mba_pid := new_pid0 |} |}
+                 :: {| proc_mb_t := child_mb_t2; pid := new_pid0; cont := child2 |}
+                 :: rq2';
+           ref_ctr := rc2'
+         |}.
+      split.
+      - constructor 2 with (vm1 := {| world := vm0_out_w; runq := rq2'; ref_ctr := vm0_out_rc |}).
+        + sauto.
+        + unfold exec_proc_morph. cbn. unfold spawn_morph,alloc_pid.
+          rewrite Hnew_pid1'. now exists w1'.
+      - simpl.
+        constructor 2 with (vm1 := {| world := w1';
+                                     runq := {| proc_mb_t := mb_t2; pid := pid2; cont := cont2 {| mba_pid := new_pid0 |} |}
+                                           :: {| proc_mb_t := child_mb_t2; pid := new_pid0; cont := child2 |}
+                                           :: rq3';
+                                     ref_ctr := rc2'
+                                   |}).
+        + sauto.
+        + unfold exec_proc_morph. cbn. unfold spawn_morph,alloc_pid.
+          rewrite Hnew_pid2'. now exists w2'.
+    }
   Qed.
 
   (* 2/10 *)

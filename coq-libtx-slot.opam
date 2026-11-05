@@ -18,7 +18,7 @@ depends: [
   "rocq-equations"
   "coq-hammer"
   "coq-record-update"
-  "coq-libtx-storage" {(>= "0.2.1")}
+  "coq-libtx-storage" {(>= "0.2.2")}
 ]
 
 tags: [
