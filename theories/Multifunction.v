@@ -547,7 +547,7 @@ Section MFunRet_pass_result.
   Qed.
 End MFunRet_pass_result.
 
-Definition commute_ret {State Ret1 Ret2}
+Definition swap_ret {State Ret1 Ret2}
   `{Hss : Setoid State}
   `{Hsr1 : Setoid Ret1}
   `{Hsr2 : Setoid Ret2}
@@ -557,11 +557,7 @@ Definition commute_ret {State Ret1 Ret2}
     (s1 ~[f]~> (ret_f, s2) ->
      s2 ~[g]~> (ret_g, s3) ->
      exists{s3' == s3}, exists s2', s1  ~[g]~> (ret_g, s2') /\
-                          s2' ~[f]~> (ret_f, s3')) /\
-    (s1 ~[g]~> (ret_g, s2) ->
-     s2 ~[f]~> (ret_f, s3) ->
-     exists{s3' == s3}, exists s2', s1  ~[f]~> (ret_f, s2') /\
-                          s2' ~[g]~> (ret_g, s3')).
+                          s2' ~[f]~> (ret_f, s3')).
 
 Section lift_mfun_option.
   Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).
