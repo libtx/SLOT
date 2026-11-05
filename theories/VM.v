@@ -185,8 +185,8 @@ Section definitions.
           end
       |}.
   Next Obligation.
-    destruct x as [w rq rc inv].
-    destruct x' as [w' rq' rc' inv'].
+    destruct x as [w rq rc].
+    destruct x' as [w' rq' rc'].
     destruct rq as [|rq_ rq_rest]; simpl in *;
       destruct H as [Hw [Hrc Hperm]].
     - exists None. split.
@@ -194,7 +194,7 @@ Section definitions.
         now apply Permutation_nil in Hperm.
       + now subst.
     - destruct y as [[proc vm2]|]; try easy.
-      destruct vm2 as [w2 rq2 rc2 inv2].
+      destruct vm2 as [w2 rq2 rc2].
       destruct H0 as [Hpick_proc [Hw2 Hrc2]].
       subst.
       apply pick_equiv with (l1' := rq') in Hpick_proc; try easy.
@@ -214,8 +214,8 @@ Section definitions.
       (ref_ctr vm0) = (ref_ctr vm1).
   Proof.
     intros H.
-    destruct vm0 as [w0 rq0 rc0 inv0].
-    destruct vm1 as [w1 rq1 rc1 inv1].
+    destruct vm0 as [w0 rq0 rc0].
+    destruct vm1 as [w1 rq1 rc1].
     simpl in H.
     destruct rq0 as [|f r].
     - exfalso. discriminate.
@@ -313,7 +313,7 @@ Section definitions.
         and add it to the VM too. Does not change the world. *)
     Definition alloc_pid (vm : VM) : Pid * VM.
     Proof.
-      destruct vm as [w rq rc inv_valid].
+      destruct vm as [w rq rc].
       destruct (Fresh.make parent rc) as [new rc'].
       set (addr := mkAddress child_mb_t new).
       set (rq' :=
@@ -328,8 +328,8 @@ Section definitions.
       (Hvm' : vm == vm') :
       @equiv _ (pair_setoid' (eq_setoid _) vm_setoid) (alloc_pid vm) (alloc_pid vm').
     Proof.
-      destruct vm as [w1 rq1 rc1 inv1].
-      destruct vm' as [w1' rq1' rc1' inv1'].
+      destruct vm as [w1 rq1 rc1].
+      destruct vm' as [w1' rq1' rc1'].
       unfold alloc_pid.
       simpl in Hvm'. destruct Hvm' as [Hw [Hrc Hrq]].
       (* Ref counters: *)
@@ -429,9 +429,9 @@ Section definitions.
       {| morphism  := terminate_morph
       |}.
     Next Obligation.
-      destruct x as [w1 rq1 rc1 inv1].
-      destruct x' as [w1' rq1' rc1' inv1'].
-      destruct y as [w2 rq2 rc2 inv2].
+      destruct x as [w1 rq1 rc1].
+      destruct x' as [w1' rq1' rc1'].
+      destruct y as [w2 rq2 rc2].
       cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
       cbn in H0. destruct H0 as [Hterm [Hrq13 Hrc13]].
       morph_shift (h_terminate true pid) w1'.
@@ -652,8 +652,6 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
   | spawn_morph ?_child_mb_t' ?_child' ?_parent' ?_parent_mb_t' ?_parent_cont' ?_vm0' ?_vm_end =>
       let new_pid := fresh_id "new_pid" in
       let new_rc := fresh_id "new_pid_rc" in
-      let hvalid := fresh_id "Hnew_pid_rc_valid" in
-      let hmake := fresh_id "Hmake_pid" in
       let w2 := fresh_id (String.app hyp_prefix "_spawn_w") in
       let heq_vm := fresh_id (String.app hyp_prefix "_eq_vm") in
       let fresh_make_result := fresh_id (String.app hyp_prefix "_fresh") in
@@ -661,8 +659,9 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       cbn in $id;
       lazy_match! Constr.type (Control.hyp id) with
       | context [Fresh.make ?parent_mw ?rc_mw] =>
-          remember (Fresh.make $parent_mw $rc_mw) as fresh_make_result;
-          destruct fresh_make_result as [$new_pid $new_rc]
+          remember (Fresh.make $parent_mw $rc_mw) as $fresh_make_result;
+          let fresh_make_result := Control.hyp fresh_make_result in
+          destruct $fresh_make_result as [$new_pid $new_rc]
       end;
       let new_hyp := Control.hyp id in
       destruct $new_hyp as [$w2 $hworld $heq_vm];
@@ -746,8 +745,6 @@ Ltac2 unfold_alloc_pid (pid : constr) (rc : constr) new_ident :=
   let prefix := Ident.to_string new_ident in
   let new_pid := fresh_id prefix in
   let new_rc := fresh_id (String.app prefix "_rc") in
-  let valid := fresh_id (String.app "H" (String.app prefix "_valid")) in
-  let inv := fresh_id (String.app "H" (String.app (String.app prefix "_rc") "_valid")) in
   destruct (Fresh.make $pid $rc) as [$new_pid $new_rc].
 
 Ltac2 Notation "unfold_alloc_pid" pid(constr) rc(constr) new(seq("as", ident)) := unfold_alloc_pid pid rc new.
@@ -761,16 +758,6 @@ Section commute.
   Let req_t := h_request_t IOH.
   Let rep_t := h_reply_t IOH.
   Let prog_t := @Program req_t rep_t.
-
-  Ltac2 solve_alloc_pid () :=
-    simpl;
-    lazy_match! goal with
-      [ h_new : Fresh.make ?pid ?rc0 = (?new, ?rc1) |- context [Fresh.make ?pid ?rc0] ] =>
-        let h := Control.hyp h_new in
-        rewrite (Fresh.make $pid $rc0 $new)
-    end.
-
-  Ltac2 Notation "solve_alloc_pid" := solve_alloc_pid ().
 
   Ltac2 vm_step_some (vm_out : constr) :=
     match! goal with
@@ -815,7 +802,7 @@ Section commute.
       unfold RefOrd.gt in Hpids12. now rewrite Heq in Hpids12.
     }
     assert (Hpid1_new : RefOrd.compare_ pid1 new_pid = Lt).
-    { now apply Fresh.child_gt_parent in Heqfresh_make_result.
+    { now apply Fresh.child_gt_parent in HeqHvm2_fresh.
     }
     assert (Hpid2_new : RefOrd.compare_ pid2 new_pid = Lt).
     { apply RefOrd.compare_antisymm in Hpids12.
@@ -826,10 +813,10 @@ Section commute.
       now rewrite Hpid2_new in Habsurd.
     }
     assert (Hnew_pids : new_pid <> new_pid0).
-    { apply (Fresh.different_parents_children pid1 pid2 new_pid new_pid0 Hpids12_ne Heqfresh_make_result Heqfresh_make_result0).
+    { apply (Fresh.different_parents_children pid1 pid2 new_pid new_pid0 Hpids12_ne HeqHvm2_fresh HeqHvm4_fresh).
     }
     assert (Hnew_pids_gt : RefOrd.gt new_pid new_pid0). {
-      apply (Fresh.gt_parents_children pid1 pid2 new_pid new_pid0 Hpids12 Heqfresh_make_result Heqfresh_make_result0).
+      apply (Fresh.gt_parents_children pid1 pid2 new_pid new_pid0 Hpids12 HeqHvm2_fresh HeqHvm4_fresh).
     }
     (* Build the run queue *)
     assert (Hne_parent1 : {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
@@ -848,7 +835,7 @@ Section commute.
     subst rq_a.
     destruct (pick_two Hvm0_out_pick Hpick_b) as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'b]]]].
     (* Build the new ref counter *)
-    symmetry in Heqfresh_make_result. symmetry in Heqfresh_make_result0.
+    symmetry in HeqHvm2_fresh. symmetry in HeqHvm4_fresh.
     swap_make ().
     (* Build the new world *)
     simpl in Hvm2_w. simpl in Hvm4_w.
