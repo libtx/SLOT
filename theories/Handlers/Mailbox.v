@@ -164,36 +164,16 @@ Section defn.
     rename x into mb0.
     rename y into mb2.
     destruct H0 as [mb1 [Hmb1 Hmb2]].
-    assert (Hpids : pid1 <> pid2). {
-      intros Habsurd.
-      apply RefOrd.ref_compare_eq_iff in Habsurd.
-      now rewrite H in Habsurd.
-    }
     simpl in *.
     rewrite <-Hmb1 in Hmb2.
     specialize (put_distict_comm mb0 pid1 pid2
                                  {| mb_t := mb_t1; mb_q := empty |}
                                  {| mb_t := mb_t2; mb_q := empty |}
-                                 Hpids) as Hcomm.
+                                 H) as Hcomm.
     exists (put pid1 {| mb_t := mb_t1; mb_q := empty |} (put pid2 {| mb_t := mb_t2; mb_q := empty |} mb0)).
     split.
     - exists (put pid2 {| mb_t := mb_t2; mb_q := empty |} mb0).
       now split.
     - now subst.
-  Qed.
-  Next Obligation.
-    rename x into mb0.
-    rename y into mb2.
-    destruct H0 as [mb1 [Hmb1 Hmb2]].
-    assert (Hpids : pid2 <> pid1). {
-      intros Habsurd. symmetry in Habsurd.
-      apply RefOrd.ref_compare_eq_iff in Habsurd.
-      now rewrite H in Habsurd.
-    }
-    simpl in *.
-    rewrite <-Hmb1 in Hmb2.
-    specialize (put_delete_distinct_comm mb0 pid2 pid1 {| mb_t := mb_t; mb_q := empty |} Hpids) as Hcomm.
-    exists (delete pid1 (put pid2 {| mb_t := mb_t; mb_q := empty |} mb0)).
-    sauto.
   Qed.
 End defn.

@@ -245,9 +245,6 @@ Module RefOrd <: OrderedType.
              sauto unfold:lt.
   Qed.
 
-  Lemma lt_append x y a b : lt x y -> lt (x ++ [a]) (y ++ [b]).
-  Admitted.
-
   Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
   Proof.
     intros H Habsurd.
@@ -394,27 +391,6 @@ Module Fresh.
       inversion Hmake;
       subst;
       apply reford_app.
-  Qed.
-
-  Lemma gt_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :
-    RefOrd.gt p1 p2 ->
-    (new1, cc1') = make p1 cc1 ->
-    (new2, cc2') = make p2 cc2 ->
-    RefOrd.gt new1 new2.
-  Proof.
-    intros Hp.
-    assert (Hslv : forall a b, RefOrd.gt (p1 ++ [a]) (p2 ++ [b])). {
-      intros a b.
-      apply RefOrd.compare_antisymm.
-      apply RefOrd.compare_antisymm in Hp.
-      apply (RefOrd.lt_append p2 p1 b a Hp).
-    }
-    unfold make, make0.
-    intros H1 H2.
-    destruct (get_ p1 cc1); destruct (get_ p2 cc2);
-      injection H1 as H1new Hcc1'; injection H2 as H2new Hcc2';
-      subst;
-      apply Hslv.
   Qed.
 
   Lemma different_parents_children {cc1 cc2 cc1' cc2'} p1 p2 new1 new2 :

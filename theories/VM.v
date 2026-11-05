@@ -815,9 +815,6 @@ Section commute.
     assert (Hnew_pids : new_pid <> new_pid0).
     { apply (Fresh.different_parents_children pid1 pid2 new_pid new_pid0 Hpids12_ne HeqHvm2_fresh HeqHvm4_fresh).
     }
-    assert (Hnew_pids_gt : RefOrd.gt new_pid new_pid0). {
-      apply (Fresh.gt_parents_children pid1 pid2 new_pid new_pid0 Hpids12 HeqHvm2_fresh HeqHvm4_fresh).
-    }
     (* Build the run queue *)
     assert (Hne_parent1 : {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
                         <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_spawn mb_t2 child2 cont2 |}).
@@ -839,7 +836,7 @@ Section commute.
     swap_make ().
     (* Build the new world *)
     simpl in Hvm2_w. simpl in Hvm4_w.
-    destruct (h_spawn_commutativity new_pid new_pid0 child_mb_t1 child_mb_t2 Hnew_pids_gt vm0_out_w Hvm4_spawn_w) as [w2' [Hw2' Hw2'_equiv]].
+    destruct (h_spawn_commutativity new_pid new_pid0 child_mb_t1 child_mb_t2 Hnew_pids vm0_out_w Hvm4_spawn_w) as [w2' [Hw2' Hw2'_equiv]].
     { now exists Hvm4_out_w. }
     exists {| world := w2';
         runq := {| proc_mb_t := mb_t1; pid := pid1; cont := cont1 {| mba_pid := new_pid |} |}

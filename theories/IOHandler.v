@@ -80,19 +80,8 @@ Section IOHandler.
       h_spawn_commutativity :
           forall (pid1 pid2 : Pid)
              (mb_t1 mb_t2 : Set),
-          RefOrd.gt pid1 pid2 ->
+          pid1 <> pid2 ->
           swappable (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
-
-      (** This property specifies that termination of a process cannot
-          interfere with spawning of any new process.  The two pids
-          must be distinct. TODO: remove it. *)
-      h_spawn_terminate_commutativity :
-        forall (pid1 pid2 : Pid)
-          (mb_t : Set)
-          (normal : bool),
-          RefOrd.gt pid1 pid2 ->
-          swappable (h_terminate normal pid1)
-                   (h_spawn pid2 mb_t);
     }.
 End IOHandler.
 
