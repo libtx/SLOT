@@ -290,6 +290,10 @@ Module Fresh.
   Equations make (parent : Ref) (cc : t) : Ref * t :=
     make parent cc := make0 parent cc (get_ parent cc).
 
+  Definition next (parent : Ref) (cc : t) : Ref :=
+      let (next, _) := make parent cc in
+      next.
+
   Equations parent_of0 (ctr : positive) (acc : Ref) (l : Ref) : (Ref * positive) :=
     parent_of0 ctr acc [] := (rev' acc, ctr);
     parent_of0 ctr acc (ctr1 :: l) := parent_of0 ctr1 (ctr :: acc) l.
