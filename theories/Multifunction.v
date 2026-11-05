@@ -559,6 +559,21 @@ Definition swap_ret {State Ret1 Ret2}
      exists{s3' == s3}, exists s2', s1  ~[g]~> (ret_g, s2') /\
                           s2' ~[f]~> (ret_f, s3')).
 
+(* Add an empty return value to any MFun, converting it to MFunRet *)
+Program Definition add_ret {A B} `{HA : Setoid A} `{HB :Setoid B} (f : @MFun A B HA HB) : @MFunRet () A B _ HA HB :=
+  {| morphism x y :=
+      let (_, y) := y in
+      x ~[f]~> y
+  |}.
+Next Obligation.
+  morph_shift f x'.
+  exists ((), b'). split.
+  - assumption.
+  - split.
+    + now destruct u.
+    + assumption.
+Qed.
+
 Section lift_mfun_option.
   Context {A B C : Type} (f : MFun A (option B)) (g : B -> C).
 
