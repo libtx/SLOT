@@ -53,14 +53,9 @@ Section mailbox.
     }.
 
   Definition node_of {mba_t} (a : @Address mba_t) : option positive :=
-    let fix go prev l :=
-      match l with
-      | [] => prev
-      | (a :: l) => go a l
-      end in
     match a with
     | {| mba_pid := [] |} => None
-    | {| mba_pid := (a :: l) |} => Some (go a l)
+    | {| mba_pid := (a :: l) |} => Some a
     end.
 End mailbox.
 
