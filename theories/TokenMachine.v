@@ -83,7 +83,7 @@ Section token_trace_ensemble.
     now apply commute_sym.
   Qed.
 
-  Definition swap_events (a b : Event) := swappable (tm_state_trans a) (tm_state_trans b).
+  Definition swap_events (a b : Event) := semicommute (tm_state_trans a) (tm_state_trans b).
 
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->

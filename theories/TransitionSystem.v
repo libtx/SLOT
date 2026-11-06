@@ -72,7 +72,7 @@ Section TransitionSystem.
 
   Definition ts_event_commute `{TransitionSystem} (a b : Event) := commute (ts_mfun a) (ts_mfun b).
 
-  Definition ts_events_swap  `{TransitionSystem} (a b : Event) := swappable (ts_mfun a) (ts_mfun b).
+  Definition ts_events_swap  `{TransitionSystem} (a b : Event) := semicommute (ts_mfun a) (ts_mfun b).
 End TransitionSystem.
 
 Section TSProps.

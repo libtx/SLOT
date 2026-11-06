@@ -118,7 +118,8 @@ Section ts_test.
         assert (Hlr : ~ tm_canon_rel l r = true) by sauto.
         apply Hlr in H3.
         * assumption.
-        * exact (proj1 (proj1 (commute_as_swappable _ _) pair_commute)).
+        * intros x y.
+          now destruct (pair_commute x y).
     - ts_step H.
       inversion Hs0; subst.
       ts_step H.

@@ -801,7 +801,7 @@ Section commute.
   Proof.
     intros Hpids12.
     (* Unfold the original path: *)
-    unfold ts_events_swap, swappable, exists_equiv.
+    unfold ts_events_swap, semicommute, exists_equiv.
     intros vm0 vm4 [vm2 [Hvm2 Hvm4]].
     unfold_vm_step_morph Hvm2.
     unfold_vm_step_morph Hvm4.

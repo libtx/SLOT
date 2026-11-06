@@ -80,7 +80,7 @@ Section IOHandler.
           forall (pid1 pid2 : Pid)
              (mb_t1 mb_t2 : Set),
           pid1 <> pid2 ->
-          swappable (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
+          semicommute (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
     }.
 
   (** Subclass of IOHandler where exit effect handler is commutative *)
@@ -88,7 +88,7 @@ Section IOHandler.
       h_exit_commutativity :
          forall (pid1 pid2 : Pid),
            pid1 <> pid2 ->
-           swappable (h_terminate true pid1) (h_terminate true pid2)
+           semicommute (h_terminate true pid1) (h_terminate true pid2)
     }.
 
   (** Subclass of IOHandler where terminate and spawn effect handlers semi-commute *)
@@ -96,7 +96,7 @@ Section IOHandler.
       h_exit_spawn_swap :
         forall child_mb_t {pid1 pid2 : Pid} (new_pid : Pid),
           pid1 <> pid2 ->
-          swappable (h_terminate true pid1) (h_spawn new_pid child_mb_t)
+          semicommute (h_terminate true pid1) (h_spawn new_pid child_mb_t)
     }.
 
   (** Subclass of IOHandler where exit and I/O effect handlers semi-commute *)
