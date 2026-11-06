@@ -12,7 +12,7 @@ a shallow-embedded DSL inspired by Erlang.
 * SLOTLang
 
 SLOTLang is an actor-based language capable of performing input-output operations in a simulated environment.
-It extends plain Gallina with 4 primitives:
+It extends plain Gallina with 3 primitives:
 
 + *spawn*: spawn a child process
 + *do*: perform I/O operation
