@@ -72,22 +72,22 @@ Section token_trace_ensemble.
 
   Definition TraceEnsemble := Ensemble Trace.
 
-  Definition event_commute (a b : Event) := commute (tm_state_trans a) (tm_state_trans b).
+  Definition evt_commute (a b : Event) := commute (tm_state_trans a) (tm_state_trans b).
 
-  Lemma event_commute_sym (a b : Event) :
-    event_commute a b ->
-    event_commute b a.
+  Lemma evt_commute_sym (a b : Event) :
+    evt_commute a b ->
+    evt_commute b a.
   Proof.
     intros H.
-    unfold event_commute in *.
+    unfold evt_commute in *.
     now apply commute_sym.
   Qed.
 
-  Definition swap_events (a b : Event) := semicommute (tm_state_trans a) (tm_state_trans b).
+  Definition evt_semicommute (a b : Event) := semicommute (tm_state_trans a) (tm_state_trans b).
 
   Definition sufficient_replacement_p (e e' : TraceEnsemble) :=
     forall t, e t ->
-         exists t', e' t' /\ RestrictedPermutation swap_events t t'.
+         exists t', e' t' /\ RestrictedPermutation evt_semicommute t t'.
 
   Lemma sufficient_replacement_p_trans : Transitive sufficient_replacement_p.
   Proof.
@@ -104,15 +104,15 @@ End token_trace_ensemble.
 Section canonical_trace.
   Context `{Hts: TokenMachine}.
 
-  Context (swap_events_dec : forall f g, decidable (swap_events f g)).
+  Context (evt_semicommute_dec : forall f g, decidable (evt_semicommute f g)).
 
   Definition can_follow (a b : Event) :=
-    swap_events a b -> tm_canon_rel a b = true.
+    evt_semicommute a b -> tm_canon_rel a b = true.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
     unfold can_follow.
-    specialize (swap_events_dec a b) as Hdcomm.
+    specialize (evt_semicommute_dec a b) as Hdcomm.
     apply dec_imp.
     - assumption.
     - destruct (tm_canon_rel a b).
@@ -172,7 +172,7 @@ Section canonical_trace.
                          (Hfoll : ~can_follow_hd f t) :
     exists t', exists{z' == z},
       CanonicalTrace t' x z' /\
-      RestrictedPermutation swap_events (f :: t) t' /\
+      RestrictedPermutation evt_semicommute (f :: t) t' /\
         (hd_error t = hd_error t').
   Proof.
     generalize dependent x. generalize dependent y.
@@ -185,9 +185,9 @@ Section canonical_trace.
           apply canon_rel_total.
         firstorder.
       }
-      assert (Hfg_comm : swap_events f g). {
+      assert (Hfg_comm : evt_semicommute f g). {
         unfold can_follow_hd, can_follow in Hfoll.
-        destruct (swap_events_dec f g).
+        destruct (evt_semicommute_dec f g).
         - assumption.
         - firstorder.
       }
@@ -231,9 +231,9 @@ Section canonical_trace.
           eapply can_follow_hd_eq; eauto.
         - (* Prove that it's possible to go from [f :: g :: t'] to
           [g :: t''] by swapping commiting events: *)
-          assert (RestrictedPermutation swap_events (g :: f :: t') (g :: t'')) by
+          assert (RestrictedPermutation evt_semicommute (g :: f :: t') (g :: t'')) by
             now constructor 2.
-          assert (RestrictedPermutation swap_events (f :: g :: t') (g :: f :: t')) by
+          assert (RestrictedPermutation evt_semicommute (f :: g :: t') (g :: f :: t')) by
             now constructor 3.
           econstructor 4; eauto.
         - assumption.
@@ -276,7 +276,7 @@ Section canonical_trace.
           * exists y''. split.
             -- assumption.
             -- rewrite Hyy', Hy''. reflexivity.
-          * assert (RestrictedPermutation swap_events (f :: g :: t) (f :: t')) by
+          * assert (RestrictedPermutation evt_semicommute (f :: g :: t) (f :: t')) by
               now constructor 2.
             econstructor 4; eauto.
           * reflexivity.

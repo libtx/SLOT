@@ -795,13 +795,13 @@ Section commute.
   Lemma spawn_spawn_swap `{!IOHandler_spawn_spawn}
     {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     RefOrd.gt pid1 pid2 ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
   Proof.
     intros Hpids12.
     (* Unfold the original path: *)
-    unfold ts_events_swap, semicommute, exists_equiv.
+    unfold tev_semicommute, semicommute, exists_equiv.
     intros vm0 vm4 [vm2 [Hvm2 Hvm4]].
     unfold_vm_step_morph Hvm2.
     unfold_vm_step_morph Hvm4.
@@ -891,7 +891,7 @@ Section commute.
   (* 2/10 *)
   Lemma exit_exit_swap `{!IOHandler_exit_exit} {pid1 pid2 mb_t1 mb_t2} :
     RefOrd.gt pid1 pid2 ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @exit req_t rep_t mb_t2 |}.
   Proof.
@@ -927,7 +927,7 @@ Section commute.
   Lemma io_io_swap {pid1 pid2 mb_t1 mb_t2 req1 req2 cont1 cont2} :
     RefOrd.gt pid1 pid2 ->
     swap_ret (h_perform_io pid1 req1) (h_perform_io pid2 req2) ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req2 cont2 |}.
   Proof.
@@ -980,7 +980,7 @@ Section commute.
   (* 4/10 *)
   Lemma exit_spawn_swap `{!IOHandler_exit_spawn} {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     RefOrd.gt pid1 pid2 ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
   Proof.
@@ -1031,7 +1031,7 @@ Section commute.
   (* 5/10 *)
   Lemma exit_io_swap `{!IOHandler_exit_io} {pid1 pid2 mb_t1 mb_t2 req cont2} :
     RefOrd.gt pid1 pid2 ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
   Proof.
@@ -1074,7 +1074,7 @@ Section commute.
   (* 6/10 *)
   Lemma spawn_io_swap `{!IOHandler_spawn_io} {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} :
     RefOrd.gt pid1 pid2 ->
-    ts_events_swap
+    tev_semicommute
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
   Proof.

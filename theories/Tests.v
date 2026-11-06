@@ -72,7 +72,7 @@ Section ts_test.
       ts_state_trans := pair_mfun;
     |}.
 
-  Lemma pair_commute : ts_event_commute l r.
+  Lemma pair_commute : tev_commute l r.
   Proof.
     intros a c. split; intros H;
       destruct H as [b H];
