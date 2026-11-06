@@ -50,23 +50,18 @@ Section ts_test.
     now exists y.
   Qed.
 
-  Let canon_rel a b :=
+  Let canon_rel a b : bool :=
         match a, b with
-        | l, r => False
-        | _, _ => True
+        | l, r => false
+        | _, _ => true
         end.
 
-  Lemma canon_rel_dec_ a b : decidable (canon_rel a b).
-    sauto.
-  Qed.
-
-  Lemma canon_rel_total_ a b : canon_rel a b \/ canon_rel b a.
+  Lemma canon_rel_total_ a b : canon_rel a b = true \/ canon_rel b a = true.
     sauto.
   Qed.
 
   Instance canon_rel_C : CanonicalOrder canon_rel :=
-    {| canon_rel_dec := canon_rel_dec_;
-       canon_rel_total := canon_rel_total_;
+    {| canon_rel_total := canon_rel_total_;
     |}.
 
   Instance tsPair : @TransitionSystem state PairEvent :=
@@ -120,10 +115,10 @@ Section ts_test.
       + exfalso.
         inversion Hcanon; subst.
         simpl in H3. unfold can_follow in H3.
-        assert (Hlr : ~tm_canon_rel l r) by sauto.
+        assert (Hlr : ~ tm_canon_rel l r = true) by sauto.
         apply Hlr in H3.
         * assumption.
-        * apply pair_commute.
+        * exact (proj1 (proj1 (commute_as_swappable _ _) pair_commute)).
     - ts_step H.
       inversion Hs0; subst.
       ts_step H.

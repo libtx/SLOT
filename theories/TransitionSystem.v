@@ -50,7 +50,7 @@ Section TransitionSystem.
   Class TransitionSystem {Event : Type} :=
     {
       ts_setoid :: Setoid State;
-      ts_canon_rel : relation Event;
+      ts_canon_rel : Event -> Event -> bool;
       ts_canon_order :: CanonicalOrder ts_canon_rel;
       ts_state_trans : @MFun State (ts_ret Event) ts_setoid (ts_ret_setoid Event ts_setoid);
     }.
@@ -111,7 +111,7 @@ Section TSProps.
   Qed.
 
   Definition can_follow_ts (a b : Event) :=
-    ts_events_swap a b -> ts_canon_rel a b.
+    ts_events_swap a b -> ts_canon_rel a b = true.
 
   Definition can_follow_hd_ts (token : Event) (trace : Trace) : Prop :=
     match trace with

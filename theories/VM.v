@@ -151,22 +151,17 @@ Section definitions.
 
   (** ** Canonical order *)
 
-  Definition vmte_canon_rel (a b : Process) :=
+  Definition vmte_canon_rel (a b : Process) : bool :=
     (* Order of events is canonical when pid a >= pid b: *)
     match RefOrd.compare_ (pid a) (pid b) with
-    | Lt => False
-    | _ => True
+    | Lt => false
+    | _ => true
     end.
 
-  Lemma vmte_canon_rel_dec a b : Decidable.decidable (vmte_canon_rel a b).
+  Lemma vmte_canon_rel_total a b :
+    vmte_canon_rel a b = true \/ vmte_canon_rel b a = true.
   Proof.
-    unfold Decidable.decidable, vmte_canon_rel.
-    sauto.
-  Qed.
-
-  Lemma vmte_canon_rel_total a b : vmte_canon_rel a b \/ vmte_canon_rel b a.
-  Proof.
-    unfold Decidable.decidable, vmte_canon_rel.
+    unfold vmte_canon_rel.
     remember (RefOrd.compare_ (pid a) (pid b)) as ord.
     destruct ord.
     - now left.
@@ -176,8 +171,7 @@ Section definitions.
   Qed.
 
   Global Instance vmevCanonOrder : CanonicalOrder vmte_canon_rel :=
-    { canon_rel_dec := vmte_canon_rel_dec;
-      canon_rel_total := vmte_canon_rel_total;
+    { canon_rel_total := vmte_canon_rel_total;
     }.
 
   Definition MaybeValidProc : Type := option (Process * VM).

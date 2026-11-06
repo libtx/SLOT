@@ -43,15 +43,13 @@ Import ListNotations.
 
 (** ** Canonical order of events
 
- A binary relation to compare events less or equal.
+ A boolean function to compare events less or equal.
  *)
 Section canonical_order.
   Context {A : Type}.
 
-  Class CanonicalOrder (canon_rel : relation A) := {
-      canon_rel_dec a b : decidable (canon_rel a b);
-
-      canon_rel_total a b : canon_rel a b \/ canon_rel b a;
+  Class CanonicalOrder (canon_rel : A -> A -> bool) := {
+      canon_rel_total a b : canon_rel a b = true \/ canon_rel b a = true;
     }.
 End canonical_order.
 
@@ -61,7 +59,7 @@ Section token_machine.
   Class TokenMachine {Event : Type} :=
     {
       tm_setoid :: Setoid State;
-      tm_canon_rel : relation Event;
+      tm_canon_rel : Event -> Event -> bool;
       tm_canon_order :: CanonicalOrder tm_canon_rel;
       tm_state_trans : Event -> @MFun State State tm_setoid tm_setoid;
     }.
@@ -109,7 +107,7 @@ Section canonical_trace.
   Context (swap_events_dec : forall f g, decidable (swap_events f g)).
 
   Definition can_follow (a b : Event) :=
-    swap_events a b -> tm_canon_rel a b.
+    swap_events a b -> tm_canon_rel a b = true.
 
   Lemma can_follow_dec a b : decidable (can_follow a b).
   Proof.
@@ -117,7 +115,9 @@ Section canonical_trace.
     specialize (swap_events_dec a b) as Hdcomm.
     apply dec_imp.
     - assumption.
-    - apply canon_rel_dec.
+    - destruct (tm_canon_rel a b).
+      + left; reflexivity.
+      + right; discriminate.
   Qed.
 
   Definition can_follow_hd (token : Event) (trace : Trace) : Prop :=
@@ -180,8 +180,8 @@ Section canonical_trace.
     - exfalso.
       now unfold not, can_follow_hd in Hfoll.
     - intros y Hyy' x Hxy. simpl in Hfoll.
-      assert (Hfg_canon : tm_canon_rel g f). {
-        assert (Hcanon_total : tm_canon_rel f g \/ tm_canon_rel g f) by
+      assert (Hfg_canon : tm_canon_rel g f = true). {
+        assert (Hcanon_total : tm_canon_rel f g = true \/ tm_canon_rel g f = true) by
           apply canon_rel_total.
         firstorder.
       }
