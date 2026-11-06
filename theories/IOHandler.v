@@ -1,3 +1,19 @@
+(* SLOT, a formally verified model checker
+   Copyright (C) 2021-2026  k32
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, version 3 of the License.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*)
+
 From Stdlib Require Import
   List
   ZArith
@@ -13,14 +29,6 @@ From SLOT Require Import
 
 From Hammer Require Import
   Tactics.
-
-(** * Abstract pid-allocation contexts
-
-    A [Context] is an abstract collection of allocated pids.  Instead
-    of exposing the raw reference-counter collection, it provides two
-    tests, [is_valid_pid] and [is_invalid_pid], which are proper
-    morphisms: they respect equality of contexts, so validity of a pid
-    can be transported along setoid-equal contexts. *)
 
 Definition Pid : Set := Ref.
 
@@ -58,12 +66,6 @@ End mailbox.
 
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
-
-  (** ** The basic operations of an I/O handler
-
-      [IOHandler_basics] bundles the handler state together with the
-      world-level operations.  It carries no laws: those live in
-      [IOHandler], which extends a basics implementation. *)
 
   Class IOHandler := {
       h_state : Type;
