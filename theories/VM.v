@@ -798,7 +798,8 @@ Section commute.
     end.
 
   (* 1/10 *)
-  Lemma spawn_spawn_swap {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
+  Lemma spawn_spawn_swap `{!IOHandler_spawn_spawn}
+    {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
     RefOrd.gt pid1 pid2 ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
@@ -894,14 +895,13 @@ Section commute.
   Qed.
 
   (* 2/10 *)
-  Lemma exit_exit_swap {pid1 pid2 mb_t1 mb_t2} :
+  Lemma exit_exit_swap `{!IOHandler_exit_exit} {pid1 pid2 mb_t1 mb_t2} :
     RefOrd.gt pid1 pid2 ->
-    swappable (h_terminate true pid1) (h_terminate true pid2) ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @exit req_t rep_t mb_t2 |}.
   Proof.
-    intros Hpids Hw_comm vm0 vm2 [vm1 [Hvm1 Hvm2]].
+    intros Hpids vm0 vm2 [vm1 [Hvm1 Hvm2]].
     simpl in Hvm1. simpl in Hvm2.
     unfold_vm_step_morph Hvm1.
     unfold_vm_step_morph Hvm2.
@@ -909,7 +909,8 @@ Section commute.
     (* Run queue: *)
     destruct (pick_two Hvm0_out_pick HHvm2_out_pick) as [rq2' [rq3' [Hpick_proc2 [Hpick_proc1 Hrq3'b]]]].
     (* World: *)
-    destruct (Hw_comm vm0_out_w vm2_w) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]]. { now exists Hvm2_out_w. }
+    specialize (RefOrd.gt_not_eq pid1 pid2 Hpids) as Hpids12_ne.
+    destruct (h_exit_commutativity pid1 pid2 Hpids12_ne vm0_out_w vm2_w) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]]. { now exists Hvm2_out_w. }
     (* Build it *)
     exists {| world := w2'; runq := rq3'; ref_ctr := vm2_rc |}.
     split.
@@ -942,11 +943,7 @@ Section commute.
     unfold_vm_step_morph Hvm2.
     subst.
     (* Run queue: *)
-    assert (Hpids12_ne : pid1 <> pid2). {
-      intros Heq.
-      apply RefOrd.ref_compare_eq_iff in Heq.
-      unfold RefOrd.gt in Hpids12. now rewrite Heq in Hpids12.
-    }
+    specialize (RefOrd.gt_not_eq pid1 pid2 Hpids12) as Hpids12_ne.
     assert (Hprocs_ne : {| proc_mb_t := mb_t1; pid := pid1; cont := cont1 req1_rep |} <>
                          {| proc_mb_t := mb_t2; pid := pid2; cont := p_io mb_t2 req2 cont2 |}).
     { intros Habsurd.
@@ -987,21 +984,21 @@ Section commute.
   Qed.
 
   (* 4/10 *)
-  Lemma exit_spawn_swap {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
+  Lemma exit_spawn_swap `{!IOHandler_exit_spawn} {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
     RefOrd.gt pid1 pid2 ->
-    (forall new_pid, swappable (h_terminate true pid1) (h_spawn new_pid child_mb_t)) ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
   Proof.
-    intros Hpids12 Hswp vm0 vm_e [vm1 [Hvm1 Hvm_e]].
+    intros Hpids12 vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
     unfold_vm_step_morph Hvm_e.
     subst. simpl in *.
     (* Run queue *)
     destruct (pick_two Hvm0_out_pick HHvm_e_out_pick) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'_equiv]]]].
     (* World *)
-    destruct (Hswp new_pid vm0_out_w Hvm_e_spawn_w) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]]. { sauto. }
+    specialize (RefOrd.gt_not_eq pid1 pid2 Hpids12) as Hpids12_ne.
+    destruct (h_exit_spawn_swap child_mb_t new_pid Hpids12_ne vm0_out_w Hvm_e_spawn_w) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]]. { sauto. }
     (* Build it *)
     exists {| world := w2';
         runq := {| pid := pid2; proc_mb_t := mb_t2; cont := parent_cont {| mba_pid := new_pid |} |}
@@ -1038,21 +1035,21 @@ Section commute.
   Qed.
 
   (* 5/10 *)
-  Lemma exit_io_swap {pid1 pid2 mb_t1 mb_t2 req cont2} :
+  Lemma exit_io_swap `{!IOHandler_exit_io} {pid1 pid2 mb_t1 mb_t2 req cont2} :
     RefOrd.gt pid1 pid2 ->
-    swap_ret (add_ret (h_terminate true pid1)) (h_perform_io pid2 req) ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
   Proof.
-    intros Hpids Hswp vm0 vm_e [vm1 [Hvm1 Hvm_e]].
+    intros Hpids vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
     unfold_vm_step_morph Hvm_e.
     subst. simpl in *.
     (* Run queue *)
     destruct (pick_two Hvm0_out_pick HHvm_e_out_pick) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'_equiv]]]].
     (* World *)
-    destruct (Hswp vm0_out_w Hvm_e_out_w vm_e_w tt req_rep ) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]] > [sauto | sauto|].
+    specialize (RefOrd.gt_not_eq pid1 pid2 Hpids) as Hpids_ne.
+    destruct (h_exit_io_swap Hpids_ne vm0_out_w Hvm_e_out_w vm_e_w tt req_rep ) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]] > [sauto | sauto|].
     (* Build it *)
     exists {| world := w2';
         runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |} :: rq2';
@@ -1081,14 +1078,13 @@ Section commute.
   Qed.
 
   (* 6/10 *)
-  Lemma spawn_io_swap {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} :
+  Lemma spawn_io_swap `{!IOHandler_spawn_io} {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} :
     RefOrd.gt pid1 pid2 ->
-    (forall new_pid, swap_ret (add_ret (h_spawn new_pid child_mb_t)) (h_perform_io pid2 req)) ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
   Proof.
-    intros Hpids12 Hswp vm0 vm_e [vm1 [Hvm1 Hvm_e]].
+    intros Hpids12 vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
     unfold_vm_step_morph Hvm_e.
     subst. simpl in *.
@@ -1126,7 +1122,8 @@ Section commute.
     subst rq_a.
     destruct (pick_two Hvm0_out_pick Hpick_b) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'_equiv]]]].
     (* World *)
-    destruct (Hswp new_pid vm0_out_w Hvm_e_out_w vm_e_w tt req_rep ) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]] > [sauto | sauto|].
+    destruct (h_spawn_io_swap child_mb_t req Hnew_pid2_neq vm0_out_w Hvm_e_out_w vm_e_w tt req_rep ) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]]
+       > [sauto | sauto|].
     (* Build it *)
     exists {| world := w2';
         runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}

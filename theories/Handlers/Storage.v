@@ -95,7 +95,7 @@ Section storage_handler.
   Definition storage_h_perform_io (pid : Pid) (req : StorageReq) : mfun_t (StorageRet req) :=
     storage_mfun req.
 
-  Program Instance storageHandler :
+  Instance storageHandler :
     @IOHandler StorageReq StorageRet :=
     {|
       h_state := Container;
@@ -105,6 +105,8 @@ Section storage_handler.
       h_spawn := fun _ _ => id_mfun;
       h_terminate := fun _ _ => id_mfun;
     |}.
+
+  Program Instance storageSpawnSpawn : IOHandler_spawn_spawn.
   Solve All Obligations with sauto.
 End storage_handler.
 

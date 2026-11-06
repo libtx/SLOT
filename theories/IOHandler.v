@@ -72,13 +72,47 @@ Section IOHandler.
       h_spawn (pid : Pid) (mailbox_t : Set) : MFun h_state h_state;
 
       h_terminate (normal : bool) (pid : Pid) : MFun h_state h_state;
+    }.
 
-      (** Spawning children of two distinct pids commutes. *)
+  (** Subclass of IOHandler where spawn effect handler is commutative *)
+  Class IOHandler_spawn_spawn `{IOHandler} := {
       h_spawn_commutativity :
           forall (pid1 pid2 : Pid)
              (mb_t1 mb_t2 : Set),
           pid1 <> pid2 ->
           swappable (h_spawn pid1 mb_t1) (h_spawn pid2 mb_t2);
+    }.
+
+  (** Subclass of IOHandler where exit effect handler is commutative *)
+  Class IOHandler_exit_exit `{IOHandler} := {
+      h_exit_commutativity :
+         forall (pid1 pid2 : Pid),
+           pid1 <> pid2 ->
+           swappable (h_terminate true pid1) (h_terminate true pid2)
+    }.
+
+  (** Subclass of IOHandler where terminate and spawn effect handlers semi-commute *)
+  Class IOHandler_exit_spawn `{IOHandler} := {
+      h_exit_spawn_swap :
+        forall child_mb_t {pid1 pid2 : Pid} (new_pid : Pid),
+          pid1 <> pid2 ->
+          swappable (h_terminate true pid1) (h_spawn new_pid child_mb_t)
+    }.
+
+  (** Subclass of IOHandler where exit and I/O effect handlers semi-commute *)
+  Class IOHandler_exit_io `{IOHandler} := {
+      h_exit_io_swap :
+        forall {pid1 pid2 req},
+          pid1 <> pid2 ->
+          swap_ret (add_ret (h_terminate true pid1)) (h_perform_io pid2 req)
+    }.
+
+  (** Subclass of IOHandler where spawn and I/O effect handlers semi-commute *)
+  Class IOHandler_spawn_io `{IOHandler} := {
+      h_spawn_io_swap :
+        forall child_mb_t (req : Request) {new_pid pid : Pid},
+          new_pid <> pid ->
+          swap_ret (add_ret (h_spawn new_pid child_mb_t)) (h_perform_io pid req)
     }.
 End IOHandler.
 
