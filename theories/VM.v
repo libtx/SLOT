@@ -555,7 +555,6 @@ From SLOT Require Import
 
 Set Default Proof Mode "Ltac2".
 
-
 Ltac2 dvm (vms : ident list) :=
   List.iter
     (fun vm =>
@@ -1168,3 +1167,56 @@ Section commute.
     }
   Qed.
 End commute.
+
+Global Arguments p_io {_ _ _}.
+Global Arguments p_spawn {_ _ _ _}.
+Global Arguments exit {_ _ _}.
+
+Notation "'do' V '<-' I ; C" := (p_io (I) (fun V => C))
+    (at level 100, I at next level, V name, left associativity) : slot_scope.
+
+Notation "'spawn' V '<-' I ; C" := (p_spawn (I) (fun V => C))
+    (at level 100, I at next level, V name, left associativity) : slot_scope.
+
+Require Import Handlers.Mailbox.
+
+Definition init `(IOHandler) {mb_t} (seed : Program mb_t) :=
+  let process := {| pid := []; proc_mb_t := mb_t; cont := seed |} in
+  {| world := h_initial;
+     ref_ctr := FMap.M.empty _;
+     runq := [process]
+  |}.
+
+Definition pr {Req Rep} mb_t p (c : @Program Req Rep mb_t) := {| pid := p; proc_mb_t := mb_t; cont := c |}.
+
+Section tests.
+  Let req_t := h_request_t mailboxHandler.
+  Let rep_t := h_reply_t mailboxHandler.
+
+  Let prog mb_t := @Program req_t rep_t mb_t.
+
+  Let actor1 : prog positive :=
+        exit.
+
+  Let actor2 (pid : @Address positive) : prog unit :=
+        do _ <- send pid (appmsg 1);
+        exit.
+
+  Let system : prog unit :=
+        spawn p1 <- actor1;
+        spawn _ <- actor2 p1;
+        exit.
+
+  Let vm0_1 := init mailboxHandler actor1.
+
+  Goal forall trace vm_e,
+      TSMFunGen vm0_1 trace vm_e ->
+      CanonicalTrace trace vm0_1 vm_e ->
+      trace = [pr _ [] actor1].
+  Proof.
+    unfold init in *. subst vm0_1.
+    intros trace vm_e Htr Hcanon.
+    inversion_clear Htr.
+    - simpl in H.
+  Abort.
+End tests.
