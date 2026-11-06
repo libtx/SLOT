@@ -167,7 +167,7 @@ Section defn.
         reflexivity.
   Qed.
 
-  Program Instance mailboxHandler : @IOHandler MBReq MBRet :=
+  Instance mailboxHandler : @IOHandler MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;
@@ -176,6 +176,8 @@ Section defn.
       h_spawn := mailbox_spawn;
       h_terminate := delete_mailbox;
     |}.
+
+  Program Instance mailboxSpawnSpawn : IOHandler_spawn_spawn.
   Next Obligation.
     rename x into mb0.
     rename y into mb2.

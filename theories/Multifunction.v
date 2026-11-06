@@ -181,29 +181,20 @@ Section props.
   Definition eq_commute (f g : T) :=
     forall (x y : A), x ~[g ∘ f]~> y <-> x ~[f ∘ g]~> y.
 
+  Definition semicommute_def (f g : T) (x y : A) :=
+    x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y'.
+
   Definition commute_def (f g : T) (x y : A) :=
-      (x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y') /\
-      (x ~[f ∘ g]~> y -> exists{y' == y}, x ~[g ∘ f]~> y').
+    semicommute_def f g x y /\ semicommute_def g f x y.
 
   (** Relaxed version of [eq_commute] based on equivalence: *)
   Definition commute (f g : T) :=
     forall x y, commute_def f g x y.
 
-  (** [swappable f g] : any appliction of [f] followed by [g] can be re-run
+  (** [semicommute f g] : any appliction of [f] followed by [g] can be re-run
       as [g] then [f], reaching an equivalent state. *)
-  Definition swappable (f g : T) :=
-    forall x y, x ~[g ∘ f]~> y -> exists{y' == y}, x ~[f ∘ g]~> y'.
-
-  Lemma commute_as_swappable f g : commute f g <-> swappable f g /\ swappable g f.
-  Proof.
-    split.
-    - intros H.
-      split; intros x y; apply (H x y).
-    - intros [H1 H2].
-      split.
-      + apply (H1 x y).
-      + apply (H2 x y).
-  Qed.
+  Definition semicommute (f g : T) :=
+    forall x y, semicommute_def f g x y.
 
   Lemma commute_def_sym (f g : T) (x y : A) :
     commute_def f g x y ->
@@ -411,7 +402,7 @@ End mfun_equiv_commut.
 Fact eq_setoid_commutative {A} (a b : @MFun A A (eq_setoid A) (eq_setoid A)) :
   eq_commute a b <-> commute a b.
 Proof.
-  split; unfold commute, eq_commute.
+  split; unfold commute, commute_def, semicommute_def, eq_commute.
   - sauto.
   - intros H x z. specialize (H x z).
     sauto.

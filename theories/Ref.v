@@ -242,7 +242,7 @@ Module RefOrd <: OrderedType.
     now rewrite Pos.compare_refl.
   Qed.
 
-  Theorem lt_trans : forall x y z : t, lt x y -> lt y z -> lt x z.
+  Lemma lt_trans : forall x y z : t, lt x y -> lt y z -> lt x z.
   Proof.
     induction x as [|a x IHx].
     - sauto.
@@ -261,11 +261,20 @@ Module RefOrd <: OrderedType.
              sauto unfold:lt.
   Qed.
 
-  Theorem lt_not_eq (x y : t) : lt x y -> ~ eq x y.
+  Lemma lt_not_eq (x y : t) : lt x y -> ~ eq x y.
   Proof.
     intros H Habsurd.
-    destruct Habsurd.
-    induction x; sauto use: Pos.lt_irrefl.
+    apply RefOrd.ref_compare_eq_iff in Habsurd.
+    unfold gt in H.
+    now rewrite H in Habsurd.
+  Qed.
+
+  Lemma gt_not_eq (x y : t) : gt x y -> x <> y.
+  Proof.
+    intros H Habsurd.
+    apply RefOrd.ref_compare_eq_iff in Habsurd.
+    unfold gt in H.
+    now rewrite H in Habsurd.
   Qed.
 
   Definition compare (a b : t) : Compare lt eq a b.
@@ -433,3 +442,7 @@ Module Fresh.
       apply Hslv.
   Qed.
 End Fresh.
+
+Create HintDb slot.
+
+#[export] Hint Resolve RefOrd.gt_not_eq : slot.
