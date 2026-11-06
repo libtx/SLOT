@@ -1068,7 +1068,7 @@ Section commute.
   (* 6/10 *)
   Lemma spawn_io_swap {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} :
     RefOrd.gt pid1 pid2 ->
-    (forall new_pid, swap_ret (add_ret (h_spawn new_pid child_mb_t)) (h_perform_io pid1 req)) ->
+    (forall new_pid, swap_ret (add_ret (h_spawn new_pid child_mb_t)) (h_perform_io pid2 req)) ->
     ts_events_swap
       {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1 |}
       {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
@@ -1083,12 +1083,72 @@ Section commute.
       apply RefOrd.ref_compare_eq_iff in Heq.
       unfold RefOrd.gt in Hpids12. now rewrite Heq in Hpids12.
     }
-    assert (H_ne : {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1 |} <>
-                   {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |}
-           ). {
-      intros Habsurd.
-      injection Habsurd as Hp.
-      now rewrite Hp in Hpids12_ne.
+    assert (Hpid1_new : RefOrd.compare_ pid1 new_pid = Lt).
+    { exact (Fresh.child_gt_parent _ _ _ _ HeqHvm1_fresh).
     }
-  Abort.
+    assert (Hpid2_new : RefOrd.compare_ pid2 new_pid = Lt).
+    { apply RefOrd.compare_antisymm in Hpids12.
+      now specialize (RefOrd.lt_trans Hpids12 Hpid1_new).
+    }
+    assert (Hnew_pid2_neq : new_pid <> pid2).
+    { intros Habsurd.
+      apply RefOrd.ref_compare_eq_iff,RefOrd.compare_eq_symm in Habsurd.
+      now rewrite Hpid2_new in Habsurd.
+    }
+    assert (Hne_parent1 : {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
+                        <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_io mb_t2 req cont2 |}).
+    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt.
+      now apply Hpids12_ne in Hpid_eq.
+    }
+    assert (Hne_child1 : {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
+                       <> {| pid := pid2; proc_mb_t := mb_t2; cont := p_io mb_t2 req cont2 |}).
+    { intros Heq. injection Heq as Hpid_eq Hmb Hcnt.
+      now apply Hnew_pid2_neq.
+    }
+    destruct (pick_cons HHvm_e_out_pick Hne_parent1) as [rq_a [Heq_a Hpick_a]].
+    subst Hvm_e_out_rq.
+    destruct (pick_cons Hpick_a Hne_child1) as [rq_b [Heq_b Hpick_b]].
+    subst rq_a.
+    destruct (pick_two Hvm0_out_pick Hpick_b) as [rq1' [rq2' [Hrq1' [Hrq2' Hrq2'_equiv]]]].
+    (* World *)
+    destruct (Hswp new_pid vm0_out_w Hvm_e_out_w vm_e_w tt req_rep ) as [w2' [[w1' [Hw1' Hw2']] Hw2'_equiv]] > [sauto | sauto|].
+    (* Build it *)
+    exists {| world := w2';
+        runq := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
+              :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
+              :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |}
+              :: rq2';
+        ref_ctr := Hvm_e_out_rc
+      |}.
+    split.
+    2:{ simpl. repeat split.
+        - assumption.
+        - rewrite Hrq2'_equiv.
+          eapply Permutation_trans with
+            (l' := {| pid := pid1; proc_mb_t := mb_t1; cont := cont1 {| mba_pid := new_pid |} |}
+                 :: {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |}
+                 :: {| pid := new_pid; proc_mb_t := child_mb_t; cont := child_cont |}
+                 :: rq_b).
+          + apply Permutation.perm_swap.
+          + apply perm_skip, Permutation.perm_swap.
+    }
+    { exists {| world := w1';
+          runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |} :: rq1';
+          ref_ctr := vm0_out_rc
+        |}.
+      split.
+      - constructor 2 with (vm1 := {| world := vm0_out_w; runq := rq1'; ref_ctr := vm0_out_rc |}).
+        + sauto.
+        + sauto.
+      - constructor 2 with (vm1 := {| world := w1';
+                                     runq := {| pid := pid2; proc_mb_t := mb_t2; cont := cont2 req_rep |} :: rq2';
+                                     ref_ctr := vm0_out_rc
+                                   |}).
+        + sauto.
+        + unfold exec_proc_morph. cbn. unfold spawn_morph, alloc_pid.
+          rewrite <-HeqHvm1_fresh.
+          unfold add_ret in Hw2'. cbn in Hw2'.
+          now exists w2'.
+    }
+  Qed.
 End commute.
