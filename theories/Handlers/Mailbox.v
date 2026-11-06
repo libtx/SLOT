@@ -167,7 +167,7 @@ Section defn.
         reflexivity.
   Qed.
 
-  Instance mailboxHandler : @IOHandler MBReq MBRet :=
+  Instance mailboxHandler : @IOHandler_basics MBReq MBRet :=
     {|
       h_state := t;
       h_setoid := s_eq_setoid;

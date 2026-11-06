@@ -62,7 +62,7 @@ End mailbox.
 Section IOHandler.
   Context {Request : Type} {Reply : Request -> Type}.
 
-  Class IOHandler := {
+  Class IOHandler_basics := {
       h_state : Type;
       h_setoid : Setoid h_state;
       h_initial : h_state;
@@ -75,7 +75,7 @@ Section IOHandler.
     }.
 
   (** Subclass of IOHandler where spawn effect handler is commutative *)
-  Class IOHandler_spawn_spawn `{IOHandler} := {
+  Class IOHandler_spawn_spawn `{IOHandler_basics} := {
       h_spawn_commutativity :
           forall (pid1 pid2 : Pid)
              (mb_t1 mb_t2 : Set),
@@ -84,7 +84,7 @@ Section IOHandler.
     }.
 
   (** Subclass of IOHandler where exit effect handler is commutative *)
-  Class IOHandler_exit_exit `{IOHandler} := {
+  Class IOHandler_exit_exit `{IOHandler_basics} := {
       h_exit_commutativity :
          forall (pid1 pid2 : Pid),
            pid1 <> pid2 ->
@@ -92,7 +92,7 @@ Section IOHandler.
     }.
 
   (** Subclass of IOHandler where terminate and spawn effect handlers semi-commute *)
-  Class IOHandler_exit_spawn `{IOHandler} := {
+  Class IOHandler_exit_spawn `{IOHandler_basics} := {
       h_exit_spawn_swap :
         forall child_mb_t {pid1 pid2 : Pid} (new_pid : Pid),
           pid1 <> pid2 ->
@@ -100,7 +100,7 @@ Section IOHandler.
     }.
 
   (** Subclass of IOHandler where exit and I/O effect handlers semi-commute *)
-  Class IOHandler_exit_io `{IOHandler} := {
+  Class IOHandler_exit_io `{IOHandler_basics} := {
       h_exit_io_swap :
         forall {pid1 pid2 req},
           pid1 <> pid2 ->
@@ -108,7 +108,7 @@ Section IOHandler.
     }.
 
   (** Subclass of IOHandler where spawn and I/O effect handlers semi-commute *)
-  Class IOHandler_spawn_io `{IOHandler} := {
+  Class IOHandler_spawn_io `{IOHandler_basics} := {
       h_spawn_io_swap :
         forall child_mb_t (req : Request) {new_pid pid : Pid},
           new_pid <> pid ->
@@ -116,5 +116,5 @@ Section IOHandler.
     }.
 End IOHandler.
 
-Definition h_request_t `(IOHandler) : Type := Request.
-Definition h_reply_t `(IOHandler) : Request -> Type := Reply.
+Definition h_request_t `(IOHandler_basics) : Type := Request.
+Definition h_reply_t `(IOHandler_basics) : Request -> Type := Reply.

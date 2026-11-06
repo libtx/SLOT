@@ -53,11 +53,11 @@ Open Scope slot_scope.
 
 Section definitions.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler Request Reply}.
+          `{IOH : @IOHandler_basics Request Reply}.
 
-  Let World := @h_state _ _ IOH_b.
+  Let World := @h_state _ _ IOH.
 
-  Let Hequiv_w := @h_setoid _ _ IOH_b.
+  Let Hequiv_w := @h_setoid _ _ IOH.
 
   (** ** Processes
    *** Programs
@@ -151,8 +151,8 @@ Section definitions.
 
   (** ** Canonical order *)
 
+  (** Order of events is canonical when pid a >= pid b: *)
   Definition vmte_canon_rel (a b : Process) : bool :=
-    (* Order of events is canonical when pid a >= pid b: *)
     match RefOrd.compare_ (pid a) (pid b) with
     | Lt => false
     | _ => true
@@ -565,19 +565,22 @@ Ltac2 dvm (vms : ident list) :=
 
 Ltac2 Notation "dvm" ids(list0(ident)) := dvm ids.
 
+(* begin hide *)
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IO_b : @IOHandler Request Reply}.
+          `{IOH : @IOHandler_basics Request Reply}.
 
+  (* test [dvm] tactic *)
   Goal forall (vm1 vm2 : VM), vm1 = vm2 -> False.
     intros vm1 vm2 H.
     dvm vm1 vm2.
   Abort.
 End tests.
+(* end hide *)
 
 Section canned.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH_b : @IOHandler Request Reply}.
+          `{IOH : @IOHandler_basics Request Reply}.
 
   Lemma canned_schedule_out_some proc vm0 vm1 :
     Some (proc, vm1) <~[schedule_out]~ vm0 ->
@@ -762,7 +765,7 @@ Notation "'P<' T > A @ C " := {| pid := A; proc_mb_t := T; cont := C |} (at leve
 
 Section commute.
   Context {Request : Type} {Reply : Request -> Type}
-          `{IOH : @IOHandler Request Reply}.
+          `{IOH : @IOHandler_basics Request Reply}.
 
   Let req_t := h_request_t IOH.
   Let rep_t := h_reply_t IOH.
@@ -1171,7 +1174,7 @@ Notation "'spawn' V '<-' I ; C" := (p_spawn (I) (fun V => C))
 
 Require Import Handlers.Mailbox.
 
-Definition init `(IOHandler) {mb_t} (seed : Program mb_t) :=
+Definition init `(IOHandler_basics) {mb_t} (seed : Program mb_t) :=
   let process := {| pid := []; proc_mb_t := mb_t; cont := seed |} in
   {| world := h_initial;
      ref_ctr := FMap.M.empty _;

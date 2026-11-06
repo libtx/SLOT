@@ -96,7 +96,7 @@ Section storage_handler.
     storage_mfun req.
 
   Instance storageHandler :
-    @IOHandler StorageReq StorageRet :=
+    @IOHandler_basics StorageReq StorageRet :=
     {|
       h_state := Container;
       h_setoid := container_setoid;
