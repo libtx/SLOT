@@ -395,37 +395,36 @@ Section definitions.
       (pd : Pid) (mb_t : Set) (req : Request)
       (cnt : Reply req -> Program mb_t).
 
-    Definition perform_io_morph (vm1 vm2 : VM) : Prop :=
-      let (w1, rq1, rc1) := vm1 in
-      let (w2, rq2, rc2) := vm2 in
-      exists (rep : Reply req),
-        w1 ~[h_perform_io pd req]~> (rep, w2) /\
-          rc2 = rc1 /\
-          rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
+    Let ret_t := Reply req.
 
-    Program Definition perform_io : MFun VM VM :=
+    Definition perform_io_morph (vm1 : VM) (ret : ret_t * VM)  : Prop :=
+      let (w1, rq1, rc1) := vm1 in
+      let (rep, vm2) := ret in
+      let (w2, rq2, rc2) := vm2 in
+      w1 ~[h_perform_io pd req]~> (rep, w2) /\
+        rc2 = rc1 /\
+        rq2 = {| pid := pd; proc_mb_t := mb_t; cont := cnt rep |} :: rq1.
+
+    Program Definition perform_io : MFunRet ret_t VM VM :=
       {| morphism := perform_io_morph;
       |}.
     Next Obligation.
       destruct x as [w1 rq1 rc1].
       destruct x' as [w1' rq1' rc1'].
-      destruct y as [w2 rq2 rc2].
-      cbn in H. destruct H as [Hw1 [Hrc1 Hrq1]].
-      cbn in H0. destruct H0 as [rep [Hhandler [Hrc13 Hrq13]]].
-      apply morphism_covariance with (x' := w1') in Hhandler; [|assumption].
-      destruct Hhandler as [[rep' w2'] [Hw2' [Hrep Hw2_eqiuv']]].
-      simpl in Hrep.
+      destruct v as [w2 rq2 rc2].
+      destruct H as [Hw_eq [Hrc_eq Hrq_eq]].
+      destruct H0 as [Hw [Hrc Hrq]].
       subst.
-      exists {| world := w2';
-           runq := {| pid := pd; proc_mb_t := mb_t; cont := cnt rep' |} :: rq1';
-           ref_ctr := rc1'
-        |}.
-      split.
-      - exists rep'. easy.
-      - repeat split.
-        + easy.
-        + apply Hrc1.
-        + now apply perm_skip.
+      apply morphism_covariance with (x' := w1') in Hw; [|assumption].
+      destruct Hw as [[ret2' w2'] [Hw2' [Hret2_eq' Hw2_eq']]].
+      simpl in Hret2_eq'. subst ret2'.
+      exists (r, {| world := w2';
+               runq := {| pid := pd; proc_mb_t := mb_t; cont := cnt r |} :: rq1';
+               ref_ctr := rc1';
+            |}).
+      repeat split; try easy.
+      - apply Hrc_eq.
+      - now constructor.
     Qed.
   End io.
 
@@ -457,7 +456,7 @@ Section definitions.
     | exit _ =>
         vm1 ~[terminate pid]~> vm2
     | p_io _ req cont =>
-        vm1 ~[perform_io pid proc_mb_t req cont]~> vm2
+        exists ret, vm1 ~[perform_io pid proc_mb_t req cont]~> (ret, vm2)
     | @p_spawn _ child_mb_t child_cont parent_cont =>
         vm1 ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
     | _ =>
@@ -471,9 +470,15 @@ Section definitions.
   Proof.
     intros Hvm0 Hvm2.
     destruct proc as [pid mb_t prog].
-    destruct prog; unfold exec_proc_morph in Hvm2;
-      try now apply morphism_covariance with (x' := vm0') in Hvm2.
-    contradiction.
+    destruct prog; unfold exec_proc_morph, cont in Hvm2;
+      lazymatch goal with
+      | [ Hx : exists _, _ ~[ _ ]~> (_, _)  |- _] => destruct Hx as [ret Hx]
+      | _ => idtac
+      end;
+      try apply morphism_covariance with (x' := vm0') in Hvm2;
+      try easy.
+    destruct Hvm2 as [[ret' vm1'] H2].
+    exists vm1'. sauto.
   Qed.
 
   Definition exec_proc (proc : Process) : MFun VM VM :=
@@ -645,9 +650,9 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       unfold terminate in $id;
       cbn in $id;
       unfold_exec_proc_morph id
-  | perform_io_morph _ _ ?req _ _ _ =>
+  | exists _, perform_io_morph _ _ ?req _ _ _ =>
       let rep := fresh_id (String.app (maybe_hyp_to_string req "") "_rep") in
-      destruct $new_hyp as [$rep [$hworld [$hrq $hrc]]]
+      destruct $new_hyp as [$rep [$hworld [$hrc $hrq]]]
   | terminate_morph _ _ _ _ =>
       unfold terminate_morph in $id;
       cbn in $id;
