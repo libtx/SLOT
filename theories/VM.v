@@ -149,11 +149,49 @@ Section definitions.
     - intros a b c. destruct a, b, c. repeat split; slv.
   Qed.
 
+  (** ** VM State transition *)
+  Section vmt.
+    Inductive VMT : Type :=
+    | vmt_exit : forall (mb_t : Set)
+                   (pid : Pid),
+        VMT
+    | vmt_io : forall (mb_t : Set)
+                 (pid : Pid)
+                 (req : Request)
+                 (cont : Reply req -> Program mb_t)
+                 (rep : Reply req),
+        VMT
+    | vmt_spawn : forall (mb_t : Set)
+                    (pid : Pid)
+                    (child_mb_t : Set)
+                    (child_cont : Program child_mb_t)
+                    (cont : @Address child_mb_t -> Program mb_t)
+                    (new_pid : Pid),
+        VMT.
+
+    Definition pid_of_vmt (vmt : VMT) : Pid :=
+      match vmt with
+      | vmt_exit _ pid => pid
+      | vmt_io _ pid _ _ _ => pid
+      | vmt_spawn _ pid _ _ _ _ => pid
+      end.
+
+    Definition proc_of_vmt (vmt : VMT) : Process :=
+      match vmt with
+      | vmt_exit mb_t pid =>
+          {| proc_mb_t := mb_t; pid := pid; cont := exit _ |}
+      | vmt_io mb_t pid req cont _rep =>
+          {| proc_mb_t := mb_t; pid := pid; cont := p_io _ req cont |}
+      | vmt_spawn mb_t pid child_mb_t child_cont cont _new_pid =>
+          {| pid := pid; proc_mb_t := mb_t; cont := @p_spawn mb_t child_mb_t child_cont cont |}
+      end.
+  End vmt.
+
   (** ** Canonical order *)
 
   (** Order of events is canonical when pid a >= pid b: *)
-  Definition vmte_canon_rel (a b : Process) : bool :=
-    match RefOrd.compare_ (pid a) (pid b) with
+  Definition vmte_canon_rel (a b : VMT) : bool :=
+    match RefOrd.compare_ (pid_of_vmt a) (pid_of_vmt b) with
     | Lt => false
     | _ => true
     end.
@@ -162,7 +200,7 @@ Section definitions.
     vmte_canon_rel a b = true \/ vmte_canon_rel b a = true.
   Proof.
     unfold vmte_canon_rel.
-    remember (RefOrd.compare_ (pid a) (pid b)) as ord.
+    remember (RefOrd.compare_ (pid_of_vmt a) (pid_of_vmt b)) as ord.
     destruct ord.
     - now left.
     - right. symmetry in Heqord. apply RefOrd.compare_antisymm in Heqord.
@@ -233,33 +271,6 @@ Section definitions.
   Qed.
 
   (** ** Operations with the world *)
-
-  Program Definition lift_w_ret {Ret : Type} `{Hequiv_r : Setoid Ret}
-    (w_morph : @MFunRet Ret World World Hequiv_r Hequiv_w Hequiv_w) : @MFunRet Ret VM VM Hequiv_r vm_setoid vm_setoid :=
-    {| morphism vm1 ret :=
-        let (ret, vm2) := ret in
-        match vm1, vm2 with
-          {| world := w1; runq := rq1; ref_ctr := rc1 |},
-          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
-            w1 ~[w_morph]~> (ret, w2) /\
-            rq1 = rq2 /\
-            rc1 = rc2
-        end;
-    |}.
-  Next Obligation.
-    destruct x as [w1 rq1 rc1].
-    destruct x' as [w1' rq1' rc1'].
-    destruct v as [w2 rq2 rc2].
-    destruct H as [Hw [Hrc Hrq]].
-    destruct H0 as [Hw12 [Hrc12 Hrq12]].
-    subst.
-    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
-    destruct Hw12 as [[ret' w2'] [Hw12' H2]].
-    destruct H2 as [Hret Hw2].
-    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1' |}).
-    repeat split; try assumption.
-    - apply Hrc.
-  Qed.
 
   Program Definition lift_w (w_morph : @MFun World World Hequiv_w Hequiv_w) : @MFun VM VM vm_setoid vm_setoid :=
     {| morphism vm1 vm2 :=
@@ -449,16 +460,19 @@ Section definitions.
     Qed.
   End exit.
 
-  Definition exec_proc_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
+  Definition exec_proc_morph (proc : Process) (vm1 : VM) (ret : VMT * VM) : Prop :=
     let pid := pid proc in
     let proc_mb_t := proc_mb_t proc in
     match cont proc with
     | exit _ =>
-        vm1 ~[terminate pid]~> vm2
+        let (ret, vm2) := ret in
+        vm1 ~[terminate pid]~> vm2 /\ ret = vmt_exit proc_mb_t pid
     | p_io _ req cont =>
-        exists ret, vm1 ~[perform_io pid proc_mb_t req cont]~> (ret, vm2)
+        let (ret, vm2) := ret in
+        let vmt := vmt_io proc_mb_t pid req
+        vm1 ~[perform_io pid proc_mb_t req cont]~> ret
     | @p_spawn _ child_mb_t child_cont parent_cont =>
-        vm1 ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> vm2
+        vm1 ~[spawn child_mb_t child_cont pid proc_mb_t parent_cont]~> ret
     | _ =>
         False
     end.
@@ -486,7 +500,7 @@ Section definitions.
        morphism_covariance := exec_proc_morph_covariance proc;
     |}.
 
-  Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
+  Inductive vm_step_morph : VM -> option (VMT * VM) -> Prop :=
   | vm_step_nil : forall vm,
       vm ~[schedule_out]~> None ->
       vm_step_morph vm None
