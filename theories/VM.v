@@ -249,33 +249,6 @@ Section definitions.
 
   (** ** Operations with the world *)
 
-  Program Definition lift_w_ret {Ret : Type} `{Hequiv_r : Setoid Ret}
-    (w_morph : @MFunRet Ret World World Hequiv_r Hequiv_w Hequiv_w) : @MFunRet Ret VM VM Hequiv_r vm_setoid vm_setoid :=
-    {| morphism vm1 ret :=
-        let (ret, vm2) := ret in
-        match vm1, vm2 with
-          {| world := w1; runq := rq1; ref_ctr := rc1 |},
-          {| world := w2; runq := rq2; ref_ctr := rc2 |} =>
-            w1 ~[w_morph]~> (ret, w2) /\
-            rq1 = rq2 /\
-            rc1 = rc2
-        end;
-    |}.
-  Next Obligation.
-    destruct x as [w1 rq1 rc1].
-    destruct x' as [w1' rq1' rc1'].
-    destruct v as [w2 rq2 rc2].
-    destruct H as [Hw [Hrc Hrq]].
-    destruct H0 as [Hw12 [Hrc12 Hrq12]].
-    subst.
-    apply morphism_covariance with (x' := w1') in Hw12; [|now rewrite Hw].
-    destruct Hw12 as [[ret' w2'] [Hw12' H2]].
-    destruct H2 as [Hret Hw2].
-    exists (ret', {| world := w2'; runq := rq1'; ref_ctr := rc1' |}).
-    repeat split; try assumption.
-    - apply Hrc.
-  Qed.
-
   Program Definition lift_w (w_morph : @MFun World World Hequiv_w Hequiv_w) : @MFun VM VM vm_setoid vm_setoid :=
     {| morphism vm1 vm2 :=
         match vm1, vm2 with
