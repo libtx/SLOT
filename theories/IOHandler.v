@@ -114,6 +114,8 @@ Section IOHandler.
           new_pid <> pid ->
           swap_ret (add_ret (h_spawn new_pid child_mb_t)) (h_perform_io pid req)
     }.
+
+  Class IOHandler `{!IOHandler_basics} `{!IOHandler_spawn_spawn} `{!IOHandler_exit_exit} `{!IOHandler_exit_spawn} `{!IOHandler_exit_io} := {}.
 End IOHandler.
 
 Definition h_request_t `(IOHandler_basics) : Type := Request.
