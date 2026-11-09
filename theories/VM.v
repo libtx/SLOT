@@ -171,8 +171,8 @@ Section definitions.
   (** ** Canonical order *)
 
   (** Order of events is canonical when pid a >= pid b: *)
-  Definition vmte_canon_rel (a b : Process) : bool :=
-    match RefOrd.compare_ (pid a) (pid b) with
+  Definition vmte_canon_rel (a b : TR) : bool :=
+    match RefOrd.compare_ (pid (tr_proc a)) (pid (tr_proc b)) with
     | Lt => false
     | _ => true
     end.
@@ -181,7 +181,7 @@ Section definitions.
     vmte_canon_rel a b = true \/ vmte_canon_rel b a = true.
   Proof.
     unfold vmte_canon_rel.
-    remember (RefOrd.compare_ (pid a) (pid b)) as ord.
+    remember (RefOrd.compare_ (pid (tr_proc a)) (pid (tr_proc b))) as ord.
     destruct ord.
     - now left.
     - right. symmetry in Heqord. apply RefOrd.compare_antisymm in Heqord.
@@ -500,60 +500,51 @@ Section definitions.
       |}.
   End exit.
 
-  Definition exec_proc_morph (proc : Process) (vm1 vm2 : VM) : Prop :=
+  Definition exec_proc_morph (proc : Process) (vm1 : VM) (ret : TR * VM) : Prop :=
     match cont proc with
     | exit _ =>
-        exists tr, vm1 ~[terminate proc]~> (tr, vm2)
+        vm1 ~[terminate proc]~> ret
     | p_io _ req cont =>
-        exists tr, vm1 ~[perform_io proc req cont]~> (tr, vm2)
+        vm1 ~[perform_io proc req cont]~> ret
     | @p_spawn _ child_mb_t child_cont parent_cont =>
-        exists tr, vm1 ~[spawn proc child_mb_t child_cont parent_cont]~> (tr, vm2)
+        vm1 ~[spawn proc child_mb_t child_cont parent_cont]~> ret
     | _ =>
         False
     end.
 
-  Lemma exec_proc_morph_covariance (proc : Process) vm0 vm0' vm1 :
+  Lemma exec_proc_morph_covariance (proc : Process) vm0 vm0' ret :
     vm0 == vm0' ->
-    exec_proc_morph proc vm0 vm1 ->
-    exists{vm1' == vm1}, exec_proc_morph proc vm0' vm1'.
+    exec_proc_morph proc vm0 ret ->
+    exists{ret' == ret}, exec_proc_morph proc vm0' ret'.
   Proof.
     intros Hvm0 Hvm2.
     destruct proc as [pid mb_t prog].
     destruct prog; cbn [cont exec_proc_morph] in *;
-      try easy; unfold exists_equiv;
-      lazymatch goal with
-      | [ Hx : exists _, _ ~[ ?f ]~> (_, _) |- _ ] =>
-          destruct Hx as [tr Hx];
-          apply morphism_covariance with (x' := vm0') in Hx;
-          try assumption;
-          destruct Hvm2 as [[tr2 vm1'] [Hx Heq]];
-          exists vm1'; split;
-          [ now exists tr2
-          | destruct Heq as [_ Heq2]; assumption ]
-      end.
+      try easy;
+      apply morphism_covariance with (x := vm0) (x' := vm0'); assumption.
   Qed.
 
-  Definition exec_proc (proc : Process) : MFun VM VM :=
+  Definition exec_proc (proc : Process) : MFunRet TR VM VM :=
     {| morphism := exec_proc_morph proc;
        morphism_covariance := exec_proc_morph_covariance proc;
     |}.
 
-  Inductive vm_step_morph : VM -> option (Process * VM) -> Prop :=
+  Inductive vm_step_morph : VM -> option (TR * VM) -> Prop :=
   | vm_step_nil : forall vm,
       vm ~[schedule_out]~> None ->
       vm_step_morph vm None
-  | vm_step_some : forall vm0 vm1 vm2 proc,
-      vm0 ~[schedule_out]~> Some (proc, vm1) ->
-      exec_proc_morph proc vm1 vm2 ->
-      vm_step_morph vm0 (Some (proc, vm2)).
+  | vm_step_some : forall vm0 vm1 vm2 (tr : TR),
+      vm0 ~[schedule_out]~> Some (tr_proc tr, vm1) ->
+      exec_proc_morph (tr_proc tr) vm1 (tr, vm2) ->
+      vm_step_morph vm0 (Some (tr, vm2)).
 
-  Lemma vm_step_morph_covariance vm0 vm0' vm2 :
+  Lemma vm_step_morph_covariance vm0 vm0' ret :
     vm0 == vm0' ->
-    vm_step_morph vm0 vm2 ->
-    exists{vm2' == vm2}, vm_step_morph vm0' vm2'.
+    vm_step_morph vm0 ret ->
+    exists{ret' == ret}, vm_step_morph vm0' ret'.
   Proof.
     intros Hequiv H0.
-    inversion H0 as [|H vm1 ? proc Hvm1 Hvm2]; subst; clear H0.
+    inversion H0 as [|H vm1 ? tr Hvm1 Hvm2]; subst; clear H0.
     - exists None.
       split; [|easy].
       constructor.
@@ -567,20 +558,23 @@ Section definitions.
       destruct Hvm1'equiv as [Hproc Hvm1'equiv].
       simpl in Hproc.
       subst.
-      apply exec_proc_morph_covariance with (vm0' := vm1') in Hvm2; [|easy].
-      destruct Hvm2 as [vm2' [Hvm2' Hvm2'equiv]].
-      exists (Some (proc', vm2')).
+      apply exec_proc_morph_covariance with (proc := tr_proc tr) (vm0' := vm1') in Hvm2; [|easy].
+      destruct Hvm2 as [[tr' vm2'] [Hvm2' Hvm2'equiv]].
+      simpl in Hvm2'equiv.
+      destruct Hvm2'equiv as [Htr_eq Hvm2'equiv].
+      subst tr'.
+      exists (Some (tr, vm2')).
       split.
       + now constructor 2 with (vm1 := vm1').
       + easy.
   Qed.
 
-  Definition vm_step : @MFun VM (@ts_ret VM Process) vm_setoid (ts_ret_setoid Process vm_setoid) :=
+  Definition vm_step : @MFun VM (@ts_ret VM TR) vm_setoid (ts_ret_setoid TR vm_setoid) :=
     {| morphism := vm_step_morph;
        morphism_covariance := vm_step_morph_covariance;
     |}.
 
-  Global Instance vmTransitionSystem : @TransitionSystem VM Process :=
+  Global Instance vmTransitionSystem : @TransitionSystem VM TR :=
     {|
       ts_setoid := vm_setoid;
       ts_canon_rel := vmte_canon_rel;
@@ -760,7 +754,6 @@ Ltac2 rec unfold_exec_proc_morph (id : ident) :=
       let htr := fresh_id (String.app hyp_prefix "_tr_eq") in
       let new_hyp := Control.hyp id in
       destruct $new_hyp as [$w2 $hworld [$htr $heq_vm]];
-      clear $htr;
       (* Unfold equality over the VM *)
       let heq_vm_w := fresh_id "_w" in
       let heq_vm_rq := fresh_id "_rq" in
@@ -805,20 +798,20 @@ Ltac2 rec unfold_vm_step_morph (id : ident) :=
       unfold ts_mfun,morphism,ts_state_trans in Hvm2;
       cbn in $id;
       unfold_vm_step_morph id
-  | vm_step_morph ?vm_start (Some (?_proc, ?vm_end)) =>
+  | vm_step_morph ?vm_start (Some (_, ?vm_end)) =>
       let prefix := maybe_hyp_to_string vm_start (Ident.to_string id) in
       let vm1 := fresh_id "vm1_" in
       let vm1_out := fresh_id (String.app prefix "_out") in
       let vm3 := fresh_id "vm3_" in
-      let proc := fresh_id "proc_" in
+      let _tr := fresh_id "tr_" in
       let schedule_out := fresh_id (String.app (String.app "H" prefix) "_out") in
       let h_vm2 := fresh_id "vm2_" in
       let h_vm1 := fresh_id "Hvm1_" in
       let h_proc := fresh_id "Hproc_" in
 
-      iinversion $id as [|$vm1 $vm1_out $vm3 $proc $schedule_out $h_vm2 $h_vm1 $h_proc];
+      iinversion $id as [|$vm1 $vm1_out $vm3 $_tr $schedule_out $h_vm2 $h_vm1 $h_proc];
       clear $id; Std.rename [(h_vm2, id)];
-      subst $vm1; subst $vm3; subst $proc;
+      subst $vm1; subst $vm3;
       unfold exec_proc_morph, vm_eq in $id; cbn in $id;
       (* simplify the remaining goals *)
       match Constr.Unsafe.kind vm_start with
@@ -855,20 +848,6 @@ Section commute.
   Let rep_t := h_reply_t IOH.
   Let prog_t := @Program req_t rep_t.
 
-  Ltac2 vm_step_some (vm_out : constr) :=
-    match! goal with
-    | [ |- vm_step_morph ?vm0 (Some (?proc, ?vm2)) ] =>
-        let suffix := maybe_hyp_to_string proc "proc" in
-        let hproc := fresh_id (String.app "Hinv_" suffix) in
-        assert ($hproc : $vm0 ~[schedule_out]~> Some ($proc, $vm_out)) >
-          [ |
-            let hproc := Control.hyp hproc in
-            refine '(vm_step_some $vm0 $vm_out $vm2 $proc $hproc _)
-          ]
-    end.
-
-  Ltac2 Notation "vm_step_some" vm(constr) := vm_step_some vm.
-
   Ltac2 swap_make () :=
     lazy_match! goal with
     | [ hpids : ?pid1 <> ?pid2, h1 : Fresh.make ?pid1 _ = (?new1, _), h2 : Fresh.make ?pid2 _ = (?new2, _) |- _ ] =>
@@ -880,11 +859,18 @@ Section commute.
 
   (* 1/10 *)
   Lemma spawn_spawn_swap `{!IOHandler_spawn_spawn}
-    {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2} :
+    {pid1 pid2 mb_t1 mb_t2 child_mb_t1 child_mb_t2 child1 child2 cont1 cont2}
+    {new1 new2 : Pid} :
     RefOrd.gt pid1 pid2 ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |}.
+      {| tr_proc := {| pid := pid1; proc_mb_t := mb_t1;
+                       cont := @p_spawn req_t rep_t mb_t1 child_mb_t1 child1 cont1 |};
+         tr_result := new1
+      |}
+      {| tr_proc := {| pid := pid2; proc_mb_t := mb_t2;
+                       cont := @p_spawn req_t rep_t mb_t2 child_mb_t2 child2 cont2 |};
+         tr_result := new2
+      |}.
   Proof.
     intros Hpids12.
     (* Unfold the original path: *)
@@ -961,7 +947,8 @@ Section commute.
       - constructor 2 with (vm1 := {| world := vm0_out_w; runq := rq2'; ref_ctr := vm0_out_rc |}).
         + sauto.
         + unfold exec_proc_morph. cbn. unfold spawn_morph,alloc_pid. cbn.
-          rewrite Hnew_pid1'. eexists. now exists w1'.
+          rewrite Hnew_pid1'. exists w1'. exact Hw1'.
+          split > [assumption|reflexivity].
       - simpl.
         constructor 2 with (vm1 := {| world := w1';
                                      runq := {| proc_mb_t := mb_t2; pid := pid2; cont := cont2 {| mba_pid := new_pid0 |} |}
@@ -971,7 +958,8 @@ Section commute.
                                    |}).
         + sauto.
         + unfold exec_proc_morph. cbn. unfold spawn_morph,alloc_pid. cbn.
-          rewrite Hnew_pid2'. eexists. now exists w2'.
+          rewrite Hnew_pid2'. exists w2'. exact Hw2'.
+          split > [assumption | reflexivity].
     }
   Qed.
 
@@ -979,8 +967,12 @@ Section commute.
   Lemma exit_exit_swap `{!IOHandler_exit_exit} {pid1 pid2 mb_t1 mb_t2} :
     RefOrd.gt pid1 pid2 ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @exit req_t rep_t mb_t2 |}.
+      {| tr_proc := {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |};
+         tr_result := I
+      |}
+      {| tr_proc := {| pid := pid2; proc_mb_t := mb_t2; cont := @exit req_t rep_t mb_t2 |};
+         tr_result := I
+      |}.
   Proof.
     intros Hpids vm0 vm2 [vm1 [Hvm1 Hvm2]].
     simpl in Hvm1. simpl in Hvm2.
@@ -1011,12 +1003,19 @@ Section commute.
   Qed.
 
   (* 3/10 *)
-  Lemma io_io_swap {pid1 pid2 mb_t1 mb_t2 req1 req2 cont1 cont2} :
+  Lemma io_io_swap {pid1 pid2 mb_t1 mb_t2 req1 req2 cont1 cont2}
+    {rep1 : rep_t req1} {rep2 : rep_t req2} :
     RefOrd.gt pid1 pid2 ->
     swap_ret (h_perform_io pid1 req1) (h_perform_io pid2 req2) ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @p_io req_t rep_t mb_t1 req1 cont1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req2 cont2 |}.
+      {| tr_proc := {| pid := pid1; proc_mb_t := mb_t1;
+                       cont := @p_io req_t rep_t mb_t1 req1 cont1 |};
+         tr_result := rep1
+      |}
+      {| tr_proc := {| pid := pid2; proc_mb_t := mb_t2;
+                       cont := @p_io req_t rep_t mb_t2 req2 cont2 |};
+         tr_result := rep2
+      |}.
   Proof.
     intros Hpids12 Hswp vm0 vm4 [vm2 [Hvm1 Hvm2]].
     unfold_vm_step_morph Hvm1.
@@ -1065,11 +1064,17 @@ Section commute.
   Qed.
 
   (* 4/10 *)
-  Lemma exit_spawn_swap `{!IOHandler_exit_spawn} {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} :
+  Lemma exit_spawn_swap `{!IOHandler_exit_spawn}
+    {pid1 pid2 mb_t1 mb_t2 child_mb_t child_cont parent_cont} {new : Pid} :
     RefOrd.gt pid1 pid2 ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |}.
+      {| tr_proc := {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |};
+         tr_result := I
+      |}
+      {| tr_proc := {| pid := pid2; proc_mb_t := mb_t2;
+                       cont := @p_spawn req_t rep_t mb_t2 child_mb_t child_cont parent_cont |};
+         tr_result := new
+      |}.
   Proof.
     intros Hpids12 vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
@@ -1116,11 +1121,17 @@ Section commute.
   Qed.
 
   (* 5/10 *)
-  Lemma exit_io_swap `{!IOHandler_exit_io} {pid1 pid2 mb_t1 mb_t2 req cont2} :
+  Lemma exit_io_swap `{!IOHandler_exit_io}
+    {pid1 pid2 mb_t1 mb_t2 req cont2} {rep : rep_t req} :
     RefOrd.gt pid1 pid2 ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
+      {| tr_proc := {| pid := pid1; proc_mb_t := mb_t1; cont := @exit req_t rep_t mb_t1 |};
+         tr_result := I
+      |}
+      {| tr_proc := {| pid := pid2; proc_mb_t := mb_t2;
+                       cont := @p_io req_t rep_t mb_t2 req cont2 |};
+         tr_result := rep
+      |}.
   Proof.
     intros Hpids vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
@@ -1159,11 +1170,23 @@ Section commute.
   Qed.
 
   (* 6/10 *)
-  Lemma spawn_io_swap `{!IOHandler_spawn_io} {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} :
+  Lemma spawn_io_swap `{!IOHandler_spawn_io}
+    {pid1 pid2 mb_t1 mb_t2 child_mb_t req cont1 cont2 child_cont} {new : Pid}
+    {rep : rep_t req} :
     RefOrd.gt pid1 pid2 ->
     tev_semicommute
-      {| pid := pid1; proc_mb_t := mb_t1; cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1 |}
-      {| pid := pid2; proc_mb_t := mb_t2; cont := @p_io req_t rep_t mb_t2 req cont2 |}.
+      {| tr_proc := {| pid := pid1;
+                       proc_mb_t := mb_t1;
+                       cont := @p_spawn req_t rep_t mb_t1 child_mb_t child_cont cont1
+                    |};
+         tr_result := new
+      |}
+      {| tr_proc := {| pid := pid2;
+                       proc_mb_t := mb_t2;
+                       cont := @p_io req_t rep_t mb_t2 req cont2
+                    |};
+        tr_result := rep
+      |}.
   Proof.
     intros Hpids12 vm0 vm_e [vm1 [Hvm1 Hvm_e]].
     unfold_vm_step_morph Hvm1.
@@ -1241,7 +1264,8 @@ Section commute.
         + unfold exec_proc_morph. cbn. unfold spawn_morph, alloc_pid. cbn.
           rewrite <-HeqHvm1_fresh.
           unfold add_ret in Hw2'. cbn in Hw2'.
-          eexists. now exists w2'.
+          exists w2'. exact Hw2'.
+          split > [exact Hvm1_tr_eq | reflexivity].
     }
   Qed.
 End commute.
@@ -1290,7 +1314,7 @@ Section tests.
   Goal forall trace vm_e,
       TSMFunGen vm0_1 trace vm_e ->
       CanonicalTrace trace vm0_1 vm_e ->
-      trace = [pr _ [] actor1].
+      trace = [{| tr_proc := pr _ [] actor1; tr_result := I |}].
   Proof.
     unfold init in *. subst vm0_1.
     intros trace vm_e Htr Hcanon.
