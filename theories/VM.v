@@ -149,7 +149,7 @@ Section definitions.
     - intros a b c. destruct a, b, c. repeat split; slv.
   Qed.
 
-  (** ** VM transition *)
+  (** ** VM transition event *)
 
   Definition prog_result {mb_t} (prog : Program mb_t) : Type :=
     match prog with
@@ -159,6 +159,7 @@ Section definitions.
     | p_spawn _ _ _ => Pid
     end.
 
+  (** System trace event *)
   Record TR :=
     { tr_proc : Process;
       tr_result : prog_result (cont tr_proc)
@@ -645,6 +646,15 @@ Section canned.
     destruct vm0_rq as [|a b].
     - discriminate.
     - assumption.
+  Qed.
+
+  Lemma canned_vm_trans_not_none w rc proc rq :
+    {| world := w; runq := proc :: rq; ref_ctr := rc |} ~[ts_state_trans]~> None ->
+    False.
+  Proof.
+    intros H.
+    inversion_clear H.
+    inversion H0.
   Qed.
 
   Lemma Permutation_swap2 {A} (a1 b1 a2 b2 : A) l1 l2 :
@@ -1289,9 +1299,28 @@ Definition init `(IOHandler_basics) {mb_t} (seed : Program mb_t) :=
      runq := [process]
   |}.
 
-Definition pr {Req Rep} mb_t p (c : @Program Req Rep mb_t) := {| pid := p; proc_mb_t := mb_t; cont := c |}.
+(** * Simplified trace of the system without continuations *)
+Section strace.
+  Context `{IOH : IOHandler_basics}.
 
-Section tests.
+  Inductive Tr :=
+  | tr_exit : forall (pid : Pid) (normal : bool), Tr
+  | tr_io : forall (pid : Pid) (req : Request) (rep : Reply req), Tr
+  | tr_spawn : forall (pid : Pid), Tr
+  | tr_halt : forall (node : positive), Tr.
+
+  Definition tr_projection (e : TR) : Tr :=
+    match e with
+    | {| tr_proc := {| pid := pid; cont := exit |} |} => tr_exit pid true
+    | {| tr_proc := {| pid := pid; cont := p_io req _ |}; tr_result := rep |} => tr_io pid req rep
+    | {| tr_proc := {| cont := p_spawn _ _ |}; tr_result := new |} => tr_spawn new
+    | {| tr_proc := {| cont := p_halt _ node |} |} => tr_halt node
+    end.
+End strace.
+
+(* begin hide *)
+Section prog_send_test.
+  (* Verify type-checking of send *)
   Let req_t := h_request_t mailboxHandler.
   Let rep_t := h_reply_t mailboxHandler.
 
@@ -1308,17 +1337,5 @@ Section tests.
         spawn p1 <- actor1;
         spawn _ <- actor2 p1;
         exit.
-
-  Let vm0_1 := init mailboxHandler actor1.
-
-  Goal forall trace vm_e,
-      TSMFunGen vm0_1 trace vm_e ->
-      CanonicalTrace trace vm0_1 vm_e ->
-      trace = [{| tr_proc := pr _ [] actor1; tr_result := I |}].
-  Proof.
-    unfold init in *. subst vm0_1.
-    intros trace vm_e Htr Hcanon.
-    inversion_clear Htr.
-    - simpl in H.
-  Abort.
-End tests.
+End prog_send_test.
+(* end hide *)
