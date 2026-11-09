@@ -149,6 +149,21 @@ Section definitions.
     - intros a b c. destruct a, b, c. repeat split; slv.
   Qed.
 
+  (** ** VM transition *)
+
+  Definition prog_result {mb_t} (prog : Program mb_t) : Type :=
+    match prog with
+    | exit _ => True
+    | p_halt _ _ => True
+    | p_io _ req _ => Reply req
+    | p_spawn _ _ _ => Pid
+    end.
+
+  Record TR :=
+    { tr_proc : Process;
+      tr_result : prog_result (cont tr_proc)
+    }.
+
   (** ** Canonical order *)
 
   (** Order of events is canonical when pid a >= pid b: *)
