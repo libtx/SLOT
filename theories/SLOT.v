@@ -15,7 +15,8 @@
 *)
 
 From SLOT Require Export
-  VM.
+  VM
+  VMTactics.
 
 From Stdlib Require Import List.
 Import ListNotations.
