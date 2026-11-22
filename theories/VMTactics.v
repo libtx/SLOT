@@ -58,6 +58,12 @@
     trace, prefixing the steps with [vm0], [vm0_mid],
     [vm0_mid_mid], ...; [vm_destruct vm1 vm2 ...] destructs VM states
     into their components.
+
+    The [Pick] hypotheses produced by stepping are analyzed with
+    [pick_case p H] (goal-splitting case analysis: the element is at
+    the head of the list or in the tail) and [pick_cons p H Hne]
+    (peels a head known to differ from the picked element, returning
+    the new names as a tuple for further threading).
 *)
 
 From Stdlib Require Import
@@ -107,6 +113,41 @@ Section TSSteppingLemmas.
     split; eassumption.
   Qed.
 End TSSteppingLemmas.
+
+(** ** Canned inversion lemmas: picking from lists *)
+
+Section PickLemmas.
+  Context {A : Type}.
+
+  (** Nothing can be picked from an empty list. *)
+  Lemma pick_nil_absurd (a : A) (l' : list A) :
+    Pick [] a l' -> False.
+  Proof.
+    intros H.
+    unfold Pick in H.
+    inversion H.
+  Qed.
+
+  (** Full case analysis on [Pick]: the picked element is either at
+      the head of the list, or somewhere in the tail (in which case
+      the heads of the two lists coincide). *)
+  Lemma pick_case_inv (a : A) (l l' : list A) :
+    Pick l a l' ->
+    (exists tl, l = a :: tl /\ l' = tl) \/
+    (exists hd tl l'', l = hd :: tl /\ l' = hd :: l'' /\ Pick tl a l'').
+  Proof.
+    intros H.
+    destruct l as [|hd tl].
+    - exfalso. exact (pick_nil_absurd a l' H).
+    - unfold Pick in H.
+      inversion_clear H.
+      + left. subst. eexists. split; reflexivity.
+      + right. subst. exists hd, tl. eexists.
+        split; [reflexivity |].
+        split; [reflexivity |].
+        unfold Pick. eassumption.
+  Qed.
+End PickLemmas.
 
 (** ** Canned inversion lemmas: the VM *)
 
@@ -555,6 +596,93 @@ Ltac2 Notation "vm_exec" p(ident) x(ident) :=
 Ltac2 Notation "vm_run_trace" p(ident) x(ident) :=
   let _ := vm_run_trace (Ident.to_string p) x in ().
 
+(** ** Case analysis on [Pick]
+
+    [pick_case p H], where [H : Pick l a l'], splits the goal into two
+    subgoals:
+
+    - the element is at the head: [l] is substituted by [a :: l']
+      (equation [H<p>_l_eq] if [l] is not a variable);
+
+    - the element is in the tail: new variables [<p>_hd], [<p>_tl],
+      [<p>_tl2] with [l] substituted by [<p>_hd :: <p>_tl], [l'] by
+      [<p>_hd :: <p>_tl2], and the residual [Pick <p>_tl a <p>_tl2]
+      renamed back to [H].
+
+    When the source list is empty, [H] becomes [False].
+
+    Like [destruct], this tactic splits the goal, so it returns
+    [unit]; the per-branch results are addressed by their
+    deterministic names above. *)
+Ltac2 pick_case (p : string) (id : ident) : unit :=
+  let hyp := Control.hyp id in
+  match! Constr.type hyp with
+  | Pick [] _ _ =>
+      (* Nothing can be picked from an empty list. *)
+      apply pick_nil_absurd in $id
+  | Pick _ _ _ =>
+      let htl := fresh_id (String.app p "_tl") in
+      let hhd := fresh_id (String.app p "_hd") in
+      let htl2 := fresh_id (String.app p "_tl2") in
+      let hl_eq := fresh_id (vm_hyp_name p "_l_eq") in
+      let hr_eq := fresh_id (vm_hyp_name p "_r_eq") in
+      let hpick := fresh_id (vm_hyp_name p "_pick") in
+      destruct (pick_case_inv _ _ _ $hyp)
+        as [[$htl [$hl_eq $hr_eq]]
+           | [$hhd [$htl [$htl2 [$hl_eq [$hr_eq $hpick]]]]]];
+      Std.clear [id];
+      Control.dispatch
+        [ (fun () =>
+             (* The element is at the head. *)
+             subst $htl;
+             vm_elim_eq hl_eq);
+          (fun () =>
+             (* The element is in the tail. *)
+             vm_elim_eq hl_eq;
+             vm_elim_eq hr_eq;
+             Std.rename [(hpick, id)]) ]
+  | _ =>
+      vm_ctl_fail "pick_case: hypothesis is not a Pick"
+  end.
+
+Ltac2 Notation "pick_case" p(ident) x(ident) :=
+  pick_case (Ident.to_string p) x.
+
+(** Peel one element from the head of a [Pick] when it is known to
+    differ from the picked element: given
+
+      [H : Pick (x :: l) a l']   and   [Hne : x <> a],
+
+    [pick_cons p H Hne] applies the canned [pick_cons] lemma WITHOUT
+    splitting the goal, and returns the triple
+
+      ( [<p>_tl2],                (* new rest: l' = x :: <p>_tl2 *)
+        [H<p>_eq],                (* the equation above *)
+        [H] )                     (* residual: Pick l a <p>_tl2,
+                                     renamed back to [H] *)
+
+    so that tactic writers can thread the results without searching
+    for names.  Nothing is substituted away; the caller remains in
+    full control of the equations. *)
+Ltac2 pick_cons (p : string) (id : ident) (hne : ident) : ident * ident * ident :=
+  let hyp := Control.hyp id in
+  match! Constr.type hyp with
+  | Pick (_ :: _) _ _ =>
+      let htl2 := fresh_id (String.app p "_tl2") in
+      let heq := fresh_id (vm_hyp_name p "_eq") in
+      let hpick := fresh_id (vm_hyp_name p "_pick") in
+      let hne_c := Control.hyp hne in
+      destruct (pick_cons $hyp $hne_c) as [$htl2 [$heq $hpick]];
+      Std.clear [id];
+      Std.rename [(hpick, id)];
+      (htl2, heq, id)
+  | _ =>
+      vm_ctl_fail "pick_cons: hypothesis is not a Pick of a nonempty list"
+  end.
+
+Ltac2 Notation "pick_cons" p(ident) x(ident) hne(ident) :=
+  let _ := pick_cons (Ident.to_string p) x hne in ().
+
 (* begin hide *)
 Section tests.
   Context {Request : Type} {Reply : Request -> Type}
@@ -682,6 +810,70 @@ Section tests.
     - split.
       + exact Hvm0_mid_pick.
       + reflexivity.
+  Qed.
+  (* Case analysis on Pick: the element is at the head or in the tail. *)
+  Goal forall (a : @Process Request Reply)
+             (rq rest : list (@Process Request Reply)),
+    Pick rq a rest ->
+    rq = a :: rest \/
+    exists hd tl rest2,
+      rq = hd :: tl /\ rest = hd :: rest2 /\ Pick tl a rest2.
+  Proof.
+    intros a rq rest H.
+    pick_case rq H.
+    - left. reflexivity.
+    - right. exists rq_hd, rq_tl, rq_tl2.
+      split.
+      + reflexivity.
+      + split.
+        * reflexivity.
+        * exact H.
+  Qed.
+
+  (* Nothing can be picked from an empty list. *)
+  Goal forall (a : @Process Request Reply), Pick [] a [] -> False.
+  Proof.
+    intros a H.
+    pick_case rq H.
+    exact H.
+  Qed.
+
+  (* Peeling a known-different head from a Pick. *)
+  Goal forall (a b : @Process Request Reply)
+             (l r : list (@Process Request Reply)),
+    a <> b ->
+    Pick (a :: l) b r ->
+    exists r2, r = a :: r2 /\ Pick l b r2.
+  Proof.
+    intros a b l r Hne H.
+    pick_cons rq H Hne.
+    exists rq_tl2.
+    split.
+    - exact Hrq_eq.
+    - exact H.
+  Qed.
+
+  (* Case analysis on a pick produced by [vm_step]. *)
+  Goal forall (p : Pid) (mb : Set) (req : Request)
+             (cnt : Reply req -> Program mb) (rep : Reply req)
+             (vm0 vm2 : VM),
+    vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
+                                   cont := p_io req cnt |};
+                     tr_result := rep |}]~> vm2 ->
+    exists rep' : Reply req,
+      exists rest : list Process,
+        runq vm2 = {| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest.
+  Proof.
+    intros p mb req cnt rep vm0 vm2 H.
+    vm_step vm0 H.
+    vm_exec vm0 Hvm0_exec.
+    pick_case vm0 Hvm0_pick.
+    - exists vm0_rep.
+      exists vm0_rest.
+      reflexivity.
+    - exists vm0_rep.
+      exists (vm0_hd :: vm0_tl2).
+      reflexivity.
   Qed.
 End tests.
 (* end hide *)
