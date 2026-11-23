@@ -29,9 +29,10 @@
       proved below (no proof search);
 
     - the results of the decomposition are returned as Ltac2 algebraic
-      data ([vm_step_res], [vm_exec_res]) carrying the identifiers of
-      the freshly introduced hypotheses, so that composed tactics never
-      have to guess names.
+      data ([vm_step_res], [vm_exec_res], [pick_cons_res]) whose
+      constructors carry records with named fields, so that composed
+      tactics never have to guess the meaning of a positional
+      argument.
 
     All tactics take a name prefix explicitly (conventionally the name
     of the hypothesis' source state); all generated names are derived
@@ -350,45 +351,79 @@ From Ltac2 Require Import
 
 Set Default Proof Mode "Ltac2".
 
+(** Payload of [VmStepSome]: [prefix] is the name prefix used for
+    the generated hypotheses, [pick] is [H<prefix>_pick : Pick ...],
+    [rest] is the run queue variable [<prefix>_rest] left after the
+    process was scheduled out, and [exec] is [H<prefix>_exec] (see
+    [vm_exec]). *)
+Ltac2 Type vm_step_some := {
+  prefix : string;
+  pick : ident;
+  rest : ident;
+  exec : ident;
+}.
+
 (** Result of decomposing one transition of the VM transition system:
 
     - [VmStepNone stuck]: the system is stuck, [stuck] is the
       hypothesis [runq vm = []];
 
-    - [VmStepSome (prefix, pick, rest, exec)]: one transition was
-      decomposed; [prefix] is the name prefix used for the generated
-      hypotheses, [pick] is [H<prefix>_pick : Pick ...], [rest] is the
+    - [VmStepSome info]: one transition was decomposed; the record
+      fields are [prefix] (the name prefix used for the generated
+      hypotheses), [pick] ([H<prefix>_pick : Pick ...]), [rest] (the
       run queue variable [<prefix>_rest] left after the process was
-      scheduled out, and [exec] is [H<prefix>_exec] (see [vm_exec]);
+      scheduled out) and [exec] ([H<prefix>_exec], see [vm_exec]);
 
-    - [VmStepTrace (trace, step)]: a [TSMFunGen] layer was peeled off;
-      [trace] is [H<prefix>_trace] for the rest of the trace, [step]
-      describes the transition itself. *)
+    - [VmStepTrace info]: a [TSMFunGen] layer was peeled off; the
+      record fields are [trace] ([H<prefix>_trace] for the rest of
+      the trace) and [step] (the transition itself). *)
 Ltac2 Type rec vm_step_res := [
   VmStepNone (ident)
-| VmStepSome (string * ident * ident * ident)
-| VmStepTrace (ident * vm_step_res)
-].
+| VmStepSome (vm_step_some)
+| VmStepTrace (vm_step_trace)
+] with vm_step_trace := {
+  trace : ident;
+  step : vm_step_res;
+}.
+
+(** Shared payload of the terminating execution steps: [w] is the
+    world-step hypothesis [H<p>_w], [tr] is the trace-equation
+    hypothesis [H<p>_tr]. *)
+Ltac2 Type vm_exec_tail := {
+  w : ident;
+  tr : ident;
+}.
+
+(** Payload of [VmExecPerformIO]: [rep] is the reply variable
+    [<p>_rep]. *)
+Ltac2 Type vm_exec_io := {
+  rep : ident;
+  io_tail : vm_exec_tail;
+}.
+
+(** Payload of [VmExecSpawn]: [new_pid] and [new_rc] are the freshly
+    allocated pid and ref counter ([<p>_new_pid], [<p>_new_rc]),
+    [fresh] is [H<p>_fresh : Fresh.make ... = (new_pid, new_rc)]. *)
+Ltac2 Type vm_exec_spawn := {
+  new_pid : ident;
+  new_rc : ident;
+  fresh : ident;
+  spawn_tail : vm_exec_tail;
+}.
 
 (** Result of decomposing one execution step ([vm_exec]):
 
-    - [VmExecTerminate (w, tr)]: [w] is [H<p>_w :
-      w1 ~[h_terminate true pid]~> w2], [tr] is [H<p>_tr];
+    - [VmExecTerminate info]: see [vm_exec_tail];
 
-    - [VmExecPerformIO (rep, w, tr)]: [rep] is the reply variable
-      [<p>_rep], [w] is [H<p>_w], [tr] is [H<p>_tr];
+    - [VmExecPerformIO info]: see [vm_exec_io];
 
-    - [VmExecSpawn (new_pid, new_rc, fresh, w, tr)]: [new_pid] and
-      [new_rc] are the freshly allocated pid and ref counter
-      ([<p>_new_pid], [<p>_new_rc]), [fresh] is [H<p>_fresh :
-      Fresh.make ... = (new_pid, new_rc)], [w] is [H<p>_w], [tr] is
-      [H<p>_tr];
+    - [VmExecSpawn info]: see [vm_exec_spawn];
 
     - [VmExecHalt]: the hypothesis is [False] ([H<p>_halt]). *)
 Ltac2 Type vm_exec_res := [
-  VmExecTerminate (ident * ident)
-| VmExecPerformIO (ident * ident * ident)
-| VmExecSpawn (ident * ident * ident * ident * ident)
+  VmExecTerminate (vm_exec_tail)
+| VmExecPerformIO (vm_exec_io)
+| VmExecSpawn (vm_exec_spawn)
 | VmExecHalt
 ].
 
@@ -465,13 +500,14 @@ Ltac2 vm_exec_opt (p : string) (id : ident) : vm_exec_res option :=
           destruct $hd as [$hw [$hrq [$hrc $htr]]];
           vm_elim_eq hrq;
           vm_elim_eq hrc;
-          Some (VmExecTerminate (hw, htr))
+          Some (VmExecTerminate { w := hw; tr := htr })
       | context [h_perform_io _ _] =>
           let hrep := fresh_id (String.app p "_rep") in
           destruct $hd as [$hrep [$hw [$htr [$hrc $hrq]]]];
           vm_elim_eq hrc;
           vm_elim_eq hrq;
-          Some (VmExecPerformIO (hrep, hw, htr))
+          Some (VmExecPerformIO
+                  { rep := hrep; io_tail := { w := hw; tr := htr } })
       | context [Fresh.make _ _] =>
           let hnp := fresh_id (String.app p "_new_pid") in
           let hnc := fresh_id (String.app p "_new_rc") in
@@ -479,7 +515,9 @@ Ltac2 vm_exec_opt (p : string) (id : ident) : vm_exec_res option :=
           destruct $hd as [$hnp [$hnc [$hfresh [$hw [$htr [$hrq $hrc]]]]]];
           vm_elim_eq hrq;
           vm_elim_eq hrc;
-          Some (VmExecSpawn (hnp, hnc, hfresh, hw, htr))
+          Some (VmExecSpawn
+                  { new_pid := hnp; new_rc := hnc; fresh := hfresh;
+                    spawn_tail := { w := hw; tr := htr } })
       | False =>
           Std.rename [(id, fresh_id (vm_hyp_name p "_halt"))];
           Some VmExecHalt
@@ -549,7 +587,7 @@ Ltac2 rec vm_step (p : string) (id : ident) : vm_step_res :=
       subst $wtmp;
       subst $rctmp;
       Std.clear [hsched; id];
-      VmStepSome (p, hpick, hrest, hexec)
+      VmStepSome { prefix := p; pick := hpick; rest := hrest; exec := hexec }
   (* ----- one layer of a trace: step event, keep the rest ----- *)
   | TSMFunGen _ (_ :: _) _ =>
       let pmid := String.app p "_mid" in
@@ -558,7 +596,7 @@ Ltac2 rec vm_step (p : string) (id : ident) : vm_step_res :=
       let htrace := fresh_id (vm_hyp_name p "_trace") in
       destruct (ts_mfun_gen_cons_inv _ _ _ _ $hyp) as [$hmid [$hstep $htrace]];
       Std.clear [id];
-      VmStepTrace (htrace, vm_step p hstep)
+      VmStepTrace { trace := htrace; step := vm_step p hstep }
   (* ----- an empty trace: the system is stuck ----- *)
   | TSMFunGen _ [] ?vm1 =>
       let hstep := fresh_id (vm_hyp_name p "_step") in
@@ -584,8 +622,8 @@ Ltac2 rec vm_step (p : string) (id : ident) : vm_step_res :=
     step results. *)
 Ltac2 rec vm_run_trace (p : string) (id : ident) : vm_step_res list :=
   match vm_step p id with
-  | VmStepTrace (htrace, step) =>
-      step :: vm_run_trace (String.app p "_mid") htrace
+  | VmStepTrace { trace := htrace; step := s } =>
+      s :: vm_run_trace (String.app p "_mid") htrace
   | step => [step]
   end.
 
@@ -648,23 +686,34 @@ Ltac2 pick_case (p : string) (id : ident) : unit :=
 Ltac2 Notation "pick_case" p(ident) x(ident) :=
   pick_case (Ident.to_string p) x.
 
+(** Result of [pick_cons]: [rest2] is the new rest list variable
+    [<p>_tl2] (the picked list's tail), [eq] is the hypothesis
+    [H<p>_eq : l' = x :: <p>_tl2], and [residual] is the residual
+    [Pick l a <p>_tl2] hypothesis (renamed back to the original
+    name). *)
+Ltac2 Type pick_cons_res := {
+  rest2 : ident;
+  eq : ident;
+  residual : ident;
+}.
+
 (** Peel one element from the head of a [Pick] when it is known to
     differ from the picked element: given
 
       [H : Pick (x :: l) a l']   and   [Hne : x <> a],
 
     [pick_cons p H Hne] applies the canned [pick_cons] lemma WITHOUT
-    splitting the goal, and returns the triple
+    splitting the goal, and returns a [pick_cons_res] record
 
-      ( [<p>_tl2],                (* new rest: l' = x :: <p>_tl2 *)
-        [H<p>_eq],                (* the equation above *)
-        [H] )                     (* residual: Pick l a <p>_tl2,
-                                     renamed back to [H] *)
+      { rest2 := [<p>_tl2];        (* l' = x :: <p>_tl2 *)
+        eq := [H<p>_eq];           (* the equation above *)
+        residual := [H] }          (* residual: Pick l a <p>_tl2,
+                                      renamed back to [H] *)
 
     so that tactic writers can thread the results without searching
     for names.  Nothing is substituted away; the caller remains in
     full control of the equations. *)
-Ltac2 pick_cons (p : string) (id : ident) (hne : ident) : ident * ident * ident :=
+Ltac2 pick_cons (p : string) (id : ident) (hne : ident) : pick_cons_res :=
   let hyp := Control.hyp id in
   match! Constr.type hyp with
   | Pick (_ :: _) _ _ =>
@@ -675,7 +724,7 @@ Ltac2 pick_cons (p : string) (id : ident) (hne : ident) : ident * ident * ident 
       destruct (pick_cons $hyp $hne_c) as [$htl2 [$heq $hpick]];
       Std.clear [id];
       Std.rename [(hpick, id)];
-      (htl2, heq, id)
+      { rest2 := htl2; eq := heq; residual := id }
   | _ =>
       vm_ctl_fail "pick_cons: hypothesis is not a Pick of a nonempty list"
   end.
