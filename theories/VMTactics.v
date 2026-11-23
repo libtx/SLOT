@@ -51,9 +51,20 @@
       [Hvm0_pick : Pick vm0_rq (tr_proc tr) vm0_rest]
       [Hvm0_exec : exec_proc_morph ...]             (see [vm_exec])
 
-    and [vm_exec vm0 Hvm0_exec] further decomposes the execution step
-    of the scheduled-out process, according to its (concrete)
-    continuation: [exit], [p_io], [p_spawn] or [p_halt].
+    Assuming the proof also carries a "the trace is canonical"
+    hypothesis
+
+      [Hcan : CanonicalTSMFunGen vm0 (tr :: rest) vm']
+
+    [vm_exec vm0 Hvm0_exec Hcan k] decomposes the execution step of
+    the scheduled-out process (according to its concrete continuation:
+    [exit], [p_io], [p_spawn] or [p_halt]), peels one layer off
+    [Hcan] (exposing the canonicity side condition as
+    [Hvm0_follow : can_follow_hd_ts tr rest] and renaming the rest of
+    the canonical trace back to [Hcan]), and then gives the tactical
+    [k] a chance to discharge the goal by non-canonicity; when [k]
+    fails, [Hvm0_follow] is cleared and the decomposition results
+    remain.  [k] must either fail (catchably) or close the goal.
 
     For multi-transition traces, [vm_run_trace vm0 H] walks the whole
     trace, prefixing the steps with [vm0], [vm0_mid],
@@ -112,6 +123,23 @@ Section TSSteppingLemmas.
     inversion_clear H.
     eexists.
     split; eassumption.
+  Qed.
+
+  (** A nonempty canonical trace steps with the head event; the
+      canonicity side condition [can_follow_hd_ts] relates the head
+      event to the next one. *)
+  Lemma canonical_ts_mfun_gen_cons_inv (s : State) (event : Event)
+      (t : list Event) (s'' : State) :
+    CanonicalTSMFunGen s (event :: t) s'' ->
+    exists s',
+      s ~[ts_state_trans]~> Some (event, s') /\
+      can_follow_hd_ts event t /\
+      CanonicalTSMFunGen s' t s''.
+  Proof.
+    intros H.
+    inversion_clear H.
+    eexists.
+    split; [eassumption | split; eassumption].
   Qed.
 End TSSteppingLemmas.
 
@@ -452,7 +480,7 @@ Ltac2 vm_destruct (vms : ident list) : unit :=
   List.iter
     (fun id =>
        let hvm := Control.hyp id in
-       match! Constr.type hvm with
+       lazy_match! Constr.type hvm with
        | VM => vm_destruct_constr hvm
        | _ =>
            vm_ctl_fail (String.app "vm_destruct: not a VM state: "
@@ -465,7 +493,7 @@ Ltac2 Notation "vm_destruct" ids(list0(ident)) := vm_destruct ids.
 (** If the LHS of the equation hypothesis [h] is a context variable,
     substitute it away; otherwise keep the equation under its name. *)
 Ltac2 vm_elim_eq (h : ident) : unit :=
-  match! Constr.type (Control.hyp h) with
+  lazy_match! Constr.type (Control.hyp h) with
   | ?end_term = _ =>
       match Constr.Unsafe.kind end_term with
       | Constr.Unsafe.Var v => subst $v
@@ -474,51 +502,71 @@ Ltac2 vm_elim_eq (h : ident) : unit :=
   | _ => ()
   end.
 
-(** Decompose one execution step of the scheduled-out process.  The
-    continuation of the process must be a concrete constructor
-    ([exit], [p_io], [p_spawn] or [p_halt]); it is selected by
-    unification when the canned [exec_*_inv] lemma is applied.
+(** Run the tactical [k]; return [true] and commit its results when it
+    succeeds, or run [on_fail] (in the state prior to [k]) and return
+    [false] when it fails.  [k] must fail with a catchable failure
+    (e.g. [fail] or a failing [solve [...]]) rather than a hard
+    error. *)
+Ltac2 vm_or_else (k : unit -> unit) (on_fail : unit -> unit) : bool :=
+  match Control.case k with
+  | Val (x, _) => Control.plus (fun _ => let () := x in true) (fun _ => true)
+  | Err _ => on_fail (); false
+  end.
+
+(** Decompose one execution step of the scheduled-out process.
+
+    The continuation of the process is determined by normalizing the
+    hypothesis' type far enough to expose the [cont] field of the
+    process record (a pure constr computation with [tr_proc] unfolded;
+    the hypothesis itself is not modified).  The shape of the
+    continuation then determines, unambiguously, which canned
+    [exec_*_inv] lemma applies.
 
     Returns [None] when the hypothesis is not an [exec_proc_morph]
     with a concrete continuation (e.g. the event is still a variable
     during trace stepping). *)
 Ltac2 vm_exec_opt (p : string) (id : ident) : vm_exec_res option :=
   let hyp := Control.hyp id in
-  match! Constr.type hyp with
-  | exec_proc_morph _ _ (_, _) =>
-      try (apply exec_exit_inv in $id);
-      try (apply exec_io_inv in $id);
-      try (apply exec_spawn_inv in $id);
-      try (apply exec_halt_inv in $id);
+  let ty :=
+    Std.eval_lazy red_flags:(beta iota zeta delta [tr_proc])
+      (Constr.type hyp) in
+  lazy_match! ty with
+  | exec_proc_morph {| pid := _; proc_mb_t := _; cont := ?c |} _ _ =>
       let hw := fresh_id (vm_hyp_name p "_w") in
       let htr := fresh_id (vm_hyp_name p "_tr") in
       let hrq := fresh_id (vm_hyp_name p "_rq") in
       let hrc := fresh_id (vm_hyp_name p "_rc") in
-      let hd := Control.hyp id in
-      lazy_match! Constr.type hd with
-      | _ ~[h_terminate _ _]~> _ /\ _ /\ _ /\ _ =>
+      lazy_match! c with
+      | exit =>
+          apply exec_exit_inv in $id;
+          let hd := Control.hyp id in
           destruct $hd as [$hw [$hrq [$hrc $htr]]];
           vm_elim_eq hrq;
           vm_elim_eq hrc;
           Some (VmExecTerminate { w := hw; tr := htr })
-      | context [h_perform_io _ _] =>
+      | p_io _ _ =>
           let hrep := fresh_id (String.app p "_rep") in
+          apply exec_io_inv in $id;
+          let hd := Control.hyp id in
           destruct $hd as [$hrep [$hw [$htr [$hrc $hrq]]]];
           vm_elim_eq hrc;
           vm_elim_eq hrq;
           Some (VmExecPerformIO
                   { rep := hrep; io_tail := { w := hw; tr := htr } })
-      | context [Fresh.make _ _] =>
+      | p_spawn _ _ =>
           let hnp := fresh_id (String.app p "_new_pid") in
           let hnc := fresh_id (String.app p "_new_rc") in
           let hfresh := fresh_id (vm_hyp_name p "_fresh") in
+          apply exec_spawn_inv in $id;
+          let hd := Control.hyp id in
           destruct $hd as [$hnp [$hnc [$hfresh [$hw [$htr [$hrq $hrc]]]]]];
           vm_elim_eq hrq;
           vm_elim_eq hrc;
           Some (VmExecSpawn
                   { new_pid := hnp; new_rc := hnc; fresh := hfresh;
                     spawn_tail := { w := hw; tr := htr } })
-      | False =>
+      | p_halt _ _ =>
+          apply exec_halt_inv in $id;
           Std.rename [(id, fresh_id (vm_hyp_name p "_halt"))];
           Some VmExecHalt
       | _ => None
@@ -526,16 +574,65 @@ Ltac2 vm_exec_opt (p : string) (id : ident) : vm_exec_res option :=
   | _ => None
   end.
 
-(** Strict version of [vm_exec_opt]: fails with an error message when
-    the execution step cannot be decomposed. *)
-Ltac2 vm_exec (p : string) (id : ident) : vm_exec_res :=
+(** Decompose one execution step of the scheduled-out process, while
+    tracking the canonicity of the trace.
+
+    [hcan] must be the canonical trace hypothesis
+    [CanonicalTSMFunGen vm (event :: rest) vm'] for the CURRENT step.
+    It is decomposed alongside the execution step (by the canned
+    [canonical_ts_mfun_gen_cons_inv] lemma): the duplicate transition
+    hypothesis is cleared, the rest of the canonical trace is renamed
+    back to [hcan] (so it can be passed to the next [vm_exec]), and
+    the canonicity side condition is exposed as
+
+      [H<p>_follow : can_follow_hd_ts event rest]
+
+    (definitionally [tev_semicommute event head -> canon_rel event
+    head = true] when [rest = head :: _]; apply it to a semicommute
+    proof with [apply H<p>_follow in ...]).
+
+    The tactical [k] is then given a chance to discharge the current
+    goal by non-canonicity: it runs with [H<p>_follow] in context and
+    must either fail (with a catchable failure, e.g. [fail] or a
+    failing [solve [...]]) or close the goal.
+
+    - when [k] discharges the goal, [None] is returned;
+
+    - when [k] fails, the intermediate [H<p>_follow] is cleared and
+      [Some r] (the usual execution result) is returned.
+
+    Fails with an error message when the execution step cannot be
+    decomposed (the canonicity hypothesis is then left untouched). *)
+Ltac2 vm_exec (p : string) (k : unit -> unit) (id : ident) (hcan : ident)
+  : vm_exec_res option :=
   match vm_exec_opt p id with
-  | Some r => r
   | None =>
       vm_ctl_fail (String.app
                      (String.app "vm_exec: cannot decompose "
                         (Ident.to_string id))
                      " (is the process continuation concrete?)")
+  | Some r =>
+      let hcan_hyp := Control.hyp hcan in
+      lazy_match! Constr.type hcan_hyp with
+      | CanonicalTSMFunGen _ (_ :: _) _ =>
+          let hmid := fresh_id (String.app p "_canon_mid") in
+          let hdup := fresh_id (vm_hyp_name p "_canon_step") in
+          let hfollow := fresh_id (vm_hyp_name p "_follow") in
+          let hcanrest := fresh_id (vm_hyp_name p "_canon") in
+          destruct (canonical_ts_mfun_gen_cons_inv _ _ _ _ $hcan_hyp)
+            as [$hmid [$hdup [$hfollow $hcanrest]]];
+          Std.clear [hdup; hcan];
+          Std.rename [(hcanrest, hcan)];
+          if vm_or_else k (fun () => Std.clear [hfollow])
+          then None
+          else Some r
+      | CanonicalTSMFunGen _ [] _ =>
+          vm_ctl_fail "vm_exec: empty canonical trace next to an \
+                       execution step"
+      | _ =>
+          vm_ctl_fail (String.app "vm_exec: not a canonical trace: "
+                         (Ident.to_string hcan))
+      end
   end.
 
 (** Decompose ONE step of the VM transition system, in any of the
@@ -629,8 +726,8 @@ Ltac2 rec vm_run_trace (p : string) (id : ident) : vm_step_res list :=
 
 Ltac2 Notation "vm_step" p(ident) x(ident) :=
   let _ := vm_step (Ident.to_string p) x in ().
-Ltac2 Notation "vm_exec" p(ident) x(ident) :=
-  let _ := vm_exec (Ident.to_string p) x in ().
+Ltac2 Notation "vm_exec" p(ident) x(ident) c(ident) t(thunk(tactic(6))) :=
+  let _ := vm_exec (Ident.to_string p) t x c in ().
 Ltac2 Notation "vm_run_trace" p(ident) x(ident) :=
   let _ := vm_run_trace (Ident.to_string p) x in ().
 
@@ -654,7 +751,7 @@ Ltac2 Notation "vm_run_trace" p(ident) x(ident) :=
     deterministic names above. *)
 Ltac2 pick_case (p : string) (id : ident) : unit :=
   let hyp := Control.hyp id in
-  match! Constr.type hyp with
+  lazy_match! Constr.type hyp with
   | Pick [] _ _ =>
       (* Nothing can be picked from an empty list. *)
       apply pick_nil_absurd in $id
@@ -715,7 +812,7 @@ Ltac2 Type pick_cons_res := {
     full control of the equations. *)
 Ltac2 pick_cons (p : string) (id : ident) (hne : ident) : pick_cons_res :=
   let hyp := Control.hyp id in
-  match! Constr.type hyp with
+  lazy_match! Constr.type hyp with
   | Pick (_ :: _) _ _ =>
       let htl2 := fresh_id (String.app p "_tl2") in
       let heq := fresh_id (vm_hyp_name p "_eq") in
@@ -745,13 +842,17 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_io req cnt |};
                      tr_result := rep |}]~> vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb;
+                         cont := p_io req cnt |}; tr_result := rep |} ]
+      vm2 ->
     exists rep' : Reply req,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest.
   Proof.
-    intros p mb req cnt rep vm0 vm2 H.
+    intros p mb req cnt rep vm0 vm2 H Hcan.
     vm_step vm0 H.
-    vm_exec vm0 Hvm0_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
     cbn.
     exists vm0_rep.
     exists vm0_rest.
@@ -764,14 +865,18 @@ Section tests.
       [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
       vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
+          tr_result := I |} ]
+      vm2 ->
     exists rest : list Process,
       Pick (runq vm0) {| pid := p; proc_mb_t := mb; cont := exit |} rest /\
         runq vm2 = rest.
   Proof.
-    intros p mb vm0 vm2 H.
+    intros p mb vm0 vm2 H Hcan.
     vm_step vm0 H.
     vm_step vm0_mid Hvm0_trace.
-    vm_exec vm0 Hvm0_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
     cbn.
     exists vm0_rest.
     split.
@@ -799,6 +904,10 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb1;
                                    cont := p_spawn child pc |};
                      tr_result := np |}]~> vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb1;
+                         cont := p_spawn child pc |}; tr_result := np |} ]
+      vm2 ->
     exists new_pid : Pid,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb1;
@@ -806,9 +915,9 @@ Section tests.
                    :: {| pid := new_pid; proc_mb_t := mb2; cont := child |}
                    :: rest.
   Proof.
-    intros mb1 mb2 p child pc np vm0 vm2 H.
+    intros mb1 mb2 p child pc np vm0 vm2 H Hcan.
     vm_step vm0 H.
-    vm_exec vm0 Hvm0_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
     cbn.
     exists vm0_new_pid.
     exists vm0_rest.
@@ -822,11 +931,15 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_halt mb node |};
                      tr_result := I |}]~> vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb;
+                         cont := p_halt mb node |}; tr_result := I |} ]
+      vm2 ->
     False.
   Proof.
-    intros mb p node vm0 vm2 H.
+    intros mb p node vm0 vm2 H Hcan.
     vm_step vm0 H.
-    vm_exec vm0 Hvm0_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
     exact Hvm0_halt.
   Qed.
 
@@ -840,16 +953,22 @@ Section tests.
         {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
       vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := p_io req cnt |};
+          tr_result := rep |};
+        {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
+          tr_result := I |} ]
+      vm2 ->
     exists (rep' : Reply req) (rest1 rest2 : list Process),
       Pick (runq vm0) {| pid := p; proc_mb_t := mb; cont := p_io req cnt |} rest1 /\
         Pick ({| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest1)
              {| pid := p; proc_mb_t := mb; cont := exit |} rest2 /\
           runq vm2 = rest2.
   Proof.
-    intros p mb req cnt rep vm0 vm2 H.
+    intros p mb req cnt rep vm0 vm2 H Hcan.
     vm_run_trace vm0 H.
-    vm_exec vm0 Hvm0_exec.
-    vm_exec vm0_mid Hvm0_mid_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
+    vm_exec vm0_mid Hvm0_mid_exec Hcan (fail).
     cbn.
     exists vm0_rep.
     exists vm0_rest.
@@ -909,13 +1028,17 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_io req cnt |};
                      tr_result := rep |}]~> vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb;
+                         cont := p_io req cnt |}; tr_result := rep |} ]
+      vm2 ->
     exists rep' : Reply req,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest.
   Proof.
-    intros p mb req cnt rep vm0 vm2 H.
+    intros p mb req cnt rep vm0 vm2 H Hcan.
     vm_step vm0 H.
-    vm_exec vm0 Hvm0_exec.
+    vm_exec vm0 Hvm0_exec Hcan (fail).
     pick_case vm0 Hvm0_pick.
     - exists vm0_rep.
       exists vm0_rest.
@@ -923,6 +1046,44 @@ Section tests.
     - exists vm0_rep.
       exists (vm0_hd :: vm0_tl2).
       reflexivity.
+  Qed.
+  (* Discharging a goal by non-canonicity: when the trace is claimed
+     canonical, but the two events semicommute while being in
+     non-canonical order, the canonicity hypothesis is
+     contradictory. *)
+  Goal forall (p q : Pid) (mb1 mb2 : Set)
+             (req1 : Request) (cnt1 : Reply req1 -> Program mb1)
+             (req2 : Request) (cnt2 : Reply req2 -> Program mb2)
+             (rep1 : Reply req1) (rep2 : Reply req2)
+             (vm0 vm2 : VM),
+    tev_semicommute
+      {| tr_proc := {| pid := p; proc_mb_t := mb1; cont := p_io req1 cnt1 |};
+         tr_result := rep1 |}
+      {| tr_proc := {| pid := q; proc_mb_t := mb2; cont := p_io req2 cnt2 |};
+         tr_result := rep2 |} ->
+    ts_canon_rel
+      {| tr_proc := {| pid := p; proc_mb_t := mb1; cont := p_io req1 cnt1 |};
+         tr_result := rep1 |}
+      {| tr_proc := {| pid := q; proc_mb_t := mb2; cont := p_io req2 cnt2 |};
+         tr_result := rep2 |} = false ->
+    vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb1;
+                                   cont := p_io req1 cnt1 |};
+                     tr_result := rep1 |}]~> vm2 ->
+    CanonicalTSMFunGen vm0
+      [ {| tr_proc := {| pid := p; proc_mb_t := mb1;
+                         cont := p_io req1 cnt1 |}; tr_result := rep1 |};
+        {| tr_proc := {| pid := q; proc_mb_t := mb2;
+                         cont := p_io req2 cnt2 |}; tr_result := rep2 |} ]
+      vm2 ->
+    False.
+  Proof.
+    intros p q mb1 mb2 req1 cnt1 req2 cnt2 rep1 rep2 vm0 vm2
+           Hsemi Hnoncanon H Hcan.
+    vm_step vm0 H.
+    vm_exec vm0 Hvm0_exec Hcan (
+      apply Hvm0_follow in Hsemi;
+      rewrite Hnoncanon in Hsemi;
+      discriminate).
   Qed.
 End tests.
 (* end hide *)
