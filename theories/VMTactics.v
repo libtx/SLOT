@@ -52,9 +52,11 @@
       [Hvm0_exec : exec_proc_morph ...]             (see [vm_exec])
 
     Assuming the proof also carries a "the trace is canonical"
-    hypothesis
+    hypothesis, supplied alongside the regular transition system
+    hypothesis (for the [TokenMachine] induced by the transition
+    system):
 
-      [Hcan : CanonicalTSMFunGen vm0 (tr :: rest) vm']
+      [Hcan : CanonicalTrace (tr :: rest) vm0 vm']
 
     [vm_exec vm0 Hvm0_exec Hcan k] decomposes the execution step of
     the scheduled-out process (according to its concrete continuation:
@@ -126,15 +128,16 @@ Section TSSteppingLemmas.
   Qed.
 
   (** A nonempty canonical trace steps with the head event; the
-      canonicity side condition [can_follow_hd_ts] relates the head
-      event to the next one. *)
-  Lemma canonical_ts_mfun_gen_cons_inv (s : State) (event : Event)
+      canonicity side condition [can_follow_hd] relates the head
+      event to the next one.  [CanonicalTrace] is stated for the
+      [TokenMachine] induced by the transition system. *)
+  Lemma canonical_trace_cons_inv (s : State) (event : Event)
       (t : list Event) (s'' : State) :
-    CanonicalTSMFunGen s (event :: t) s'' ->
+    CanonicalTrace (event :: t) s s'' ->
     exists s',
-      s ~[ts_state_trans]~> Some (event, s') /\
-      can_follow_hd_ts event t /\
-      CanonicalTSMFunGen s' t s''.
+      s ~[tm_state_trans event]~> s' /\
+      can_follow_hd event t /\
+      CanonicalTrace t s' s''.
   Proof.
     intros H.
     inversion_clear H.
@@ -578,16 +581,21 @@ Ltac2 vm_exec_opt (p : string) (id : ident) : vm_exec_res option :=
     tracking the canonicity of the trace.
 
     [hcan] must be the canonical trace hypothesis
-    [CanonicalTSMFunGen vm (event :: rest) vm'] for the CURRENT step.
-    It is decomposed alongside the execution step (by the canned
-    [canonical_ts_mfun_gen_cons_inv] lemma): the duplicate transition
-    hypothesis is cleared, the rest of the canonical trace is renamed
-    back to [hcan] (so it can be passed to the next [vm_exec]), and
-    the canonicity side condition is exposed as
 
-      [H<p>_follow : can_follow_hd_ts event rest]
+      [CanonicalTrace (event :: rest) vm vm']
 
-    (definitionally [tev_semicommute event head -> canon_rel event
+    for the [TokenMachine] induced by the transition system (i.e. the
+    instance [tsTokenMachine]), supplied alongside the regular
+    transition system hypothesis.  It is decomposed alongside the
+    execution step (by the canned [canonical_trace_cons_inv] lemma):
+    the duplicate transition hypothesis is cleared, the rest of the
+    canonical trace is renamed back to [hcan] (so it can be passed to
+    the next [vm_exec]), and the canonicity side condition is exposed
+    as
+
+      [H<p>_follow : can_follow_hd event rest]
+
+    (definitionally [evt_semicommute event head -> canon_rel event
     head = true] when [rest = head :: _]; apply it to a semicommute
     proof with [apply H<p>_follow in ...]).
 
@@ -614,19 +622,19 @@ Ltac2 vm_exec (p : string) (k : unit -> unit) (id : ident) (hcan : ident)
   | Some r =>
       let hcan_hyp := Control.hyp hcan in
       lazy_match! Constr.type hcan_hyp with
-      | CanonicalTSMFunGen _ (_ :: _) _ =>
+      | CanonicalTrace (_ :: _) _ _ =>
           let hmid := fresh_id (String.app p "_canon_mid") in
           let hdup := fresh_id (vm_hyp_name p "_canon_step") in
           let hfollow := fresh_id (vm_hyp_name p "_follow") in
           let hcanrest := fresh_id (vm_hyp_name p "_canon") in
-          destruct (canonical_ts_mfun_gen_cons_inv _ _ _ _ $hcan_hyp)
+          destruct (canonical_trace_cons_inv _ _ _ _ $hcan_hyp)
             as [$hmid [$hdup [$hfollow $hcanrest]]];
           Std.clear [hdup; hcan];
           Std.rename [(hcanrest, hcan)];
           if vm_or_else k (fun () => Std.clear [hfollow])
           then None
           else Some r
-      | CanonicalTSMFunGen _ [] _ =>
+      | CanonicalTrace [] _ _ =>
           vm_ctl_fail "vm_exec: empty canonical trace next to an \
                        execution step"
       | _ =>
@@ -842,10 +850,10 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_io req cnt |};
                      tr_result := rep |}]~> vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb;
                          cont := p_io req cnt |}; tr_result := rep |} ]
-      vm2 ->
+      vm0 vm2 ->
     exists rep' : Reply req,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest.
@@ -865,10 +873,10 @@ Section tests.
       [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
       vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
-      vm2 ->
+      vm0 vm2 ->
     exists rest : list Process,
       Pick (runq vm0) {| pid := p; proc_mb_t := mb; cont := exit |} rest /\
         runq vm2 = rest.
@@ -904,10 +912,10 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb1;
                                    cont := p_spawn child pc |};
                      tr_result := np |}]~> vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb1;
                          cont := p_spawn child pc |}; tr_result := np |} ]
-      vm2 ->
+      vm0 vm2 ->
     exists new_pid : Pid,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb1;
@@ -931,10 +939,10 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_halt mb node |};
                      tr_result := I |}]~> vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb;
                          cont := p_halt mb node |}; tr_result := I |} ]
-      vm2 ->
+      vm0 vm2 ->
     False.
   Proof.
     intros mb p node vm0 vm2 H Hcan.
@@ -953,12 +961,12 @@ Section tests.
         {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
       vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb; cont := p_io req cnt |};
           tr_result := rep |};
         {| tr_proc := {| pid := p; proc_mb_t := mb; cont := exit |};
           tr_result := I |} ]
-      vm2 ->
+      vm0 vm2 ->
     exists (rep' : Reply req) (rest1 rest2 : list Process),
       Pick (runq vm0) {| pid := p; proc_mb_t := mb; cont := p_io req cnt |} rest1 /\
         Pick ({| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest1)
@@ -1028,10 +1036,10 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb;
                                    cont := p_io req cnt |};
                      tr_result := rep |}]~> vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb;
                          cont := p_io req cnt |}; tr_result := rep |} ]
-      vm2 ->
+      vm0 vm2 ->
     exists rep' : Reply req,
       exists rest : list Process,
         runq vm2 = {| pid := p; proc_mb_t := mb; cont := cnt rep' |} :: rest.
@@ -1061,7 +1069,7 @@ Section tests.
          tr_result := rep1 |}
       {| tr_proc := {| pid := q; proc_mb_t := mb2; cont := p_io req2 cnt2 |};
          tr_result := rep2 |} ->
-    ts_canon_rel
+    tm_canon_rel
       {| tr_proc := {| pid := p; proc_mb_t := mb1; cont := p_io req1 cnt1 |};
          tr_result := rep1 |}
       {| tr_proc := {| pid := q; proc_mb_t := mb2; cont := p_io req2 cnt2 |};
@@ -1069,12 +1077,12 @@ Section tests.
     vm0 ~[ts_mfun {| tr_proc := {| pid := p; proc_mb_t := mb1;
                                    cont := p_io req1 cnt1 |};
                      tr_result := rep1 |}]~> vm2 ->
-    CanonicalTSMFunGen vm0
+    CanonicalTrace
       [ {| tr_proc := {| pid := p; proc_mb_t := mb1;
                          cont := p_io req1 cnt1 |}; tr_result := rep1 |};
         {| tr_proc := {| pid := q; proc_mb_t := mb2;
                          cont := p_io req2 cnt2 |}; tr_result := rep2 |} ]
-      vm2 ->
+      vm0 vm2 ->
     False.
   Proof.
     intros p q mb1 mb2 req1 cnt1 req2 cnt2 rep1 rep2 vm0 vm2
